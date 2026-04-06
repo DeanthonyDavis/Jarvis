@@ -44,11 +44,14 @@
 
 html {
   color-scheme: dark;
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
 }
 
 body {
   margin: 0;
   min-height: 100vh;
+  min-height: 100dvh;
   font-family: "Instrument Sans", system-ui, sans-serif;
   background:
     radial-gradient(circle at 12% 8%, rgba(124, 109, 250, 0.22), transparent 26%),
@@ -56,6 +59,7 @@ body {
     radial-gradient(circle at 68% 76%, rgba(56, 189, 248, 0.14), transparent 24%),
     linear-gradient(180deg, #040407 0%, #070811 45%, #06060a 100%);
   color: var(--text);
+  overscroll-behavior-y: none;
 }
 
 button,
@@ -94,6 +98,7 @@ textarea:focus-visible {
 
 #app {
   min-height: 100vh;
+  min-height: 100dvh;
 }
 
 .auth-shell {
@@ -172,6 +177,7 @@ textarea:focus-visible {
 .app-shell {
   position: relative;
   min-height: 100vh;
+  min-height: 100dvh;
   display: flex;
   overflow: hidden;
   background: transparent;
@@ -478,13 +484,14 @@ textarea:focus-visible {
   min-width: 0;
   display: flex;
   flex-direction: column;
+  min-height: 100dvh;
 }
 
 .topbar {
   display: flex;
   align-items: center;
   gap: 1.15rem;
-  padding: 1.1rem 2rem;
+  padding: calc(1.1rem + env(safe-area-inset-top)) 2rem 1.1rem;
   min-height: 82px;
   border-bottom: 1px solid var(--border);
   background: rgba(6, 7, 13, 0.52);
@@ -641,7 +648,9 @@ textarea:focus-visible {
 
 .content {
   padding: clamp(1.4rem, 2vw, 2.35rem);
+  padding-bottom: calc(clamp(1.4rem, 2vw, 2.35rem) + env(safe-area-inset-bottom));
   overflow: auto;
+  -webkit-overflow-scrolling: touch;
 }
 
 .section-shell {
@@ -2976,18 +2985,9 @@ textarea:focus-visible {
 
   .sidebar,
   .sidebar.is-collapsed {
-    width: 100%;
-    border-right: 0;
-    border-bottom: 1px solid var(--border);
+    display: none;
   }
 
-  .sidebar-nav {
-    flex-direction: row;
-    overflow: auto;
-  }
-
-  .nav-button { min-width: 10.5rem; }
-  .sidebar-footer { display: none; }
   .topbar { align-items: flex-start; flex-direction: column; }
   .topbar-metrics { width: 100%; margin-left: 0; justify-content: flex-start; }
   .mobile-menu-trigger { display: inline-flex; }
@@ -3038,7 +3038,26 @@ textarea:focus-visible {
   .calendar-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); }
 
   .metric-pill {
+    width: auto;
+    min-height: 44px;
+    justify-content: center;
+  }
+
+  .topbar-title {
     width: 100%;
+  }
+
+  .topbar-metrics {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .topbar-metrics > * {
+    min-width: 0;
+  }
+
+  .topbar-metrics .mini-domain-rail {
+    grid-column: 1 / -1;
     justify-content: center;
   }
 
@@ -3049,6 +3068,13 @@ textarea:focus-visible {
   .mobile-menu-trigger {
     width: 100%;
     justify-content: center;
+  }
+
+  .surface-action,
+  .primary-action,
+  .command-trigger,
+  .mobile-menu-trigger {
+    min-height: 44px;
   }
 
   .mobile-nav-grid {

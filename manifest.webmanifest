@@ -1,0 +1,20 @@
+{
+  "name": "APEX Universal 2.0",
+  "short_name": "APEX",
+  "description": "A mobile-first life operating system for school, work, bills, health, and long-range goals.",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait-primary",
+  "background_color": "#050508",
+  "theme_color": "#050508",
+  "categories": ["productivity", "education", "lifestyle"],
+  "icons": [
+    {
+      "src": "./apex-icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}

@@ -2,6 +2,8 @@
 
 This workspace contains a self-contained front-end prototype for the APEX Life OS concept.
 
+APEX is mobile-first. Build and review new product surfaces for phone-sized flows first, then expand them into tablet and desktop layouts. Desktop dashboards are helpful for power review, but the primary user experience should feel like a mobile app: bottom-sheet navigation, large touch targets, short guided steps, and setup actions that fit one screen at a time.
+
 ## Files
 
 - `index.html`: app shell
@@ -71,6 +73,9 @@ You can still open `index.html` directly for a static-only pass, but the local s
 - Profile-specific widget layouts for Guided, Operator, and Focus Command Center views
 - App-wide command palette with `Ctrl`/`Cmd` + `K`, search, keyboard navigation, and deep links into setup, widgets, connectors, uploads, and notifications
 - Mobile bottom-sheet navigation with section links plus Search, Personalize, and Upload actions
+- Mobile web app metadata for home-screen usage, safe-area viewport behavior, and mobile status-bar treatment
+- Mobile app manifest and SVG app icon for installable home-screen testing
+- Mobile shell rules that hide the desktop sidebar on phone/tablet widths and rely on bottom-sheet navigation instead
 - Interactive tasks across Academy, Works, and Life
 - Academy and Works sub-tabs
 - Mind daily check-in with burnout recalculation

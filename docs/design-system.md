@@ -4,6 +4,7 @@ This file defines the current product UI rules so new screens feel intentional i
 
 ## Foundations
 
+- Mobile-first: design phone layouts first, then expand to tablet and desktop. APEX should feel like a mobile app with optional desktop power views, not a desktop dashboard squeezed onto a phone.
 - Icon sizes: use `--icon-sm`, `--icon-md`, and `--icon-lg`. Domain navigation icons default to `--icon-md`; empty-state icons use `--icon-lg`.
 - Spacing scale: use `--space-1` through `--space-6` for gaps and padding. Prefer fewer, larger gaps over crowded micro-spacing.
 - Type scale: use `--type-xs`, `--type-sm`, `--type-md`, `--type-lg`, and `--type-xl`. Panel labels stay uppercase and small; section titles should be short and direct.
@@ -22,6 +23,9 @@ This file defines the current product UI rules so new screens feel intentional i
 - Widget layout: use `.widget-manager-panel`, `.widget-manager-list`, and `.widget-manager-row` for dashboard module visibility/order controls. Pin, hide, and move controls must have labels and disabled states. Profile-specific layouts should explain which profile is being edited.
 - Command palette: use `.command-palette` for app-wide quick switching. It must support `Ctrl`/`Cmd` + `K`, Escape, arrow keys, Enter, focus management, and descriptive result copy.
 - Mobile navigation: use `.mobile-nav-sheet` for small-screen navigation. Keep high-value actions above section links and preserve large touch targets.
+- Mobile shell: hide desktop-only sidebars below tablet widths. The phone experience should rely on bottom sheets, single-column content, and topbar quick actions.
+- Touch targets: primary actions, surface actions, navigation rows, and icon-only buttons should be at least 44px tall on touch layouts.
+- Safe areas: preserve `viewport-fit=cover` behavior and use `env(safe-area-inset-*)` where fixed or edge-aligned UI touches mobile browser chrome.
 
 ## Empty-State Copy Rules
 
@@ -43,3 +47,4 @@ This file defines the current product UI rules so new screens feel intentional i
 - Widgets: Command Center layout controls for visible/hidden state, pinned priority, manual ordering, and profile-specific Guided/Operator/Focus layouts.
 - Navigation: app-wide command palette for sections, setup surfaces, uploads, connectors, notifications, and scheduler panels.
 - Mobile: bottom-sheet navigation for sections plus Search, Personalize, and Upload actions.
+- Mobile install: web app manifest, theme color, safe-area viewport behavior, and SVG app icon for home-screen testing.

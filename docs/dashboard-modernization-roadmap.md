@@ -2,6 +2,16 @@
 
 This roadmap turns the UI recommendations into implementation phases for APEX.
 
+## Product Direction: Mobile-First
+
+APEX should be reviewed as a mobile app first. The desktop dashboard is a power-user expansion, not the source layout. Every new feature should pass a phone-sized flow review before desktop polish begins.
+
+- Primary navigation should favor bottom sheets, quick actions, and command/search access on small screens.
+- Setup flows should fit one decision per screen: add syllabus, connect school, connect calendar, connect finance, tune schedule.
+- Widget work should start with single-column cards and only expand into multi-column desktop layouts afterward.
+- Touch targets should stay at least 44px tall, with clear labels on icon actions.
+- Safe-area support should be preserved for home-screen and mobile browser usage.
+
 ## Shipped
 
 - Workspace personalization state with theme, density, font scale, accent profile, and layout profile.
@@ -16,6 +26,7 @@ This roadmap turns the UI recommendations into implementation phases for APEX.
 
 ## Next: Modular Widgets
 
+- Design the mobile widget model first: stacked widgets, pinning, hide/show, and one clear primary action per widget.
 - Promote widget state into normalized Supabase tables after the workspace-state fallback proves stable.
 - Add drag-and-drop once the component shell is split enough to avoid full-app rerenders.
 - Extend the widget model to Academy, Works, Life, Future, Mind, and Notebook.
@@ -32,8 +43,9 @@ The current app is still a vanilla module renderer. A React/Vue rewrite should b
 
 ## Navigation Upgrades
 
-- Keep the sidebar for now while the command palette handles fast navigation and deep links.
-- Keep mobile navigation in a bottom sheet while larger-screen navigation stays sidebar-first.
+- Treat the mobile bottom sheet as the primary app navigation pattern.
+- Keep the desktop sidebar as a wide-screen convenience only.
+- Keep the command palette for fast navigation and deep links on all screen sizes.
 - Add pinned/favorite destinations once widgets have IDs and saved ordering.
 
 ## Accessibility Guardrails

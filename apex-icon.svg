@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="APEX">
+  <rect width="512" height="512" rx="112" fill="#050508"/>
+  <path d="M132 292 264 72l-36 154h152L248 440l34-148H132Z" fill="url(#bolt)"/>
+  <path d="M132 292 264 72l-36 154h152L248 440l34-148H132Z" fill="none" stroke="rgba(255,255,255,.52)" stroke-width="10" stroke-linejoin="round"/>
+  <defs>
+    <linearGradient id="bolt" x1="122" x2="398" y1="408" y2="112" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#38bdf8"/>
+      <stop offset=".48" stop-color="#7c6dfa"/>
+      <stop offset="1" stop-color="#f472b6"/>
+    </linearGradient>
+  </defs>
+</svg>
