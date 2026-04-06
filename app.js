@@ -86,36 +86,54 @@ const SCHEDULE_MODES = {
   balanced: {
     label: "Balanced",
     description: "Default mode for normal weeks. Keeps study, work, future goals, and recovery in play.",
+    bestFor: "Normal weeks with mixed school, work, life, and future-goal pressure.",
+    tradeoffs: ["Keeps all domains in play.", "Avoids aggressive reshuffling unless the risk signals justify it."],
+    watchFor: "May feel too gentle during finals or a true catch-up sprint.",
     hard: {},
     soft: {},
   },
   focus: {
     label: "Focus Week",
     description: "Prioritizes high-energy work earlier and protects longer focus chunks.",
+    bestFor: "Project weeks, portfolio pushes, and demanding study blocks that need fewer context switches.",
+    tradeoffs: ["Allows longer focus chunks.", "Moves heavier tasks earlier when possible.", "Protects less future-work time than Balanced."],
+    watchFor: "Can feel intense if energy is low or the week is already overloaded.",
     hard: { maxFocusBlockMinutes: 110 },
     soft: { morningFocusBias: 7, batchShallowWork: 5, protectFutureWork: 4, keepEveningLight: 3 },
   },
   recovery: {
     label: "Light Recovery",
     description: "Lightens evenings, protects recovery, and penalizes hard work when energy is low.",
+    bestFor: "Low-energy days, post-exam weeks, or times when burnout risk matters more than throughput.",
+    tradeoffs: ["Shortens focus chunks.", "Protects evening wind-down.", "May leave more work as visible carryover."],
+    watchFor: "Urgent work can remain unscheduled if the day is already constrained.",
     hard: { protectRecoveryBlocks: true, windDownHour: 21, maxFocusBlockMinutes: 60 },
     soft: { lowEnergyProtection: 8, keepEveningLight: 8, morningFocusBias: 4, protectFutureWork: 2, batchShallowWork: 6 },
   },
   finals: {
     label: "Finals Mode",
     description: "Biases academic urgency and morning deep work while still keeping sleep guardrails visible.",
+    bestFor: "Exam-heavy weeks where academic risk should dominate the planner.",
+    tradeoffs: ["Prioritizes academic urgency.", "Keeps class and recovery guardrails visible.", "Deprioritizes future goals temporarily."],
+    watchFor: "Non-academic tasks may get pushed unless they are urgent or bill-related.",
     hard: { lockClasses: true, protectRecoveryBlocks: true, maxFocusBlockMinutes: 100 },
     soft: { morningFocusBias: 8, lowEnergyProtection: 4, keepEveningLight: 5, protectFutureWork: 1, batchShallowWork: 4 },
   },
   workHeavy: {
     label: "Work-Heavy",
     description: "Treats shifts as immovable and pushes school tasks into the clearest remaining slots.",
+    bestFor: "Weeks with long shifts, changing rosters, or pay/hours pressure.",
+    tradeoffs: ["Keeps work shifts locked.", "Compresses study into clearer remaining windows.", "Uses shorter focus blocks."],
+    watchFor: "Academic work can become fragmented if shifts consume the best blocks.",
     hard: { lockWorkShifts: true, maxFocusBlockMinutes: 75 },
     soft: { morningFocusBias: 6, lowEnergyProtection: 6, keepEveningLight: 6, protectFutureWork: 1, batchShallowWork: 5 },
   },
   catchup: {
     label: "Catch-Up",
     description: "Makes room for overdue and urgent chunks while batching shallow admin work.",
+    bestFor: "Backlog cleanup after missed work, travel, illness, or a noisy week.",
+    tradeoffs: ["Batches shallow work harder.", "Makes more room for urgent backlog.", "Allows less protection for future goals."],
+    watchFor: "Can over-prioritize backlog if you need a calmer recovery day.",
     hard: { maxFocusBlockMinutes: 80 },
     soft: { morningFocusBias: 5, lowEnergyProtection: 3, keepEveningLight: 3, protectFutureWork: 1, batchShallowWork: 8 },
   },
@@ -259,6 +277,7 @@ const state = {
   syncTimer: null,
   cloudSaveTimer: null,
   cloudSaveStatus: "idle",
+  pendingScheduleMode: null,
 };
 
 const app = doc?.querySelector("#app") || null;
@@ -266,8 +285,8 @@ const colorFor = (domain) => TOKENS[domain] || TOKENS.command;
 const activeDomain = () => DOMAINS.find((domain) => domain.id === state.activeDomain);
 const localId = (prefix) => `${prefix}-${Date.now()}-${Math.random().toString(16).slice(2)}`;
 const unreadNotifications = () => state.notifications.filter((item) => !item.read_at && !item.dismissed_at && !item.resolved_at);
-function modeAdjustedConstraints() {
-  const mode = SCHEDULE_MODES[state.scheduleMode] || SCHEDULE_MODES.balanced;
+function constraintsForMode(modeKey = state.scheduleMode) {
+  const mode = SCHEDULE_MODES[modeKey] || SCHEDULE_MODES.balanced;
   const base = normalizeConstraints(state.constraints);
   return normalizeConstraints({
     hard: { ...base.hard, ...(mode.hard || {}) },
@@ -275,7 +294,7 @@ function modeAdjustedConstraints() {
   });
 }
 
-const getIntel = (now = new Date()) =>
+const getIntelForMode = (modeKey = state.scheduleMode, now = new Date()) =>
   buildCommandCenterIntelligence({
     now,
     tasks: state.tasks,
@@ -283,10 +302,11 @@ const getIntel = (now = new Date()) =>
     courses: state.courses,
     bills: state.bills,
     checkin: state.checkin,
-    constraints: modeAdjustedConstraints(),
+    constraints: constraintsForMode(modeKey),
     budget: state.budget,
     paychecks: state.paychecks,
   });
+const getIntel = (now = new Date()) => getIntelForMode(state.scheduleMode, now);
 const formatToday = () => new Date().toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" });
 const escapeHtml = (value) => String(value ?? "").replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;").replaceAll('"', "&quot;");
 const meter = (percent, accent) => `<div class="meter"><div class="meter-fill" style="width:${percent}%; --accent:${accent};"></div></div>`;
@@ -1116,9 +1136,18 @@ function renderConstraintPanel(intel) {
   ].map(([key, label, value]) => `<label class="field-shell"><div class="field-row"><span>${label}</span><strong>${value}/8</strong></div><input type="range" min="0" max="8" step="1" value="${value}" data-constraint-range-group="soft" data-constraint-range-key="${key}" /></label>`).join("")}</div><div class="hero-actions"><button class="surface-action" data-reset-constraints>Reset defaults</button></div></div></div><div class="footer-note">Hard rules change feasibility. Soft rules tell the solver which valid option feels most like your actual operating style.</div></article>`;
 }
 
-function renderScheduleModePanel() {
-  const mode = SCHEDULE_MODES[state.scheduleMode] || SCHEDULE_MODES.balanced;
-  return `<article class="panel span-12" style="--accent:${TOKENS.command};"><div class="panel-label">schedule modes</div><div class="mode-panel-head"><div><h3 class="empty-title">${mode.label}</h3><p class="row-subtitle">${mode.description}</p></div>${pill("Phase 5 intelligence", TOKENS.command)}</div><div class="mode-grid">${Object.entries(SCHEDULE_MODES).map(([key, item]) => `<button class="mode-card ${state.scheduleMode === key ? "is-active" : ""}" data-schedule-mode="${key}" style="--accent:${TOKENS.command};"><strong>${item.label}</strong><span>${item.description}</span></button>`).join("")}</div><div class="footer-note">Modes are overlays. They adjust solver weights for this planning context without deleting your custom hard/soft constraint settings.</div></article>`;
+function renderScheduleModePanel(intel) {
+  const activeMode = SCHEDULE_MODES[state.scheduleMode] || SCHEDULE_MODES.balanced;
+  const previewKey = SCHEDULE_MODES[state.pendingScheduleMode] ? state.pendingScheduleMode : state.scheduleMode;
+  const previewMode = SCHEDULE_MODES[previewKey] || activeMode;
+  const isPreviewing = previewKey !== state.scheduleMode;
+  const previewIntel = isPreviewing ? getIntelForMode(previewKey, intel.generatedAt) : intel;
+  const currentSnapshot = buildScheduleRunSnapshot({ intel, scheduleMode: state.scheduleMode, createdAt: intel.generatedAt });
+  const previewSnapshot = buildScheduleRunSnapshot({ intel: previewIntel, scheduleMode: previewKey, createdAt: intel.generatedAt });
+  const previewDelta = compareScheduleRunSnapshots(currentSnapshot, previewSnapshot);
+  const previewItems = previewDelta.items || [];
+  const statTone = isPreviewing ? TOKENS.warn : TOKENS.ok;
+  return `<article class="panel span-12" style="--accent:${TOKENS.command};"><div class="panel-label">schedule modes</div><div class="mode-panel-head"><div><h3 class="empty-title">${isPreviewing ? `Preview: ${previewMode.label}` : activeMode.label}</h3><p class="row-subtitle">${isPreviewing ? "Review the tradeoffs before applying this mode." : activeMode.description}</p></div>${pill(isPreviewing ? "preview not applied" : "active mode", statTone)}</div><div class="mode-grid">${Object.entries(SCHEDULE_MODES).map(([key, item]) => `<button class="mode-card ${state.scheduleMode === key ? "is-active" : ""} ${previewKey === key && isPreviewing ? "is-preview" : ""}" data-schedule-mode="${key}" style="--accent:${TOKENS.command};"><strong>${item.label}</strong><span>${item.description}</span><small>${key === state.scheduleMode ? "Active" : previewKey === key ? "Previewing" : item.bestFor}</small></button>`).join("")}</div><div class="mode-preview-shell" style="--accent:${statTone};"><div class="mode-preview-copy"><div class="subtle-label">mode preview</div><h4>${escapeHtml(previewMode.label)}</h4><p>${escapeHtml(previewMode.bestFor)}</p><div class="inline-chips">${pill(`Load ${previewIntel.loadDisplay || `${previewIntel.loadScore}%`}`, TOKENS.command)}${pill(`${previewIntel.solverSummary.unscheduledUrgentCount} urgent carryover`, previewIntel.solverSummary.unscheduledUrgentCount ? TOKENS.warn : TOKENS.ok)}${pill(`${previewIntel.solverSummary.scheduledMinutes}m scheduled`, TOKENS.academy)}</div></div><div class="mode-preview-grid"><div><div class="subtle-label">Expected tradeoffs</div><div class="why-list why-list--compact">${previewMode.tradeoffs.map((item) => `<div><span>Tradeoff</span><strong>${escapeHtml(item)}</strong></div>`).join("")}</div></div><div><div class="subtle-label">Preview deltas</div><div class="why-list why-list--compact">${previewItems.slice(0, 4).map((item) => `<div><span>${isPreviewing ? "Preview" : "Current"}</span><strong>${escapeHtml(item)}</strong></div>`).join("")}</div><div class="footer-note" style="margin-top:0.75rem;">Watch for: ${escapeHtml(previewMode.watchFor)}</div></div></div><div class="mode-preview-actions"><button class="primary-action" data-mode-apply ${!isPreviewing ? "disabled" : ""}>Apply ${escapeHtml(previewMode.label)}</button><button class="surface-action" data-mode-cancel ${!isPreviewing ? "disabled" : ""}>Keep ${escapeHtml(activeMode.label)}</button><button class="surface-action" data-mode-reset ${state.scheduleMode === "balanced" && !isPreviewing ? "disabled" : ""}>Preview Balanced</button></div></div><div class="footer-note">Modes are overlays. They adjust solver weights for this planning context without deleting your custom hard/soft constraint settings.</div></article>`;
 }
 
 function renderWhyPlanPanel(intel) {
@@ -1159,7 +1188,7 @@ function renderCommand(intel) {
   const dayLabels = ["S", "M", "T", "W", "T", "F", "S"];
   const dayIndex = intel.generatedAt.getDay();
   const topCourse = intel.courseInsights.slice().sort((a, b) => b.riskScore - a.riskScore)[0];
-  return `<section class="section-shell">${heroBand(intel)}<div class="dashboard-grid">${renderSetupChecklist()}<article class="panel span-8" style="--accent:${TOKENS.command};"><div class="panel-label">intelligence briefing</div><div class="list-rows">${intel.topPriorities.map((task, index) => `<div class="row is-hot" style="--accent:${colorFor(task.domain)};"><div class="row-badge">${index + 1}</div><div class="row-copy"><div class="row-title">${task.title}</div><div class="row-subtitle">Due ${task.due} &middot; ${task.reason}</div></div>${pill(task.domain, colorFor(task.domain))}</div>`).join("")}</div><div class="system-note" style="margin-top:1rem;">This stack is now driven by live task scoring plus the current constraint profile. Change the rules, and these priorities recompute.</div></article><article class="panel span-4" style="--accent:${intel.solverSummary.unscheduledUrgentCount ? TOKENS.danger : TOKENS.ok};"><div class="panel-label">solver summary</div><div class="solver-grid"><div class="metric-stack"><span>Scheduled</span><strong>${intel.solverSummary.scheduledMinutes}m</strong></div><div class="metric-stack"><span>Capacity</span><strong>${intel.solverSummary.flexibleCapacityMinutes}m</strong></div><div class="metric-stack"><span>Urgent unscheduled</span><strong>${intel.solverSummary.unscheduledUrgentCount}</strong></div><div class="metric-stack"><span>Search score</span><strong>${intel.solverSummary.score}</strong></div></div><div class="footer-note">${intel.solverSummary.unscheduledMinutes ? `${intel.solverSummary.unscheduledMinutes} minutes remain unscheduled under the current rules.` : "Every active chunk currently fits inside the remaining day."}</div></article><article class="panel span-4" style="--accent:${TOKENS.command};"><div class="panel-label">capacity gauge</div>${gauge(intel.loadScore, TOKENS.command, "load index", intel.loadLabel === "stabilize" ? "stabilize plan active" : intel.loadLabel, intel.loadDisplay || `${intel.loadScore}%`)}<div class="footer-note" style="margin-top:0.9rem;">${intel.loadExplanation}</div><div class="mini-breakdown">${intel.domainLoads.map((item) => `<div><div class="label-row"><span>${item.label}</span><span>${item.pct}%</span></div>${meter(item.pct, colorFor(item.domain))}</div>`).join("")}</div></article><article class="panel span-4" style="--accent:${TOKENS.academy};"><div class="panel-label">gpa tracker</div><div class="kpi"><div class="kpi-value accent-text">3.47</div><div class="kpi-copy"><div>Current GPA</div><div class="${topCourse?.status === "at-risk" ? "trend-down" : "trend-up"}">${topCourse?.status === "at-risk" ? "Watch " : "Stable "}${topCourse?.name || "semester profile"}</div></div></div>${sparkBars(state.courses.map((course) => course.grade / 10), TOKENS.academy)}<div class="section-list" style="margin-top:0.95rem;">${intel.courseInsights.map((course) => `<div class="meta-row"><span>${course.name}</span><strong style="color:${course.status === "at-risk" ? TOKENS.danger : course.status === "watch" ? TOKENS.warn : TOKENS.ok};">${course.grade}%</strong></div>`).join("")}</div></article><article class="panel span-4" style="--accent:${TOKENS.danger};"><div class="panel-label">conflict engine</div><div class="stack-list">${intel.conflicts.map((conflict) => `<div class="row" style="--accent:${conflict.severity === "crit" ? TOKENS.danger : conflict.severity === "warn" ? TOKENS.warn : TOKENS.command}; align-items:flex-start;"><div class="row-badge">${conflict.severity === "crit" ? "!" : conflict.severity === "warn" ? "~" : "i"}</div><div class="row-copy"><div class="row-title">${conflict.title}</div><div class="row-subtitle">${conflict.text}</div></div><button class="small-action">${conflict.action}</button></div>`).join("")}</div></article><article class="panel span-4" style="--accent:${TOKENS.notebook};"><div class="panel-label">this week</div><div class="calendar-grid">${dayLabels.map((label, index) => { const day = intel.weeklyOutlook[index]; const level = day.level === "high" ? TOKENS.danger : day.level === "medium" ? TOKENS.warn : TOKENS.ok; return `<div class="day-card ${index === dayIndex ? "is-today" : ""}" style="--accent:${level};"><small class="muted">${label}</small><strong>${day.date.getDate()}</strong><div class="dot-stack"><span style="background:${level};"></span><span style="background:${level}; opacity:.65;"></span><span style="background:${level}; opacity:.35;"></span></div></div>`; }).join("")}</div><div class="footer-note" style="margin-top:0.95rem;">Peak pressure day: ${intel.hottestDay.date.toLocaleDateString("en-US", { weekday: "long", month: "short", day: "numeric" })}. The weekly view is driven by deadlines, exams, and bills.</div></article><article class="panel span-12" style="--accent:${TOKENS.future};"><div class="panel-label">next best moves</div><div class="courses-grid">${intel.recommendations.map((item) => `<article class="note-card"><h4>${item.title}</h4><p class="row-subtitle" style="margin-top:0.7rem;">${item.text}</p><div style="margin-top:0.8rem;">${pill(DOMAINS.find((domain) => domain.id === item.accent)?.label || item.accent, colorFor(item.accent))}</div></article>`).join("")}</div></article>${renderWhyPlanPanel(intel)}${renderScheduleModePanel()}${renderConstraintPanel(intel)}${renderSourcePanel()}${renderConnectorPanel()}<article class="panel span-12" style="--accent:${TOKENS.command};"><div class="panel-label">optimized schedule</div><div class="schedule-strip schedule-strip--solver">${intel.schedulePlan.map((item) => `<div class="schedule-block" style="--accent:${colorFor(item.domain)};"><div class="schedule-time">${item.time}</div><strong>${item.label}</strong><div class="row-subtitle" style="margin-top:0.45rem;">${item.note}</div><div style="margin-top:0.65rem;">${pill(item.status || item.kind, item.status === "locked" ? TOKENS.notebook : item.status === "assigned" ? colorFor(item.domain) : TOKENS.warn)}</div><div class="assignment-list">${item.assignments?.length ? item.assignments.map((assignment) => `<div class="assignment-pill assignment-pill--explain"><span>${assignment.title}</span><strong>${assignment.minutes}m</strong><small>${escapeHtml(assignment.why || assignment.placement || "Placed by solver score.")}</small></div>`).join("") : `<div class="empty-assignment">${item.status === "locked" ? "Reserved" : "No task assigned"}</div>`}</div><div class="row-subtitle">Remaining: ${item.remainingMinutes ?? 0}m</div></div>`).join("")}</div></article></div></section>`;
+  return `<section class="section-shell">${heroBand(intel)}<div class="dashboard-grid">${renderSetupChecklist()}<article class="panel span-8" style="--accent:${TOKENS.command};"><div class="panel-label">intelligence briefing</div><div class="list-rows">${intel.topPriorities.map((task, index) => `<div class="row is-hot" style="--accent:${colorFor(task.domain)};"><div class="row-badge">${index + 1}</div><div class="row-copy"><div class="row-title">${task.title}</div><div class="row-subtitle">Due ${task.due} &middot; ${task.reason}</div></div>${pill(task.domain, colorFor(task.domain))}</div>`).join("")}</div><div class="system-note" style="margin-top:1rem;">This stack is now driven by live task scoring plus the current constraint profile. Change the rules, and these priorities recompute.</div></article><article class="panel span-4" style="--accent:${intel.solverSummary.unscheduledUrgentCount ? TOKENS.danger : TOKENS.ok};"><div class="panel-label">solver summary</div><div class="solver-grid"><div class="metric-stack"><span>Scheduled</span><strong>${intel.solverSummary.scheduledMinutes}m</strong></div><div class="metric-stack"><span>Capacity</span><strong>${intel.solverSummary.flexibleCapacityMinutes}m</strong></div><div class="metric-stack"><span>Urgent unscheduled</span><strong>${intel.solverSummary.unscheduledUrgentCount}</strong></div><div class="metric-stack"><span>Search score</span><strong>${intel.solverSummary.score}</strong></div></div><div class="footer-note">${intel.solverSummary.unscheduledMinutes ? `${intel.solverSummary.unscheduledMinutes} minutes remain unscheduled under the current rules.` : "Every active chunk currently fits inside the remaining day."}</div></article><article class="panel span-4" style="--accent:${TOKENS.command};"><div class="panel-label">capacity gauge</div>${gauge(intel.loadScore, TOKENS.command, "load index", intel.loadLabel === "stabilize" ? "stabilize plan active" : intel.loadLabel, intel.loadDisplay || `${intel.loadScore}%`)}<div class="footer-note" style="margin-top:0.9rem;">${intel.loadExplanation}</div><div class="mini-breakdown">${intel.domainLoads.map((item) => `<div><div class="label-row"><span>${item.label}</span><span>${item.pct}%</span></div>${meter(item.pct, colorFor(item.domain))}</div>`).join("")}</div></article><article class="panel span-4" style="--accent:${TOKENS.academy};"><div class="panel-label">gpa tracker</div><div class="kpi"><div class="kpi-value accent-text">3.47</div><div class="kpi-copy"><div>Current GPA</div><div class="${topCourse?.status === "at-risk" ? "trend-down" : "trend-up"}">${topCourse?.status === "at-risk" ? "Watch " : "Stable "}${topCourse?.name || "semester profile"}</div></div></div>${sparkBars(state.courses.map((course) => course.grade / 10), TOKENS.academy)}<div class="section-list" style="margin-top:0.95rem;">${intel.courseInsights.map((course) => `<div class="meta-row"><span>${course.name}</span><strong style="color:${course.status === "at-risk" ? TOKENS.danger : course.status === "watch" ? TOKENS.warn : TOKENS.ok};">${course.grade}%</strong></div>`).join("")}</div></article><article class="panel span-4" style="--accent:${TOKENS.danger};"><div class="panel-label">conflict engine</div><div class="stack-list">${intel.conflicts.map((conflict) => `<div class="row" style="--accent:${conflict.severity === "crit" ? TOKENS.danger : conflict.severity === "warn" ? TOKENS.warn : TOKENS.command}; align-items:flex-start;"><div class="row-badge">${conflict.severity === "crit" ? "!" : conflict.severity === "warn" ? "~" : "i"}</div><div class="row-copy"><div class="row-title">${conflict.title}</div><div class="row-subtitle">${conflict.text}</div></div><button class="small-action">${conflict.action}</button></div>`).join("")}</div></article><article class="panel span-4" style="--accent:${TOKENS.notebook};"><div class="panel-label">this week</div><div class="calendar-grid">${dayLabels.map((label, index) => { const day = intel.weeklyOutlook[index]; const level = day.level === "high" ? TOKENS.danger : day.level === "medium" ? TOKENS.warn : TOKENS.ok; return `<div class="day-card ${index === dayIndex ? "is-today" : ""}" style="--accent:${level};"><small class="muted">${label}</small><strong>${day.date.getDate()}</strong><div class="dot-stack"><span style="background:${level};"></span><span style="background:${level}; opacity:.65;"></span><span style="background:${level}; opacity:.35;"></span></div></div>`; }).join("")}</div><div class="footer-note" style="margin-top:0.95rem;">Peak pressure day: ${intel.hottestDay.date.toLocaleDateString("en-US", { weekday: "long", month: "short", day: "numeric" })}. The weekly view is driven by deadlines, exams, and bills.</div></article><article class="panel span-12" style="--accent:${TOKENS.future};"><div class="panel-label">next best moves</div><div class="courses-grid">${intel.recommendations.map((item) => `<article class="note-card"><h4>${item.title}</h4><p class="row-subtitle" style="margin-top:0.7rem;">${item.text}</p><div style="margin-top:0.8rem;">${pill(DOMAINS.find((domain) => domain.id === item.accent)?.label || item.accent, colorFor(item.accent))}</div></article>`).join("")}</div></article>${renderWhyPlanPanel(intel)}${renderScheduleModePanel(intel)}${renderConstraintPanel(intel)}${renderSourcePanel()}${renderConnectorPanel()}<article class="panel span-12" style="--accent:${TOKENS.command};"><div class="panel-label">optimized schedule</div><div class="schedule-strip schedule-strip--solver">${intel.schedulePlan.map((item) => `<div class="schedule-block" style="--accent:${colorFor(item.domain)};"><div class="schedule-time">${item.time}</div><strong>${item.label}</strong><div class="row-subtitle" style="margin-top:0.45rem;">${item.note}</div><div style="margin-top:0.65rem;">${pill(item.status || item.kind, item.status === "locked" ? TOKENS.notebook : item.status === "assigned" ? colorFor(item.domain) : TOKENS.warn)}</div><div class="assignment-list">${item.assignments?.length ? item.assignments.map((assignment) => `<div class="assignment-pill assignment-pill--explain"><span>${assignment.title}</span><strong>${assignment.minutes}m</strong><small>${escapeHtml(assignment.why || assignment.placement || "Placed by solver score.")}</small></div>`).join("") : `<div class="empty-assignment">${item.status === "locked" ? "Reserved" : "No task assigned"}</div>`}</div><div class="row-subtitle">Remaining: ${item.remainingMinutes ?? 0}m</div></div>`).join("")}</div></article></div></section>`;
 }
 
 function simpleListPanel(title, accent, rows) {
@@ -1427,14 +1456,32 @@ doc?.addEventListener("click", async (event) => {
   if (integrationDisconnect) { await updateIntegration(integrationDisconnect.dataset.integrationDisconnect, { status: "disconnected", tokenRef: null, lastError: "", nextSyncAt: null }, { toast: true }); return; }
   const scheduleMode = target.closest("[data-schedule-mode]");
   if (scheduleMode) {
-    state.scheduleMode = scheduleMode.dataset.scheduleMode;
-    rerender();
-    notifyUser({
-      type: "schedule_mode",
-      title: `${SCHEDULE_MODES[state.scheduleMode]?.label || "Schedule"} mode enabled`,
-      body: SCHEDULE_MODES[state.scheduleMode]?.description || "The solver mode was updated.",
-      severity: "info",
-    });
+    state.pendingScheduleMode = scheduleMode.dataset.scheduleMode;
+    renderApp();
+    return;
+  }
+  if (target.closest("[data-mode-apply]")) {
+    if (SCHEDULE_MODES[state.pendingScheduleMode] && state.pendingScheduleMode !== state.scheduleMode) {
+      state.scheduleMode = state.pendingScheduleMode;
+      state.pendingScheduleMode = null;
+      rerender();
+      notifyUser({
+        type: "schedule_mode",
+        title: `${SCHEDULE_MODES[state.scheduleMode]?.label || "Schedule"} mode enabled`,
+        body: SCHEDULE_MODES[state.scheduleMode]?.description || "The solver mode was updated.",
+        severity: "info",
+      });
+    }
+    return;
+  }
+  if (target.closest("[data-mode-cancel]")) {
+    state.pendingScheduleMode = null;
+    renderApp();
+    return;
+  }
+  if (target.closest("[data-mode-reset]")) {
+    state.pendingScheduleMode = "balanced";
+    renderApp();
     return;
   }
   const score = target.closest("[data-score-field]");

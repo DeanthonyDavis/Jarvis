@@ -56,6 +56,7 @@ You can still open `index.html` directly for a static-only pass, but the local s
 - Domain switching with a collapsible sidebar
 - Command Center driven by computed priorities, conflicts, load, weekly heat, and a real slot-assignment solver pass
 - Phase 5 schedule modes (`Balanced`, `Focus Week`, `Light Recovery`, `Finals Mode`, `Work-Heavy`, `Catch-Up`) that overlay solver weights without deleting custom constraints
+- Mode preview before apply, with best-use context, tradeoffs, watch-outs, and planner deltas
 - Scheduler explanation text on assigned blocks so users can see why work landed in a given time window
 - Command Center "Why this plan?" panel with constraints, tradeoffs, confidence, and unscheduled carryover
 - Local "What changed since last plan" schedule-run comparison for plan deltas after recalculation

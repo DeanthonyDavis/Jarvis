@@ -8,6 +8,7 @@ Already shipped:
 
 - Schedule modes: Balanced, Focus Week, Light Recovery, Finals Mode, Work-Heavy, and Catch-Up.
 - Mode overlays that adjust solver weights without deleting user-defined hard and soft constraints.
+- Mode previews that show expected tradeoffs, risk copy, and plan deltas before applying a mode.
 - Structured solver explanations on assigned, locked, open, and unscheduled schedule outcomes.
 - A Command Center "Why this plan?" panel with reasons, tradeoffs, constraints, confidence, and carryover.
 - A "What changed since last plan" comparison backed by a local schedule-run snapshot.
@@ -47,12 +48,11 @@ Definition of done:
 Current state:
 
 - Mode buttons exist and adjust hard/soft constraint overlays.
+- Selecting a mode opens a preview instead of immediately applying it.
+- Preview cards show best-use context, expected tradeoffs, watch-outs, and planner deltas.
 
 Remaining work:
 
-- Add mode-specific copy for expected tradeoffs.
-- Add mode-specific warning thresholds.
-- Add a "mode preview" before applying changes.
 - Add a "reset to my normal settings" action.
 - Add mode memory per user so APEX can remember what mode was active for the current week.
 
@@ -199,7 +199,7 @@ Definition of done:
 1. Expand schedule explanations to cover assigned, locked, open, and unscheduled blocks. Done.
 2. Add the "Why this plan?" Command Center panel. Done.
 3. Add "What changed since last plan" comparison. Done locally; promote to `apex_schedule_runs` during Workstream 8.
-4. Add mode preview and mode tradeoff copy.
+4. Add mode preview and mode tradeoff copy. Done.
 5. Add explicit human override rules and store them in `apex_constraint_rules`.
 6. Add Daily Briefing and Weekly Briefing objects to the intelligence engine.
 7. Add confidence levels and source-reference fields.
