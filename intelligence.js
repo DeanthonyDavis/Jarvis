@@ -429,6 +429,25 @@ function scoreChunkForBlock(chunk, block, constraints, checkin, context) {
   return score;
 }
 
+function explainChunkPlacement(chunk, block, constraints, checkin) {
+  const reasons = [];
+  const startHour = block.availableStart.getHours();
+  const overlap = overlapScore(`${block.label} ${block.domain}`, `${chunk.title} ${chunk.course || ""}`);
+  if (chunk.dueDate) {
+    const leadHours = diffHours(chunk.dueDate, block.availableEnd);
+    if (leadHours <= 12) reasons.push("deadline window");
+    else if (leadHours <= 24) reasons.push("due in 24h");
+  }
+  if (block.preferredDomain === chunk.domain) reasons.push(`${DOMAIN_LABELS[chunk.domain] || chunk.domain} block`);
+  if (block.kind === "focus" && chunk.energy >= 2) reasons.push("focus block fit");
+  if (startHour < 12 && chunk.energy >= 2 && constraints.soft.morningFocusBias >= 6) reasons.push("morning focus mode");
+  if (startHour >= 18 && chunk.energy >= 2 && constraints.soft.keepEveningLight >= 6) reasons.push("evening penalty avoided elsewhere");
+  if (checkin.submitted && checkin.energy <= 2 && chunk.energy <= 2) reasons.push("low-energy safe");
+  if (overlap > 0) reasons.push("matched block context");
+  if (!reasons.length) reasons.push("best available fit");
+  return `Why: ${reasons.slice(0, 3).join(", ")}.`;
+}
+
 function solveSchedule({ now, schedule, taskInsights, constraints, checkin }) {
   const blocks = buildScheduleBlocks(schedule, now, constraints);
   const rawChunks = buildTaskChunks(taskInsights, constraints)
@@ -497,6 +516,8 @@ function solveSchedule({ now, schedule, taskInsights, constraints, checkin }) {
         ...chunk,
         placement: `${hoursBadge(block.availableStart)} fit`,
         score: option.localScore,
+        why: explainChunkPlacement(chunk, block, constraints, checkin),
+        confidence: CLAMP(Math.round(option.localScore / 8), 35, 98),
       };
       block.assignments.push(assignment);
       block.remaining -= chunk.minutes;

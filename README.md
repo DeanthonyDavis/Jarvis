@@ -54,6 +54,8 @@ You can still open `index.html` directly for a static-only pass, but the local s
 - Syllabus review queue that turns an upload into a safe `needs_review -> confirmed` workflow before any scheduling data is trusted
 - Domain switching with a collapsible sidebar
 - Command Center driven by computed priorities, conflicts, load, weekly heat, and a real slot-assignment solver pass
+- Phase 5 schedule modes (`Balanced`, `Focus Week`, `Light Recovery`, `Finals Mode`, `Work-Heavy`, `Catch-Up`) that overlay solver weights without deleting custom constraints
+- Scheduler explanation text on assigned blocks so users can see why work landed in a given time window
 - Interactive tasks across Academy, Works, and Life
 - Academy and Works sub-tabs
 - Mind daily check-in with burnout recalculation

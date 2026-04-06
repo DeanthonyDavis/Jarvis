@@ -77,6 +77,45 @@ const CONNECTOR_TEMPLATES = [
   { provider: "apex_webhook", providerType: "webhook", displayName: "APEX webhook", domain: "notebook", description: "Zapier/n8n/manual JSON events while OAuth connectors are built.", scopes: ["events", "tasks"] },
 ];
 
+const SCHEDULE_MODES = {
+  balanced: {
+    label: "Balanced",
+    description: "Default mode for normal weeks. Keeps study, work, future goals, and recovery in play.",
+    hard: {},
+    soft: {},
+  },
+  focus: {
+    label: "Focus Week",
+    description: "Prioritizes high-energy work earlier and protects longer focus chunks.",
+    hard: { maxFocusBlockMinutes: 110 },
+    soft: { morningFocusBias: 7, batchShallowWork: 5, protectFutureWork: 4, keepEveningLight: 3 },
+  },
+  recovery: {
+    label: "Light Recovery",
+    description: "Lightens evenings, protects recovery, and penalizes hard work when energy is low.",
+    hard: { protectRecoveryBlocks: true, windDownHour: 21, maxFocusBlockMinutes: 60 },
+    soft: { lowEnergyProtection: 8, keepEveningLight: 8, morningFocusBias: 4, protectFutureWork: 2, batchShallowWork: 6 },
+  },
+  finals: {
+    label: "Finals Mode",
+    description: "Biases academic urgency and morning deep work while still keeping sleep guardrails visible.",
+    hard: { lockClasses: true, protectRecoveryBlocks: true, maxFocusBlockMinutes: 100 },
+    soft: { morningFocusBias: 8, lowEnergyProtection: 4, keepEveningLight: 5, protectFutureWork: 1, batchShallowWork: 4 },
+  },
+  workHeavy: {
+    label: "Work-Heavy",
+    description: "Treats shifts as immovable and pushes school tasks into the clearest remaining slots.",
+    hard: { lockWorkShifts: true, maxFocusBlockMinutes: 75 },
+    soft: { morningFocusBias: 6, lowEnergyProtection: 6, keepEveningLight: 6, protectFutureWork: 1, batchShallowWork: 5 },
+  },
+  catchup: {
+    label: "Catch-Up",
+    description: "Makes room for overdue and urgent chunks while batching shallow admin work.",
+    hard: { maxFocusBlockMinutes: 80 },
+    soft: { morningFocusBias: 5, lowEnergyProtection: 3, keepEveningLight: 3, protectFutureWork: 1, batchShallowWork: 8 },
+  },
+};
+
 const DOMAIN_ICONS = {
   command: "M8 2.5 3.5 9h4L5.5 17.5 14 7h-4l2-4.5Z",
   academy: "M2.5 7.5 10 3.5l7.5 4-7.5 4-7.5-4ZM5.5 10v3.2c1.5 1.5 7.5 1.5 9 0V10",
@@ -98,6 +137,7 @@ function defaultSnapshot() {
     budget: clone(DEFAULT_BUDGET),
     paychecks: clone(DEFAULT_PAYCHECKS),
     constraints: clone(DEFAULT_CONSTRAINTS),
+    scheduleMode: "balanced",
     sourceConfig: {
       ...clone(DEFAULT_SOURCE_CONFIG),
       remoteUrl: win && win.location.protocol.startsWith("http") ? "/api/source/live" : DEFAULT_SOURCE_CONFIG.remoteUrl,
@@ -163,6 +203,7 @@ function loadState() {
       budget: { ...defaults.budget, ...(saved.budget || {}) },
       paychecks: Array.isArray(saved.paychecks) ? saved.paychecks : defaults.paychecks,
       constraints: normalizeConstraints(saved.constraints),
+      scheduleMode: SCHEDULE_MODES[saved.scheduleMode] ? saved.scheduleMode : defaults.scheduleMode,
       sourceConfig: { ...defaults.sourceConfig, ...(saved.sourceConfig || {}) },
       subTabs: { ...defaults.subTabs, ...(saved.subTabs || {}) },
       workspace: { ...defaults.workspace, ...(saved.workspace || {}) },
@@ -216,6 +257,15 @@ const colorFor = (domain) => TOKENS[domain] || TOKENS.command;
 const activeDomain = () => DOMAINS.find((domain) => domain.id === state.activeDomain);
 const localId = (prefix) => `${prefix}-${Date.now()}-${Math.random().toString(16).slice(2)}`;
 const unreadNotifications = () => state.notifications.filter((item) => !item.read_at && !item.dismissed_at && !item.resolved_at);
+function modeAdjustedConstraints() {
+  const mode = SCHEDULE_MODES[state.scheduleMode] || SCHEDULE_MODES.balanced;
+  const base = normalizeConstraints(state.constraints);
+  return normalizeConstraints({
+    hard: { ...base.hard, ...(mode.hard || {}) },
+    soft: { ...base.soft, ...(mode.soft || {}) },
+  });
+}
+
 const getIntel = (now = new Date()) =>
   buildCommandCenterIntelligence({
     now,
@@ -224,7 +274,7 @@ const getIntel = (now = new Date()) =>
     courses: state.courses,
     bills: state.bills,
     checkin: state.checkin,
-    constraints: state.constraints,
+    constraints: modeAdjustedConstraints(),
     budget: state.budget,
     paychecks: state.paychecks,
   });
@@ -257,6 +307,7 @@ function saveState() {
       budget: state.budget,
       paychecks: state.paychecks,
       constraints: state.constraints,
+      scheduleMode: state.scheduleMode,
       sourceConfig: state.sourceConfig,
       subTabs: state.subTabs,
       workspace: state.workspace,
@@ -286,6 +337,7 @@ function userWorkspaceState() {
     budget: state.budget,
     paychecks: state.paychecks,
     constraints: state.constraints,
+    scheduleMode: state.scheduleMode,
     sourceConfig: state.sourceConfig,
     subTabs: state.subTabs,
     workspace: state.workspace,
@@ -313,6 +365,7 @@ function applyWorkspaceState(workspace) {
   state.budget = { ...base.budget, ...(workspace?.budget || {}) };
   state.paychecks = Array.isArray(workspace?.paychecks) ? workspace.paychecks : base.paychecks;
   state.constraints = normalizeConstraints(workspace?.constraints || base.constraints);
+  state.scheduleMode = SCHEDULE_MODES[workspace?.scheduleMode] ? workspace.scheduleMode : base.scheduleMode;
   state.sourceConfig = { ...base.sourceConfig, ...(workspace?.sourceConfig || {}) };
   state.subTabs = { ...base.subTabs, ...(workspace?.subTabs || {}) };
   state.workspace = { ...base.workspace, ...(workspace?.workspace || {}) };
@@ -1031,6 +1084,11 @@ function renderConstraintPanel(intel) {
   ].map(([key, label, value]) => `<label class="field-shell"><div class="field-row"><span>${label}</span><strong>${value}/8</strong></div><input type="range" min="0" max="8" step="1" value="${value}" data-constraint-range-group="soft" data-constraint-range-key="${key}" /></label>`).join("")}</div><div class="hero-actions"><button class="surface-action" data-reset-constraints>Reset defaults</button></div></div></div><div class="footer-note">Hard rules change feasibility. Soft rules tell the solver which valid option feels most like your actual operating style.</div></article>`;
 }
 
+function renderScheduleModePanel() {
+  const mode = SCHEDULE_MODES[state.scheduleMode] || SCHEDULE_MODES.balanced;
+  return `<article class="panel span-12" style="--accent:${TOKENS.command};"><div class="panel-label">schedule modes</div><div class="mode-panel-head"><div><h3 class="empty-title">${mode.label}</h3><p class="row-subtitle">${mode.description}</p></div>${pill("Phase 5 intelligence", TOKENS.command)}</div><div class="mode-grid">${Object.entries(SCHEDULE_MODES).map(([key, item]) => `<button class="mode-card ${state.scheduleMode === key ? "is-active" : ""}" data-schedule-mode="${key}" style="--accent:${TOKENS.command};"><strong>${item.label}</strong><span>${item.description}</span></button>`).join("")}</div><div class="footer-note">Modes are overlays. They adjust solver weights for this planning context without deleting your custom hard/soft constraint settings.</div></article>`;
+}
+
 function renderSourcePanel() {
   const source = state.sourceConfig;
   return `<article class="panel span-6" style="--accent:${TOKENS.notebook};"><div class="panel-label">live data sources</div><div class="source-shell"><label class="field-shell"><div class="field-row"><span>Remote JSON URL</span><strong>${source.lastSyncStatus}</strong></div><input class="search-input" type="url" value="${escapeHtml(source.remoteUrl)}" placeholder="https://example.com/apex.json" data-source-url /></label><div class="source-actions"><button class="surface-action" data-use-local-source>Use local live source</button>${pill("/api/source/live", TOKENS.command)}</div><div class="field-row"><span>Auto-sync every minute</span><button class="toggle-chip ${source.autoSync ? "is-active" : ""}" data-source-toggle="autoSync" style="--accent:${TOKENS.command};"><strong>${source.autoSync ? "On" : "Off"}</strong></button></div><div class="source-actions"><button class="primary-action" data-sync-source>Sync now</button><button class="surface-action" data-reset-source>Status reset</button>${pill(source.lastSyncStatus, statusTone(source.lastSyncStatus))}</div><div class="meta-grid"><div class="metric-stack"><span>Last sync</span><strong>${formatTimestamp(source.lastSyncAt)}</strong></div><div class="metric-stack"><span>Error</span><strong>${escapeHtml(source.lastError || "None")}</strong></div></div><label class="field-shell"><div class="field-row"><span>Manual payload</span><strong>JSON merge</strong></div><textarea class="brain-dump source-draft" placeholder='{"tasks":[...],"constraints":{"soft":{"keepEveningLight":7}}}' data-source-draft>${escapeHtml(source.draftPayload)}</textarea></label><div class="source-actions"><button class="primary-action" data-apply-source>Apply payload</button></div></div><div class="footer-note">Supported keys: <code>tasks</code>, <code>courses</code>, <code>schedule</code>, <code>bills</code>, <code>budget</code>, <code>paychecks</code>, <code>checkin</code>, and <code>constraints</code>. The bundled local server also exposes calendar, LMS, and webhook routes behind this source path.</div></article>`;
@@ -1058,7 +1116,7 @@ function renderCommand(intel) {
   const dayLabels = ["S", "M", "T", "W", "T", "F", "S"];
   const dayIndex = intel.generatedAt.getDay();
   const topCourse = intel.courseInsights.slice().sort((a, b) => b.riskScore - a.riskScore)[0];
-  return `<section class="section-shell">${heroBand(intel)}<div class="dashboard-grid">${renderSetupChecklist()}<article class="panel span-8" style="--accent:${TOKENS.command};"><div class="panel-label">intelligence briefing</div><div class="list-rows">${intel.topPriorities.map((task, index) => `<div class="row is-hot" style="--accent:${colorFor(task.domain)};"><div class="row-badge">${index + 1}</div><div class="row-copy"><div class="row-title">${task.title}</div><div class="row-subtitle">Due ${task.due} &middot; ${task.reason}</div></div>${pill(task.domain, colorFor(task.domain))}</div>`).join("")}</div><div class="system-note" style="margin-top:1rem;">This stack is now driven by live task scoring plus the current constraint profile. Change the rules, and these priorities recompute.</div></article><article class="panel span-4" style="--accent:${intel.solverSummary.unscheduledUrgentCount ? TOKENS.danger : TOKENS.ok};"><div class="panel-label">solver summary</div><div class="solver-grid"><div class="metric-stack"><span>Scheduled</span><strong>${intel.solverSummary.scheduledMinutes}m</strong></div><div class="metric-stack"><span>Capacity</span><strong>${intel.solverSummary.flexibleCapacityMinutes}m</strong></div><div class="metric-stack"><span>Urgent unscheduled</span><strong>${intel.solverSummary.unscheduledUrgentCount}</strong></div><div class="metric-stack"><span>Search score</span><strong>${intel.solverSummary.score}</strong></div></div><div class="footer-note">${intel.solverSummary.unscheduledMinutes ? `${intel.solverSummary.unscheduledMinutes} minutes remain unscheduled under the current rules.` : "Every active chunk currently fits inside the remaining day."}</div></article><article class="panel span-4" style="--accent:${TOKENS.command};"><div class="panel-label">capacity gauge</div>${gauge(intel.loadScore, TOKENS.command, "load index", intel.loadLabel === "stabilize" ? "stabilize plan active" : intel.loadLabel, intel.loadDisplay || `${intel.loadScore}%`)}<div class="footer-note" style="margin-top:0.9rem;">${intel.loadExplanation}</div><div class="mini-breakdown">${intel.domainLoads.map((item) => `<div><div class="label-row"><span>${item.label}</span><span>${item.pct}%</span></div>${meter(item.pct, colorFor(item.domain))}</div>`).join("")}</div></article><article class="panel span-4" style="--accent:${TOKENS.academy};"><div class="panel-label">gpa tracker</div><div class="kpi"><div class="kpi-value accent-text">3.47</div><div class="kpi-copy"><div>Current GPA</div><div class="${topCourse?.status === "at-risk" ? "trend-down" : "trend-up"}">${topCourse?.status === "at-risk" ? "Watch " : "Stable "}${topCourse?.name || "semester profile"}</div></div></div>${sparkBars(state.courses.map((course) => course.grade / 10), TOKENS.academy)}<div class="section-list" style="margin-top:0.95rem;">${intel.courseInsights.map((course) => `<div class="meta-row"><span>${course.name}</span><strong style="color:${course.status === "at-risk" ? TOKENS.danger : course.status === "watch" ? TOKENS.warn : TOKENS.ok};">${course.grade}%</strong></div>`).join("")}</div></article><article class="panel span-4" style="--accent:${TOKENS.danger};"><div class="panel-label">conflict engine</div><div class="stack-list">${intel.conflicts.map((conflict) => `<div class="row" style="--accent:${conflict.severity === "crit" ? TOKENS.danger : conflict.severity === "warn" ? TOKENS.warn : TOKENS.command}; align-items:flex-start;"><div class="row-badge">${conflict.severity === "crit" ? "!" : conflict.severity === "warn" ? "~" : "i"}</div><div class="row-copy"><div class="row-title">${conflict.title}</div><div class="row-subtitle">${conflict.text}</div></div><button class="small-action">${conflict.action}</button></div>`).join("")}</div></article><article class="panel span-4" style="--accent:${TOKENS.notebook};"><div class="panel-label">this week</div><div class="calendar-grid">${dayLabels.map((label, index) => { const day = intel.weeklyOutlook[index]; const level = day.level === "high" ? TOKENS.danger : day.level === "medium" ? TOKENS.warn : TOKENS.ok; return `<div class="day-card ${index === dayIndex ? "is-today" : ""}" style="--accent:${level};"><small class="muted">${label}</small><strong>${day.date.getDate()}</strong><div class="dot-stack"><span style="background:${level};"></span><span style="background:${level}; opacity:.65;"></span><span style="background:${level}; opacity:.35;"></span></div></div>`; }).join("")}</div><div class="footer-note" style="margin-top:0.95rem;">Peak pressure day: ${intel.hottestDay.date.toLocaleDateString("en-US", { weekday: "long", month: "short", day: "numeric" })}. The weekly view is driven by deadlines, exams, and bills.</div></article><article class="panel span-12" style="--accent:${TOKENS.future};"><div class="panel-label">next best moves</div><div class="courses-grid">${intel.recommendations.map((item) => `<article class="note-card"><h4>${item.title}</h4><p class="row-subtitle" style="margin-top:0.7rem;">${item.text}</p><div style="margin-top:0.8rem;">${pill(DOMAINS.find((domain) => domain.id === item.accent)?.label || item.accent, colorFor(item.accent))}</div></article>`).join("")}</div></article>${renderConstraintPanel(intel)}${renderSourcePanel()}${renderConnectorPanel()}<article class="panel span-12" style="--accent:${TOKENS.command};"><div class="panel-label">optimized schedule</div><div class="schedule-strip schedule-strip--solver">${intel.schedulePlan.map((item) => `<div class="schedule-block" style="--accent:${colorFor(item.domain)};"><div class="schedule-time">${item.time}</div><strong>${item.label}</strong><div class="row-subtitle" style="margin-top:0.45rem;">${item.note}</div><div style="margin-top:0.65rem;">${pill(item.status || item.kind, item.status === "locked" ? TOKENS.notebook : item.status === "assigned" ? colorFor(item.domain) : TOKENS.warn)}</div><div class="assignment-list">${item.assignments?.length ? item.assignments.map((assignment) => `<div class="assignment-pill"><span>${assignment.title}</span><strong>${assignment.minutes}m</strong></div>`).join("") : `<div class="empty-assignment">${item.status === "locked" ? "Reserved" : "No task assigned"}</div>`}</div><div class="row-subtitle">Remaining: ${item.remainingMinutes ?? 0}m</div></div>`).join("")}</div></article></div></section>`;
+  return `<section class="section-shell">${heroBand(intel)}<div class="dashboard-grid">${renderSetupChecklist()}<article class="panel span-8" style="--accent:${TOKENS.command};"><div class="panel-label">intelligence briefing</div><div class="list-rows">${intel.topPriorities.map((task, index) => `<div class="row is-hot" style="--accent:${colorFor(task.domain)};"><div class="row-badge">${index + 1}</div><div class="row-copy"><div class="row-title">${task.title}</div><div class="row-subtitle">Due ${task.due} &middot; ${task.reason}</div></div>${pill(task.domain, colorFor(task.domain))}</div>`).join("")}</div><div class="system-note" style="margin-top:1rem;">This stack is now driven by live task scoring plus the current constraint profile. Change the rules, and these priorities recompute.</div></article><article class="panel span-4" style="--accent:${intel.solverSummary.unscheduledUrgentCount ? TOKENS.danger : TOKENS.ok};"><div class="panel-label">solver summary</div><div class="solver-grid"><div class="metric-stack"><span>Scheduled</span><strong>${intel.solverSummary.scheduledMinutes}m</strong></div><div class="metric-stack"><span>Capacity</span><strong>${intel.solverSummary.flexibleCapacityMinutes}m</strong></div><div class="metric-stack"><span>Urgent unscheduled</span><strong>${intel.solverSummary.unscheduledUrgentCount}</strong></div><div class="metric-stack"><span>Search score</span><strong>${intel.solverSummary.score}</strong></div></div><div class="footer-note">${intel.solverSummary.unscheduledMinutes ? `${intel.solverSummary.unscheduledMinutes} minutes remain unscheduled under the current rules.` : "Every active chunk currently fits inside the remaining day."}</div></article><article class="panel span-4" style="--accent:${TOKENS.command};"><div class="panel-label">capacity gauge</div>${gauge(intel.loadScore, TOKENS.command, "load index", intel.loadLabel === "stabilize" ? "stabilize plan active" : intel.loadLabel, intel.loadDisplay || `${intel.loadScore}%`)}<div class="footer-note" style="margin-top:0.9rem;">${intel.loadExplanation}</div><div class="mini-breakdown">${intel.domainLoads.map((item) => `<div><div class="label-row"><span>${item.label}</span><span>${item.pct}%</span></div>${meter(item.pct, colorFor(item.domain))}</div>`).join("")}</div></article><article class="panel span-4" style="--accent:${TOKENS.academy};"><div class="panel-label">gpa tracker</div><div class="kpi"><div class="kpi-value accent-text">3.47</div><div class="kpi-copy"><div>Current GPA</div><div class="${topCourse?.status === "at-risk" ? "trend-down" : "trend-up"}">${topCourse?.status === "at-risk" ? "Watch " : "Stable "}${topCourse?.name || "semester profile"}</div></div></div>${sparkBars(state.courses.map((course) => course.grade / 10), TOKENS.academy)}<div class="section-list" style="margin-top:0.95rem;">${intel.courseInsights.map((course) => `<div class="meta-row"><span>${course.name}</span><strong style="color:${course.status === "at-risk" ? TOKENS.danger : course.status === "watch" ? TOKENS.warn : TOKENS.ok};">${course.grade}%</strong></div>`).join("")}</div></article><article class="panel span-4" style="--accent:${TOKENS.danger};"><div class="panel-label">conflict engine</div><div class="stack-list">${intel.conflicts.map((conflict) => `<div class="row" style="--accent:${conflict.severity === "crit" ? TOKENS.danger : conflict.severity === "warn" ? TOKENS.warn : TOKENS.command}; align-items:flex-start;"><div class="row-badge">${conflict.severity === "crit" ? "!" : conflict.severity === "warn" ? "~" : "i"}</div><div class="row-copy"><div class="row-title">${conflict.title}</div><div class="row-subtitle">${conflict.text}</div></div><button class="small-action">${conflict.action}</button></div>`).join("")}</div></article><article class="panel span-4" style="--accent:${TOKENS.notebook};"><div class="panel-label">this week</div><div class="calendar-grid">${dayLabels.map((label, index) => { const day = intel.weeklyOutlook[index]; const level = day.level === "high" ? TOKENS.danger : day.level === "medium" ? TOKENS.warn : TOKENS.ok; return `<div class="day-card ${index === dayIndex ? "is-today" : ""}" style="--accent:${level};"><small class="muted">${label}</small><strong>${day.date.getDate()}</strong><div class="dot-stack"><span style="background:${level};"></span><span style="background:${level}; opacity:.65;"></span><span style="background:${level}; opacity:.35;"></span></div></div>`; }).join("")}</div><div class="footer-note" style="margin-top:0.95rem;">Peak pressure day: ${intel.hottestDay.date.toLocaleDateString("en-US", { weekday: "long", month: "short", day: "numeric" })}. The weekly view is driven by deadlines, exams, and bills.</div></article><article class="panel span-12" style="--accent:${TOKENS.future};"><div class="panel-label">next best moves</div><div class="courses-grid">${intel.recommendations.map((item) => `<article class="note-card"><h4>${item.title}</h4><p class="row-subtitle" style="margin-top:0.7rem;">${item.text}</p><div style="margin-top:0.8rem;">${pill(DOMAINS.find((domain) => domain.id === item.accent)?.label || item.accent, colorFor(item.accent))}</div></article>`).join("")}</div></article>${renderScheduleModePanel()}${renderConstraintPanel(intel)}${renderSourcePanel()}${renderConnectorPanel()}<article class="panel span-12" style="--accent:${TOKENS.command};"><div class="panel-label">optimized schedule</div><div class="schedule-strip schedule-strip--solver">${intel.schedulePlan.map((item) => `<div class="schedule-block" style="--accent:${colorFor(item.domain)};"><div class="schedule-time">${item.time}</div><strong>${item.label}</strong><div class="row-subtitle" style="margin-top:0.45rem;">${item.note}</div><div style="margin-top:0.65rem;">${pill(item.status || item.kind, item.status === "locked" ? TOKENS.notebook : item.status === "assigned" ? colorFor(item.domain) : TOKENS.warn)}</div><div class="assignment-list">${item.assignments?.length ? item.assignments.map((assignment) => `<div class="assignment-pill assignment-pill--explain"><span>${assignment.title}</span><strong>${assignment.minutes}m</strong><small>${escapeHtml(assignment.why || assignment.placement || "Placed by solver score.")}</small></div>`).join("") : `<div class="empty-assignment">${item.status === "locked" ? "Reserved" : "No task assigned"}</div>`}</div><div class="row-subtitle">Remaining: ${item.remainingMinutes ?? 0}m</div></div>`).join("")}</div></article></div></section>`;
 }
 
 function simpleListPanel(title, accent, rows) {
@@ -1318,6 +1376,18 @@ doc?.addEventListener("click", async (event) => {
   if (integrationSync) { await syncIntegration(integrationSync.dataset.integrationSync); return; }
   const integrationDisconnect = target.closest("[data-integration-disconnect]");
   if (integrationDisconnect) { await updateIntegration(integrationDisconnect.dataset.integrationDisconnect, { status: "disconnected", tokenRef: null, lastError: "", nextSyncAt: null }, { toast: true }); return; }
+  const scheduleMode = target.closest("[data-schedule-mode]");
+  if (scheduleMode) {
+    state.scheduleMode = scheduleMode.dataset.scheduleMode;
+    rerender();
+    notifyUser({
+      type: "schedule_mode",
+      title: `${SCHEDULE_MODES[state.scheduleMode]?.label || "Schedule"} mode enabled`,
+      body: SCHEDULE_MODES[state.scheduleMode]?.description || "The solver mode was updated.",
+      severity: "info",
+    });
+    return;
+  }
   const score = target.closest("[data-score-field]");
   if (score) { state.checkin[score.dataset.scoreField] = Number(score.dataset.scoreValue); rerender(); return; }
   const toggle = target.closest("[data-constraint-toggle-key]");
@@ -1581,6 +1651,7 @@ win?.addEventListener("storage", (event) => {
   state.budget = next.budget;
   state.paychecks = next.paychecks;
   state.constraints = next.constraints;
+  state.scheduleMode = next.scheduleMode;
   state.sourceConfig = next.sourceConfig;
   state.subTabs = next.subTabs;
   state.workspace = next.workspace;

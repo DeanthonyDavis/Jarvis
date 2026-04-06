@@ -981,6 +981,18 @@ textarea:focus-visible {
   font-family: "JetBrains Mono", monospace;
 }
 
+.assignment-pill--explain {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  align-items: start;
+}
+
+.assignment-pill--explain small {
+  grid-column: 1 / -1;
+  color: var(--text-soft);
+  line-height: 1.45;
+}
+
 .solver-grid,
 .meta-grid {
   display: grid;
@@ -1215,6 +1227,47 @@ textarea:focus-visible {
   color: var(--warn);
   font-size: 0.8rem;
   line-height: 1.5;
+}
+
+.mode-panel-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-bottom: 1rem;
+}
+
+.mode-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.85rem;
+}
+
+.mode-card {
+  display: grid;
+  gap: 0.45rem;
+  min-height: 8rem;
+  padding: 1rem;
+  text-align: left;
+  border-radius: 22px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(255, 255, 255, 0.03);
+  transition: transform 180ms ease, border-color 180ms ease, background 180ms ease;
+}
+
+.mode-card.is-active {
+  border-color: color-mix(in srgb, var(--accent) 45%, var(--border));
+  background: color-mix(in srgb, var(--accent) 12%, rgba(255, 255, 255, 0.035));
+}
+
+.mode-card:hover {
+  transform: translateY(-1px);
+}
+
+.mode-card span {
+  color: var(--text-muted);
+  line-height: 1.55;
+  font-size: 0.86rem;
 }
 
 .review-card {
@@ -1959,6 +2012,7 @@ textarea:focus-visible {
   .insight-grid,
   .control-grid,
   .connector-grid,
+  .mode-grid,
   .solver-grid,
   .meta-grid,
   .setup-list {
@@ -2025,6 +2079,7 @@ textarea:focus-visible {
   .insight-grid,
   .control-grid,
   .connector-grid,
+  .mode-grid,
   .solver-grid,
   .meta-grid,
   .setup-list {
