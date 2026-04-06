@@ -17,6 +17,11 @@
   --ok: #4ade80;
   --warn: #fbbf24;
   --danger: #f87171;
+  --student-gradient:
+    radial-gradient(circle at 18% 12%, rgba(56, 189, 248, 0.28), transparent 30%),
+    radial-gradient(circle at 86% 18%, rgba(124, 109, 250, 0.28), transparent 30%),
+    linear-gradient(145deg, #03040b 0%, #08091a 45%, #050508 100%);
+  --student-gradient-soft: linear-gradient(135deg, rgba(56, 189, 248, 0.18), rgba(124, 109, 250, 0.12), rgba(255, 255, 255, 0.025));
   --space-1: 0.35rem;
   --space-2: 0.6rem;
   --space-3: 0.9rem;
@@ -180,8 +185,24 @@ textarea:focus-visible {
   min-height: 100dvh;
   display: flex;
   overflow: hidden;
-  background: transparent;
+  background:
+    linear-gradient(180deg, rgba(5, 5, 10, 0.38), rgba(5, 5, 10, 0.88)),
+    var(--student-gradient);
   font-size: 1rem;
+}
+
+.app-shell::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  background:
+    linear-gradient(rgba(255,255,255,0.035) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255,255,255,0.035) 1px, transparent 1px);
+  background-size: 42px 42px;
+  mask-image: radial-gradient(circle at 50% 10%, black, transparent 72%);
+  opacity: 0.32;
 }
 
 .app-shell.theme-contrast {
@@ -205,7 +226,8 @@ textarea:focus-visible {
   --text-soft: #746d84;
   --shadow: 0 22px 70px rgba(67, 51, 32, 0.16);
   background:
-    radial-gradient(circle at 12% 8%, rgba(124, 109, 250, 0.16), transparent 28%),
+    linear-gradient(180deg, rgba(255, 252, 245, 0.48), rgba(255, 252, 245, 0.9)),
+    var(--student-gradient-soft),
     linear-gradient(180deg, #f7f2e8, #efe8dc);
   color-scheme: light;
 }
@@ -664,12 +686,15 @@ textarea:focus-visible {
   position: relative;
   overflow: hidden;
   padding: clamp(1.6rem, 3vw, 2.35rem);
-  border-radius: 28px;
-  border: 1px solid color-mix(in srgb, var(--accent) 24%, var(--border));
+  border-radius: 34px;
+  border: 1px solid color-mix(in srgb, var(--accent) 34%, var(--border));
   background:
-    linear-gradient(135deg, color-mix(in srgb, var(--accent) 14%, rgba(255, 255, 255, 0.04)), rgba(255, 255, 255, 0.02)),
-    rgba(255, 255, 255, 0.03);
-  box-shadow: var(--shadow);
+    radial-gradient(circle at 0% 0%, color-mix(in srgb, var(--accent) 24%, transparent), transparent 36%),
+    var(--student-gradient-soft),
+    rgba(255, 255, 255, 0.036);
+  box-shadow:
+    0 32px 110px rgba(0, 0, 0, 0.62),
+    inset 0 1px 0 rgba(255, 255, 255, 0.12);
 }
 
 .hero-band::after {
@@ -679,7 +704,8 @@ textarea:focus-visible {
   width: 22rem;
   height: 22rem;
   border-radius: 50%;
-  background: radial-gradient(circle, color-mix(in srgb, var(--accent) 22%, transparent), transparent 70%);
+  background: radial-gradient(circle, color-mix(in srgb, var(--accent) 30%, transparent), transparent 70%);
+  filter: blur(2px);
   pointer-events: none;
 }
 
@@ -734,13 +760,18 @@ textarea:focus-visible {
 .primary-action {
   background: linear-gradient(135deg, var(--accent), color-mix(in srgb, var(--accent) 52%, white 10%));
   color: white;
+  border: 1px solid color-mix(in srgb, var(--accent) 55%, rgba(255, 255, 255, 0.24));
+  box-shadow:
+    0 12px 34px color-mix(in srgb, var(--accent) 26%, transparent),
+    inset 0 1px 0 rgba(255, 255, 255, 0.22);
 }
 
 .surface-action,
 .small-action {
-  background: rgba(255, 255, 255, 0.04);
+  background: rgba(255, 255, 255, 0.055);
   border: 1px solid var(--border);
   color: var(--text);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06);
 }
 
 .surface-action--small {
@@ -800,13 +831,16 @@ textarea:focus-visible {
   position: relative;
   overflow: hidden;
   padding: clamp(var(--space-4), 1.8vw, var(--space-5));
-  border-radius: var(--radius-lg);
-  border: 1px solid color-mix(in srgb, var(--accent, rgba(255,255,255,.12)) 14%, var(--border));
+  border-radius: 30px;
+  border: 1px solid color-mix(in srgb, var(--accent, rgba(255,255,255,.12)) 20%, var(--border));
   background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.04), rgba(255, 255, 255, 0.02)),
+    radial-gradient(circle at 0% 0%, color-mix(in srgb, var(--accent, white) 8%, transparent), transparent 34%),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.058), rgba(255, 255, 255, 0.024)),
     rgba(255, 255, 255, 0.025);
-  backdrop-filter: blur(20px);
-  box-shadow: 0 18px 55px rgba(0, 0, 0, 0.3);
+  backdrop-filter: blur(24px);
+  box-shadow:
+    0 18px 70px rgba(0, 0, 0, 0.38),
+    inset 0 1px 0 rgba(255, 255, 255, 0.08);
 }
 
 .panel--empty {
@@ -1489,6 +1523,11 @@ textarea:focus-visible {
   gap: var(--space-2);
 }
 
+.preference-button-row--swatches {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
 .preference-chip {
   min-height: 2.35rem;
   padding: 0.58rem 0.85rem;
@@ -1506,6 +1545,52 @@ textarea:focus-visible {
   border-color: color-mix(in srgb, var(--accent) 38%, var(--border));
   background: color-mix(in srgb, var(--accent) 13%, rgba(255, 255, 255, 0.035));
   color: var(--text);
+}
+
+.preference-chip--gradient {
+  justify-content: flex-start;
+  min-height: 3rem;
+  border-radius: 18px;
+}
+
+.gradient-swatch {
+  width: 1.65rem;
+  height: 1.65rem;
+  border-radius: 999px;
+  background: var(--chip-gradient);
+  box-shadow:
+    0 8px 22px rgba(0, 0, 0, 0.28),
+    inset 0 1px 0 rgba(255, 255, 255, 0.3);
+}
+
+.gradient-preview {
+  min-height: 9rem;
+  display: grid;
+  align-items: end;
+  margin-top: var(--space-4);
+  padding: var(--space-5);
+  border-radius: 28px;
+  border: 1px solid color-mix(in srgb, var(--accent) 22%, var(--border));
+  background:
+    linear-gradient(180deg, rgba(3, 4, 9, 0.04), rgba(3, 4, 9, 0.62)),
+    var(--preview-gradient);
+  box-shadow:
+    0 20px 70px rgba(0, 0, 0, 0.34),
+    inset 0 1px 0 rgba(255, 255, 255, 0.16);
+}
+
+.gradient-preview strong {
+  display: block;
+  margin-top: 0.35rem;
+  font-family: "Syne", system-ui, sans-serif;
+  font-size: clamp(1.35rem, 2.4vw, 2rem);
+  letter-spacing: -0.05em;
+}
+
+.gradient-preview span {
+  display: block;
+  margin-top: 0.3rem;
+  color: var(--text-muted);
 }
 
 .widget-manager-panel {

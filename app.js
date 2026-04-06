@@ -158,6 +158,7 @@ const DEFAULT_PREFERENCES = {
   density: "comfortable",
   fontScale: "standard",
   accentProfile: "domain",
+  gradientProfile: "study-neon",
   layoutProfile: "guided",
 };
 
@@ -186,11 +187,41 @@ const PREFERENCE_OPTIONS = {
     ["future", "Future"],
     ["mind", "Mind"],
   ],
+  gradientProfile: [
+    ["study-neon", "Study Neon"],
+    ["campus-sunrise", "Campus Sunrise"],
+    ["library-blue", "Library Blue"],
+    ["focus-lime", "Focus Lime"],
+    ["exam-ember", "Exam Ember"],
+  ],
   layoutProfile: [
     ["guided", "Guided"],
     ["operator", "Operator"],
     ["focus", "Focus"],
   ],
+};
+
+const GRADIENT_PRESETS = {
+  "study-neon": {
+    css: "radial-gradient(circle at 18% 12%, rgba(56, 189, 248, 0.28), transparent 30%), radial-gradient(circle at 86% 18%, rgba(124, 109, 250, 0.28), transparent 30%), linear-gradient(145deg, #03040b 0%, #08091a 45%, #050508 100%)",
+    soft: "linear-gradient(135deg, rgba(56, 189, 248, 0.18), rgba(124, 109, 250, 0.12), rgba(255, 255, 255, 0.025))",
+  },
+  "campus-sunrise": {
+    css: "radial-gradient(circle at 14% 12%, rgba(251, 146, 60, 0.28), transparent 30%), radial-gradient(circle at 92% 18%, rgba(244, 114, 182, 0.22), transparent 30%), linear-gradient(145deg, #090507 0%, #140a12 42%, #06050a 100%)",
+    soft: "linear-gradient(135deg, rgba(251, 146, 60, 0.18), rgba(244, 114, 182, 0.12), rgba(255, 255, 255, 0.025))",
+  },
+  "library-blue": {
+    css: "radial-gradient(circle at 16% 12%, rgba(96, 165, 250, 0.26), transparent 30%), radial-gradient(circle at 90% 20%, rgba(52, 211, 153, 0.18), transparent 30%), linear-gradient(145deg, #030712 0%, #07111f 46%, #04060a 100%)",
+    soft: "linear-gradient(135deg, rgba(96, 165, 250, 0.18), rgba(52, 211, 153, 0.11), rgba(255, 255, 255, 0.025))",
+  },
+  "focus-lime": {
+    css: "radial-gradient(circle at 18% 12%, rgba(74, 222, 128, 0.22), transparent 30%), radial-gradient(circle at 86% 18%, rgba(251, 191, 36, 0.16), transparent 30%), linear-gradient(145deg, #040807 0%, #07150d 48%, #040505 100%)",
+    soft: "linear-gradient(135deg, rgba(74, 222, 128, 0.16), rgba(251, 191, 36, 0.1), rgba(255, 255, 255, 0.025))",
+  },
+  "exam-ember": {
+    css: "radial-gradient(circle at 18% 12%, rgba(248, 113, 113, 0.24), transparent 30%), radial-gradient(circle at 86% 18%, rgba(251, 191, 36, 0.2), transparent 30%), linear-gradient(145deg, #0a0506 0%, #160b08 48%, #050404 100%)",
+    soft: "linear-gradient(135deg, rgba(248, 113, 113, 0.18), rgba(251, 191, 36, 0.1), rgba(255, 255, 255, 0.025))",
+  },
 };
 
 const DEFAULT_COMMAND_WIDGETS = [
@@ -462,6 +493,7 @@ function normalizePreferences(preferences = {}) {
     density: isValid("density", preferences.density) ? preferences.density : DEFAULT_PREFERENCES.density,
     fontScale: isValid("fontScale", preferences.fontScale) ? preferences.fontScale : DEFAULT_PREFERENCES.fontScale,
     accentProfile: isValid("accentProfile", preferences.accentProfile) ? preferences.accentProfile : DEFAULT_PREFERENCES.accentProfile,
+    gradientProfile: isValid("gradientProfile", preferences.gradientProfile) ? preferences.gradientProfile : DEFAULT_PREFERENCES.gradientProfile,
     layoutProfile: isValid("layoutProfile", preferences.layoutProfile) ? preferences.layoutProfile : DEFAULT_PREFERENCES.layoutProfile,
   };
 }
@@ -522,6 +554,10 @@ function activeWidgetProfile() {
 function selectedAccent(domainId = activeDomain()?.id || "command") {
   const profile = state.preferences?.accentProfile || "domain";
   return profile === "domain" ? colorFor(domainId) : colorFor(profile);
+}
+
+function selectedGradient(profile = state.preferences?.gradientProfile || DEFAULT_PREFERENCES.gradientProfile) {
+  return GRADIENT_PRESETS[profile] || GRADIENT_PRESETS[DEFAULT_PREFERENCES.gradientProfile];
 }
 
 function saveState() {
@@ -2197,15 +2233,15 @@ function heroBand(intel) {
   const loadValue = intel.loadDisplay || `${intel.loadScore}%`;
   const loadMode = intel.loadLabel === "setup" ? "setup mode" : intel.loadScore >= 70 ? "stabilize mode" : "balanced mode";
   const titles = {
-    command: ["Life operating system", "One command deck for school, work, money, recovery, and long-range ambition."],
-    academy: ["Academic kernel", "Grades, deadlines, and study quality in one adaptive loop."],
-    works: ["Operational income", "See shifts, interviews, and work pressure in the same planning engine."],
-    life: ["Home + finance", "Bills and routines stay visible before they become background stress."],
-    future: ["Trajectory", "Translate long-term ambition into repeatable weekly motion."],
-    mind: ["Load awareness", "Energy, focus, and mood shape the plan instead of getting ignored."],
-    notebook: ["Source-grounded memory", "Turn scattered notes and brain dumps into grounded action."],
+    command: ["Student optimizer", "Boost your day plan without overloading your brain."],
+    academy: ["Academic optimizer", "Turn syllabi, grades, and deadlines into a cleaner study plan."],
+    works: ["Work optimizer", "Protect shifts and income before they collide with school."],
+    life: ["Life optimizer", "Keep bills and routines visible without making them louder than class."],
+    future: ["Career optimizer", "Convert long-range goals into the next small move."],
+    mind: ["Recovery optimizer", "Let energy and focus tune the schedule before burnout stacks up."],
+    notebook: ["Source optimizer", "Upload class material and turn it into reviewed action."],
   }[domain.id];
-  return `<section class="hero-band" style="--accent:${colorFor(domain.id)};"><div class="hero-copy"><div class="eyebrow">${iconSvg(domain.id)}<span>${titles[0]}</span></div><h3>${titles[1]}</h3><p>APEX treats overwhelm as a systems problem. Hard constraints stay visible, the schedule is solver-backed, and live data can update the day without code edits.</p><div class="hero-actions"><button class="primary-action" data-focus-top>Focus Now</button><button class="surface-action" data-domain="notebook">Inspect Context</button>${pill(loadMode, intel.loadScore >= 70 ? TOKENS.warn : colorFor(domain.id))}</div></div><div class="hero-stats"><div class="hero-stat"><span>Load Index</span><strong>${loadValue}</strong></div><div class="hero-stat"><span>Urgent Open</span><strong>${intel.openUrgentCount}</strong></div><div class="hero-stat"><span>Solver Fit</span><strong>${intel.solverSummary.scheduledMinutes}m</strong></div><div class="hero-stat"><span>Guardrails</span><strong>${intel.solverSummary.hardGuardrails}</strong></div></div></section>`;
+  return `<section class="hero-band" style="--accent:${colorFor(domain.id)};"><div class="hero-copy"><div class="eyebrow">${iconSvg(domain.id)}<span>${titles[0]}</span></div><h3>${titles[1]}</h3><p>APEX treats overwhelm like a performance problem for student life: fewer scattered decisions, clearer constraints, and a plan that adapts when real sources change.</p><div class="hero-actions"><button class="primary-action" data-focus-top>Optimize Next Block</button><button class="surface-action" data-upload-sheet-open>Add Source</button>${pill(loadMode, intel.loadScore >= 70 ? TOKENS.warn : colorFor(domain.id))}</div></div><div class="hero-stats"><div class="hero-stat"><span>Load Index</span><strong>${loadValue}</strong></div><div class="hero-stat"><span>Urgent Open</span><strong>${intel.openUrgentCount}</strong></div><div class="hero-stat"><span>Solver Fit</span><strong>${intel.solverSummary.scheduledMinutes}m</strong></div><div class="hero-stat"><span>Guardrails</span><strong>${intel.solverSummary.hardGuardrails}</strong></div></div></section>`;
 }
 
 function renderConstraintPanel(intel) {
@@ -2278,7 +2314,10 @@ function renderConnectorPanel() {
 
 function preferenceButtons(key) {
   const current = state.preferences?.[key] || DEFAULT_PREFERENCES[key];
-  return `<div class="preference-button-row">${PREFERENCE_OPTIONS[key].map(([value, label]) => `<button class="preference-chip ${current === value ? "is-active" : ""}" data-preference-key="${key}" data-preference-value="${value}" aria-pressed="${current === value}" style="--accent:${selectedAccent()};">${escapeHtml(label)}</button>`).join("")}</div>`;
+  return `<div class="preference-button-row ${key === "gradientProfile" ? "preference-button-row--swatches" : ""}">${PREFERENCE_OPTIONS[key].map(([value, label]) => {
+    const gradient = key === "gradientProfile" ? selectedGradient(value) : null;
+    return `<button class="preference-chip ${key === "gradientProfile" ? "preference-chip--gradient" : ""} ${current === value ? "is-active" : ""}" data-preference-key="${key}" data-preference-value="${value}" aria-pressed="${current === value}" style="--accent:${selectedAccent()}; ${gradient ? `--chip-gradient:${gradient.css};` : ""}">${key === "gradientProfile" ? `<span class="gradient-swatch"></span>` : ""}${escapeHtml(label)}</button>`;
+  }).join("")}</div>`;
 }
 
 function renderPersonalizationPanel() {
@@ -2288,7 +2327,7 @@ function renderPersonalizationPanel() {
     operator: "More widgets stay visible at once for daily command-center use.",
     focus: "Lower-priority chrome is visually quieter so the current plan stands out.",
   }[prefs.layoutProfile] || "Guided defaults are active.";
-  return `<article class="panel span-12 personalization-panel" data-personalization-panel style="--accent:${selectedAccent()};"><div class="setup-head"><div><div class="panel-label">personalization</div><h3 class="empty-title">Tune the workspace before the full layout builder lands.</h3><p class="row-subtitle">These preferences persist now and become the compatibility layer for saved layouts, profiles, and drag-reordered widgets later.</p></div>${pill(`${prefs.theme} / ${prefs.density}`, selectedAccent())}</div><div class="preference-grid"><div><div class="subtle-label">Theme</div>${preferenceButtons("theme")}</div><div><div class="subtle-label">Density</div>${preferenceButtons("density")}</div><div><div class="subtle-label">Type Scale</div>${preferenceButtons("fontScale")}</div><div><div class="subtle-label">Accent</div>${preferenceButtons("accentProfile")}</div><div><div class="subtle-label">Layout Profile</div>${preferenceButtons("layoutProfile")}</div><div class="state-notice" style="--accent:${selectedAccent()};"><div class="row-badge">${iconSvg("command", "Layout profile")}</div><div><strong>${escapeHtml(PREFERENCE_OPTIONS.layoutProfile.find(([value]) => value === prefs.layoutProfile)?.[1] || "Guided")}</strong><div>${escapeHtml(layoutCopy)}</div></div></div></div><div class="source-actions" style="margin-top:1rem;"><button class="surface-action" data-preference-reset>Reset Preferences</button>${pill("Saved to workspace", TOKENS.ok)}</div></article>`;
+  return `<article class="panel span-12 personalization-panel" data-personalization-panel style="--accent:${selectedAccent()};"><div class="setup-head"><div><div class="panel-label">personalization</div><h3 class="empty-title">Tune the workspace before the full layout builder lands.</h3><p class="row-subtitle">These preferences persist now and become the compatibility layer for saved layouts, profiles, and drag-reordered widgets later.</p></div>${pill(`${prefs.theme} / ${prefs.density}`, selectedAccent())}</div><div class="gradient-preview" style="--preview-gradient:${selectedGradient().css};"><div><div class="panel-label">student gradient</div><strong>${escapeHtml(PREFERENCE_OPTIONS.gradientProfile.find(([value]) => value === prefs.gradientProfile)?.[1] || "Study Neon")}</strong><span>Change the atmosphere without changing your data.</span></div></div><div class="preference-grid"><div><div class="subtle-label">Theme</div>${preferenceButtons("theme")}</div><div><div class="subtle-label">Density</div>${preferenceButtons("density")}</div><div><div class="subtle-label">Type Scale</div>${preferenceButtons("fontScale")}</div><div><div class="subtle-label">Accent</div>${preferenceButtons("accentProfile")}</div><div><div class="subtle-label">Gradient</div>${preferenceButtons("gradientProfile")}</div><div><div class="subtle-label">Layout Profile</div>${preferenceButtons("layoutProfile")}</div><div class="state-notice" style="--accent:${selectedAccent()};"><div class="row-badge">${iconSvg("command", "Layout profile")}</div><div><strong>${escapeHtml(PREFERENCE_OPTIONS.layoutProfile.find(([value]) => value === prefs.layoutProfile)?.[1] || "Guided")}</strong><div>${escapeHtml(layoutCopy)}</div></div></div></div><div class="source-actions" style="margin-top:1rem;"><button class="surface-action" data-preference-reset>Reset Preferences</button>${pill("Saved to workspace", TOKENS.ok)}</div></article>`;
 }
 
 function widgetManagerRow(widget, widgets) {
@@ -2495,7 +2534,8 @@ function renderApp() {
   intel.planChanges = state.lastPlanChanges || latestPlanChanges;
   const prefs = normalizePreferences(state.preferences);
   const shellClass = `theme-${prefs.theme} density-${prefs.density} text-${prefs.fontScale} layout-${prefs.layoutProfile}`;
-  app.innerHTML = `<div class="app-shell ${shellClass}" style="--accent:${selectedAccent(domain.id)};"><a class="skip-link" href="#main-content">Skip to content</a><div class="ambient"><div class="orb orb--one"></div><div class="orb orb--two"></div><div class="orb orb--three"></div></div><aside class="sidebar ${state.sidebarCollapsed ? "is-collapsed" : ""}"><div class="brand"><div class="brand-mark">${iconSvg("command")}</div><div class="brand-copy"><h1>APEX</h1><p>Universal 2.0</p></div></div><nav class="sidebar-nav" aria-label="Primary sections">${DOMAINS.map((item) => `<button class="nav-button ${state.activeDomain === item.id ? "is-active" : ""}" data-domain="${item.id}" style="--accent:${colorFor(item.id)};" aria-current="${state.activeDomain === item.id ? "page" : "false"}"><span class="nav-icon">${iconSvg(item.id, item.label)}</span><span class="nav-copy"><strong>${item.label}</strong><span>${item.blurb}</span></span></button>`).join("")}</nav><div class="sidebar-footer"><button class="collapse-button" data-collapse-sidebar aria-label="${state.sidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"}"><span>${state.sidebarCollapsed ? "&#9654;" : "&#9664;"}</span><span>${state.sidebarCollapsed ? "Expand" : "Collapse"}</span></button></div></aside><main class="main" id="main-content"><header class="topbar"><div class="topbar-title"><div class="topbar-icon">${iconSvg(domain.id, domain.label)}</div><div class="topbar-copy"><h2>APEX ${domain.label}</h2><p>${formatToday()} &middot; ${state.auth.user.email}</p></div></div><div class="topbar-metrics"><button class="mobile-menu-trigger" data-mobile-nav-open aria-label="Open mobile menu"><span>${iconSvg(domain.id, "Mobile menu")}</span><strong>Menu</strong></button><button class="command-trigger" data-command-open aria-label="Open command palette"><span>${iconSvg("command", "Command palette")}</span><strong>Search</strong><kbd>Ctrl K</kbd></button><div class="metric-pill"><span class="metric-dot"></span><span>Load</span><strong data-shell-load>${intel.loadDisplay || `${intel.loadScore}%`}</strong></div><div class="metric-pill"><span class="metric-dot" style="background:${TOKENS.command};"></span><span>Cloud</span><strong data-shell-cloud>${state.cloudSaveStatus}</strong></div><div class="metric-pill"><span class="metric-dot" data-shell-source-dot style="background:${statusTone(state.sourceConfig.lastSyncStatus)};"></span><span>Source</span><strong data-shell-source>${state.sourceConfig.lastSyncStatus}</strong></div><button class="metric-pill metric-button ${unreadNotifications().length ? "has-unread" : ""}" data-notification-toggle type="button" aria-label="Open notification center"><span class="metric-dot" data-shell-notification-dot style="background:${unreadNotifications().length ? TOKENS.warn : TOKENS.ok};"></span><span>Alerts</span><strong data-shell-notifications>${unreadNotifications().length}</strong></button><button class="surface-action" data-domain="command" data-scroll-personalization>Personalize</button><button class="surface-action" data-auth-signout>Sign Out</button><div class="mini-domain-rail" aria-label="Quick sections">${DOMAINS.filter((item) => item.id !== "command").map((item) => `<button class="stat-dot-button ${item.id === state.activeDomain ? "is-active" : ""}" data-domain="${item.id}" style="--dot:${colorFor(item.id)};" title="${item.label}" aria-label="Open ${item.label}"></button>`).join("")}</div></div></header><div class="content">${renderContent(intel)}</div></main>${renderOnboarding()}${renderSectionHelp()}</div>`;
+  const gradient = selectedGradient(prefs.gradientProfile);
+  app.innerHTML = `<div class="app-shell ${shellClass}" style="--accent:${selectedAccent(domain.id)}; --student-gradient:${gradient.css}; --student-gradient-soft:${gradient.soft};"><a class="skip-link" href="#main-content">Skip to content</a><div class="ambient"><div class="orb orb--one"></div><div class="orb orb--two"></div><div class="orb orb--three"></div></div><aside class="sidebar ${state.sidebarCollapsed ? "is-collapsed" : ""}"><div class="brand"><div class="brand-mark">${iconSvg("command")}</div><div class="brand-copy"><h1>APEX</h1><p>Universal 2.0</p></div></div><nav class="sidebar-nav" aria-label="Primary sections">${DOMAINS.map((item) => `<button class="nav-button ${state.activeDomain === item.id ? "is-active" : ""}" data-domain="${item.id}" style="--accent:${colorFor(item.id)};" aria-current="${state.activeDomain === item.id ? "page" : "false"}"><span class="nav-icon">${iconSvg(item.id, item.label)}</span><span class="nav-copy"><strong>${item.label}</strong><span>${item.blurb}</span></span></button>`).join("")}</nav><div class="sidebar-footer"><button class="collapse-button" data-collapse-sidebar aria-label="${state.sidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"}"><span>${state.sidebarCollapsed ? "&#9654;" : "&#9664;"}</span><span>${state.sidebarCollapsed ? "Expand" : "Collapse"}</span></button></div></aside><main class="main" id="main-content"><header class="topbar"><div class="topbar-title"><div class="topbar-icon">${iconSvg(domain.id, domain.label)}</div><div class="topbar-copy"><h2>APEX ${domain.label}</h2><p>${formatToday()} &middot; ${state.auth.user.email}</p></div></div><div class="topbar-metrics"><button class="mobile-menu-trigger" data-mobile-nav-open aria-label="Open mobile menu"><span>${iconSvg(domain.id, "Mobile menu")}</span><strong>Menu</strong></button><button class="command-trigger" data-command-open aria-label="Open command palette"><span>${iconSvg("command", "Command palette")}</span><strong>Search</strong><kbd>Ctrl K</kbd></button><div class="metric-pill"><span class="metric-dot"></span><span>Load</span><strong data-shell-load>${intel.loadDisplay || `${intel.loadScore}%`}</strong></div><div class="metric-pill"><span class="metric-dot" style="background:${TOKENS.command};"></span><span>Cloud</span><strong data-shell-cloud>${state.cloudSaveStatus}</strong></div><div class="metric-pill"><span class="metric-dot" data-shell-source-dot style="background:${statusTone(state.sourceConfig.lastSyncStatus)};"></span><span>Source</span><strong data-shell-source>${state.sourceConfig.lastSyncStatus}</strong></div><button class="metric-pill metric-button ${unreadNotifications().length ? "has-unread" : ""}" data-notification-toggle type="button" aria-label="Open notification center"><span class="metric-dot" data-shell-notification-dot style="background:${unreadNotifications().length ? TOKENS.warn : TOKENS.ok};"></span><span>Alerts</span><strong data-shell-notifications>${unreadNotifications().length}</strong></button><button class="surface-action" data-domain="command" data-scroll-personalization>Personalize</button><button class="surface-action" data-auth-signout>Sign Out</button><div class="mini-domain-rail" aria-label="Quick sections">${DOMAINS.filter((item) => item.id !== "command").map((item) => `<button class="stat-dot-button ${item.id === state.activeDomain ? "is-active" : ""}" data-domain="${item.id}" style="--dot:${colorFor(item.id)};" title="${item.label}" aria-label="Open ${item.label}"></button>`).join("")}</div></div></header><div class="content">${renderContent(intel)}</div></main>${renderOnboarding()}${renderSectionHelp()}</div>`;
   state.lastPlanSnapshot = nextPlanSnapshot;
   persistPlanSnapshotOnly();
   renderToast();
