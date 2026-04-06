@@ -1021,6 +1021,7 @@ async function markAllNotificationsRead() {
 }
 
 function formatHourLabel(hour) {
+  if (Number(hour) === 24) return "12:00 AM";
   const normalized = hour % 12 || 12;
   return `${normalized}:00 ${hour >= 12 ? "PM" : "AM"}`;
 }
@@ -1119,6 +1120,12 @@ function heroBand(intel) {
 function renderConstraintPanel(intel) {
   const hard = intel.constraintsUsed.hard;
   const soft = intel.constraintsUsed.soft;
+  const dayparts = [
+    ["none", "No reserved daypart"],
+    ["morning", "Reserve morning"],
+    ["afternoon", "Reserve afternoon"],
+    ["evening", "Reserve evening"],
+  ];
   return `<article class="panel span-6" style="--accent:${TOKENS.command};"><div class="panel-label">constraint studio</div><div class="control-grid"><div class="control-card"><div class="subtle-label">Hard guardrails</div><div class="toggle-grid">${[
     ["lockClasses", "Lock classes"],
     ["lockWorkShifts", "Lock work shifts"],
@@ -1127,13 +1134,17 @@ function renderConstraintPanel(intel) {
     ["minSleepHours", "Minimum sleep", hard.minSleepHours, 6, 9, 1, `${hard.minSleepHours}h`],
     ["windDownHour", "Wind-down hour", hard.windDownHour, 20, 24, 1, formatHourLabel(hard.windDownHour)],
     ["maxFocusBlockMinutes", "Max focus block", hard.maxFocusBlockMinutes, 30, 120, 15, `${hard.maxFocusBlockMinutes}m`],
-  ].map(([key, label, value, min, max, step, display]) => `<label class="field-shell"><div class="field-row"><span>${label}</span><strong>${display}</strong></div><input type="range" min="${min}" max="${max}" step="${step}" value="${value}" data-constraint-range-group="hard" data-constraint-range-key="${key}" /></label>`).join("")}</div></div><div class="control-card"><div class="subtle-label">Soft preferences</div><div class="field-stack">${[
+  ].map(([key, label, value, min, max, step, display]) => `<label class="field-shell"><div class="field-row"><span>${label}</span><strong>${display}</strong></div><input type="range" min="${min}" max="${max}" step="${step}" value="${value}" data-constraint-range-group="hard" data-constraint-range-key="${key}" /></label>`).join("")}</div></div><div class="control-card"><div class="subtle-label">Human override rules</div><div class="field-stack">${[
+    ["earliestScheduleHour", "Never schedule before", hard.earliestScheduleHour, 0, 14, 1, formatHourLabel(hard.earliestScheduleHour)],
+    ["latestScheduleHour", "Avoid scheduling after", hard.latestScheduleHour, 12, 24, 1, formatHourLabel(hard.latestScheduleHour)],
+    ["maxDeepWorkBlocks", "Max deep-work blocks", hard.maxDeepWorkBlocks, 0, 6, 1, `${hard.maxDeepWorkBlocks}/day`],
+  ].map(([key, label, value, min, max, step, display]) => `<label class="field-shell"><div class="field-row"><span>${label}</span><strong>${display}</strong></div><input type="range" min="${min}" max="${max}" step="${step}" value="${value}" data-constraint-range-group="hard" data-constraint-range-key="${key}" /></label>`).join("")}</div><div class="toggle-grid toggle-grid--wide">${dayparts.map(([value, label]) => `<button class="toggle-chip ${hard.reservedDaypart === value ? "is-active" : ""}" data-override-daypart="${value}" style="--accent:${TOKENS.command};"><span>${label}</span><strong>${hard.reservedDaypart === value ? "On" : "Off"}</strong></button>`).join("")}</div></div><div class="control-card"><div class="subtle-label">Soft preferences</div><div class="field-stack">${[
     ["morningFocusBias", "Morning focus bias", soft.morningFocusBias],
     ["lowEnergyProtection", "Low-energy protection", soft.lowEnergyProtection],
     ["keepEveningLight", "Keep evenings light", soft.keepEveningLight],
     ["protectFutureWork", "Protect future work", soft.protectFutureWork],
     ["batchShallowWork", "Batch shallow work", soft.batchShallowWork],
-  ].map(([key, label, value]) => `<label class="field-shell"><div class="field-row"><span>${label}</span><strong>${value}/8</strong></div><input type="range" min="0" max="8" step="1" value="${value}" data-constraint-range-group="soft" data-constraint-range-key="${key}" /></label>`).join("")}</div><div class="hero-actions"><button class="surface-action" data-reset-constraints>Reset defaults</button></div></div></div><div class="footer-note">Hard rules change feasibility. Soft rules tell the solver which valid option feels most like your actual operating style.</div></article>`;
+  ].map(([key, label, value]) => `<label class="field-shell"><div class="field-row"><span>${label}</span><strong>${value}/8</strong></div><input type="range" min="0" max="8" step="1" value="${value}" data-constraint-range-group="soft" data-constraint-range-key="${key}" /></label>`).join("")}</div><div class="hero-actions"><button class="surface-action" data-reset-constraints>Reset defaults</button></div></div></div><div class="footer-note">Human override rules change feasibility directly. Use them for real-life boundaries like mornings, evenings, and reserved planning time.</div></article>`;
 }
 
 function renderScheduleModePanel(intel) {
@@ -1488,6 +1499,8 @@ doc?.addEventListener("click", async (event) => {
   if (score) { state.checkin[score.dataset.scoreField] = Number(score.dataset.scoreValue); rerender(); return; }
   const toggle = target.closest("[data-constraint-toggle-key]");
   if (toggle) { updateConstraint(toggle.dataset.constraintToggleGroup, toggle.dataset.constraintToggleKey, !state.constraints[toggle.dataset.constraintToggleGroup][toggle.dataset.constraintToggleKey]); return; }
+  const daypart = target.closest("[data-override-daypart]");
+  if (daypart) { updateConstraint("hard", "reservedDaypart", daypart.dataset.overrideDaypart); return; }
   if (target.closest("[data-reset-constraints]")) { state.constraints = clone(DEFAULT_CONSTRAINTS); rerender(); return; }
   if (target.closest("[data-source-toggle='autoSync']")) { state.sourceConfig = { ...state.sourceConfig, autoSync: !state.sourceConfig.autoSync }; rerender(); scheduleAutoSync(); return; }
   if (target.closest("[data-use-local-source]")) { state.sourceConfig = { ...state.sourceConfig, remoteUrl: "/api/source/live" }; rerender(); scheduleAutoSync(); return; }

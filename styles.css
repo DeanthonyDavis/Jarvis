@@ -1027,6 +1027,11 @@ textarea:focus-visible {
   gap: 0.65rem;
 }
 
+.toggle-grid--wide {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
 .toggle-chip {
   display: flex;
   align-items: center;
@@ -2131,6 +2136,7 @@ textarea:focus-visible {
   .connector-grid,
   .mode-grid,
   .mode-preview-grid,
+  .toggle-grid--wide,
   .why-plan-layout,
   .plan-change-card,
   .solver-grid,
@@ -2201,6 +2207,7 @@ textarea:focus-visible {
   .connector-grid,
   .mode-grid,
   .mode-preview-grid,
+  .toggle-grid--wide,
   .why-plan-layout,
   .plan-change-card,
   .solver-grid,

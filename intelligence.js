@@ -140,10 +140,19 @@ function overlapScore(a, b) {
 }
 
 export function normalizeConstraints(input = {}) {
+  const hardInput = input.hard || {};
+  const earliestScheduleHour = CLAMP(Number(hardInput.earliestScheduleHour ?? DEFAULT_CONSTRAINTS.hard.earliestScheduleHour), 0, 18);
+  const latestScheduleHour = CLAMP(Number(hardInput.latestScheduleHour ?? DEFAULT_CONSTRAINTS.hard.latestScheduleHour), earliestScheduleHour + 1, 24);
   return {
     hard: {
       ...DEFAULT_CONSTRAINTS.hard,
-      ...(input.hard || {}),
+      ...hardInput,
+      earliestScheduleHour,
+      latestScheduleHour,
+      maxDeepWorkBlocks: CLAMP(Number(hardInput.maxDeepWorkBlocks ?? DEFAULT_CONSTRAINTS.hard.maxDeepWorkBlocks), 0, 8),
+      reservedDaypart: ["none", "morning", "afternoon", "evening"].includes(hardInput.reservedDaypart)
+        ? hardInput.reservedDaypart
+        : DEFAULT_CONSTRAINTS.hard.reservedDaypart,
     },
     soft: {
       ...DEFAULT_CONSTRAINTS.soft,
@@ -327,19 +336,33 @@ function buildScheduleBlocks(schedule, now, constraints) {
   const base = startOfDay(now);
   const marks = getScheduleMinuteMarks(schedule);
   const windDownMinutes = CLAMP(Number(constraints.hard.windDownHour) || 22, 18, 24) * 60;
+  const earliestMinutes = CLAMP(Number(constraints.hard.earliestScheduleHour) || 0, 0, 18) * 60;
+  const latestMinutes = CLAMP(Number(constraints.hard.latestScheduleHour) || constraints.hard.windDownHour || 22, 1, 24) * 60;
+  let focusBlockCount = 0;
   return schedule.map((item, index) => {
     const kind = inferScheduleKind(item);
     const start = addMinutes(base, marks[index]);
     const end = addMinutes(start, Number(item.mins) || 0);
-    const availableStart = start > now ? start : now;
-    const availableEnd = end < addMinutes(base, windDownMinutes) ? end : addMinutes(base, windDownMinutes);
+    const earliestStart = addMinutes(base, earliestMinutes);
+    const latestEnd = addMinutes(base, Math.min(windDownMinutes, latestMinutes));
+    const availableStart = new Date(Math.max(start.getTime(), now.getTime(), earliestStart.getTime()));
+    const availableEnd = new Date(Math.min(end.getTime(), latestEnd.getTime()));
     const liveMinutes = Math.max(0, diffMinutes(availableEnd, availableStart));
     const lockedBy = [];
     if (kind === "class" && constraints.hard.lockClasses) lockedBy.push("class");
     if (kind === "work" && constraints.hard.lockWorkShifts) lockedBy.push("work");
     if (kind === "recovery" && constraints.hard.protectRecoveryBlocks) lockedBy.push("recovery");
     if (marks[index] >= windDownMinutes) lockedBy.push("wind-down");
+    if (end <= earliestStart) lockedBy.push("before-earliest");
+    if (start >= latestEnd) lockedBy.push("after-latest");
     if (end <= now) lockedBy.push("elapsed");
+    if (kind === "focus") {
+      focusBlockCount += 1;
+      if (focusBlockCount > constraints.hard.maxDeepWorkBlocks) lockedBy.push("deep-work-limit");
+    }
+    if (matchesReservedDaypart(start, constraints.hard.reservedDaypart) && kind !== "class" && kind !== "work") {
+      lockedBy.push(`reserved-${constraints.hard.reservedDaypart}`);
+    }
     return {
       ...item,
       start,
@@ -364,6 +387,14 @@ function hoursBadge(date) {
   if (hour < 17) return "afternoon";
   if (hour < 21) return "evening";
   return "night";
+}
+
+function matchesReservedDaypart(date, daypart) {
+  const hour = date.getHours();
+  if (daypart === "morning") return hour >= 5 && hour < 12;
+  if (daypart === "afternoon") return hour >= 12 && hour < 17;
+  if (daypart === "evening") return hour >= 17 && hour < 22;
+  return false;
 }
 
 function chunkUnscheduledPenalty(chunk, now) {
@@ -483,7 +514,15 @@ function explainBlock(block, assignedMinutes, remainingMinutes) {
           ? "Recovery protection preserved"
           : block.lockedBy.includes("wind-down")
             ? "Wind-down boundary preserved"
-            : "Hard guardrail preserved";
+            : block.lockedBy.includes("before-earliest")
+              ? "Earliest-start override preserved"
+              : block.lockedBy.includes("after-latest")
+                ? "Latest-end override preserved"
+                : block.lockedBy.includes("deep-work-limit")
+                  ? "Deep-work limit preserved"
+                  : block.lockedBy.some((reason) => reason.startsWith("reserved-"))
+                    ? "Reserved daypart preserved"
+                    : "Hard guardrail preserved";
     return {
       primaryReason: label,
       supportingReasons: [`${block.label} stayed fixed because it is a ${block.kind} block.`],
@@ -525,7 +564,9 @@ function explainUnscheduledChunk(chunk, candidateCount, constraints) {
       supportingReasons: reasons.slice(1, 4),
       constraintsApplied: [
         `max focus ${constraints.hard.maxFocusBlockMinutes}m`,
+        `schedule window ${constraints.hard.earliestScheduleHour}:00-${constraints.hard.latestScheduleHour}:00`,
         `wind-down ${constraints.hard.windDownHour}:00`,
+        constraints.hard.reservedDaypart !== "none" ? `reserved ${constraints.hard.reservedDaypart}` : "no reserved daypart",
       ],
       tradeoffs: ["APEX surfaced this instead of silently overbooking the day."],
       confidence: chunk.urgent ? 86 : 72,
@@ -879,8 +920,11 @@ function buildPlanExplanation({ solver, constraints, checkin, loadLabel }) {
       constraints.hard.lockClasses ? "classes locked" : "classes flexible",
       constraints.hard.lockWorkShifts ? "work shifts locked" : "work shifts flexible",
       constraints.hard.protectRecoveryBlocks ? "recovery protected" : "recovery flexible",
+      `schedule window ${constraints.hard.earliestScheduleHour}:00-${constraints.hard.latestScheduleHour}:00`,
       `wind-down ${constraints.hard.windDownHour}:00`,
       `max focus ${constraints.hard.maxFocusBlockMinutes}m`,
+      `max deep work ${constraints.hard.maxDeepWorkBlocks}`,
+      constraints.hard.reservedDaypart !== "none" ? `reserved ${constraints.hard.reservedDaypart}` : "no reserved daypart",
     ],
     confidence: unscheduled.filter((chunk) => chunk.urgent).length ? 68 : assignedBlocks.length ? 84 : 72,
     unscheduled,

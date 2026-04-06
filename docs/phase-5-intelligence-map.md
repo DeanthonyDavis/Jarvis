@@ -9,6 +9,7 @@ Already shipped:
 - Schedule modes: Balanced, Focus Week, Light Recovery, Finals Mode, Work-Heavy, and Catch-Up.
 - Mode overlays that adjust solver weights without deleting user-defined hard and soft constraints.
 - Mode previews that show expected tradeoffs, risk copy, and plan deltas before applying a mode.
+- Human override rules for scheduling windows, deep-work limits, and reserved dayparts.
 - Structured solver explanations on assigned, locked, open, and unscheduled schedule outcomes.
 - A Command Center "Why this plan?" panel with reasons, tradeoffs, constraints, confidence, and carryover.
 - A "What changed since last plan" comparison backed by a local schedule-run snapshot.
@@ -65,18 +66,17 @@ Definition of done:
 Current state:
 
 - Users can adjust hard/soft constraints manually.
+- Users can set explicit scheduling windows: never before X and avoid after Y.
+- Users can cap deep-work blocks per day.
+- Users can reserve morning, afternoon, or evening as a hard daypart guardrail.
 
 Remaining work:
 
 - Add explicit override rules:
-  - Never schedule before a chosen time.
-  - Avoid scheduling after a chosen time.
-  - Max deep-work blocks per day.
-  - Reserve a daypart for planning or recovery.
   - Avoid scheduling a domain after another domain.
   - Keep commute or transition buffers around locked events.
 - Store overrides in `apex_constraint_rules`.
-- Show which override blocked or moved work.
+- Promote overrides from the workspace blob into `apex_constraint_rules`.
 
 Definition of done:
 
@@ -200,7 +200,7 @@ Definition of done:
 2. Add the "Why this plan?" Command Center panel. Done.
 3. Add "What changed since last plan" comparison. Done locally; promote to `apex_schedule_runs` during Workstream 8.
 4. Add mode preview and mode tradeoff copy. Done.
-5. Add explicit human override rules and store them in `apex_constraint_rules`.
+5. Add explicit human override rules and store them in `apex_constraint_rules`. Partially done; UI and solver support are live, table persistence remains.
 6. Add Daily Briefing and Weekly Briefing objects to the intelligence engine.
 7. Add confidence levels and source-reference fields.
 8. Add trend-based burnout risk from check-in history and load spikes.
