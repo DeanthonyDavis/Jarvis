@@ -5,6 +5,7 @@ import {
   normalizeConstraints,
 } from "./intelligence.js";
 import {
+  createActivityLogRecord,
   createIntegrationEventRecord,
   createNotificationRecord,
   createNoteRecord,
@@ -16,6 +17,7 @@ import {
   loadNotificationRecords,
   loadNoteRecords,
   loadIntegrationRecords,
+  loadActivityLogRecords,
   loadSyllabusRecords,
   loadUploadRecords,
   loadUserWorkspace,
@@ -205,6 +207,7 @@ const DEFAULT_COMMAND_WIDGETS = [
   { id: "constraints", type: "scheduler", title: "Constraint Studio", visible: true, pinned: false, order: 120, size: "full", profile: "all" },
   { id: "sources", type: "integrations", title: "Live Data Sources", visible: true, pinned: false, order: 130, size: "half", profile: "operator" },
   { id: "connectors", type: "integrations", title: "Connector Framework", visible: true, pinned: false, order: 140, size: "half", profile: "operator" },
+  { id: "activity", type: "system", title: "Activity Log", visible: true, pinned: false, order: 145, size: "half", profile: "operator" },
   { id: "schedule", type: "scheduler", title: "Optimized Schedule", visible: true, pinned: true, order: 150, size: "full", profile: "all" },
 ];
 
@@ -212,13 +215,13 @@ const COMMAND_WIDGET_PROFILE_PRESETS = {
   guided: {
     label: "Guided",
     description: "Setup, personalization, priorities, conflicts, source connections, and the schedule stay visible for first-time users.",
-    visible: ["setup", "personalization", "briefing", "capacity", "conflicts", "recommendations", "sources", "connectors", "schedule"],
+    visible: ["setup", "personalization", "briefing", "capacity", "conflicts", "recommendations", "sources", "connectors", "activity", "schedule"],
     pinned: ["setup", "briefing", "capacity", "conflicts", "schedule"],
   },
   operator: {
     label: "Operator",
     description: "Daily operating panels stay visible: solver health, conflicts, week view, constraints, sources, connectors, and schedule.",
-    visible: ["briefing", "solver", "capacity", "conflicts", "week", "why", "constraints", "sources", "connectors", "schedule"],
+    visible: ["briefing", "solver", "capacity", "conflicts", "week", "why", "constraints", "sources", "connectors", "activity", "schedule"],
     pinned: ["briefing", "solver", "capacity", "conflicts", "schedule"],
   },
   focus: {
@@ -251,6 +254,7 @@ function defaultSnapshot() {
     notifications: [],
     notificationPanelOpen: false,
     notificationStatus: "local",
+    activityLog: [],
     integrations: clone(CONNECTOR_TEMPLATES).map((item) => ({
       ...item,
       status: "disconnected",
@@ -334,6 +338,7 @@ function loadState() {
       notifications: Array.isArray(saved.notifications) ? saved.notifications : defaults.notifications,
       notificationPanelOpen: Boolean(saved.notificationPanelOpen),
       notificationStatus: saved.notificationStatus || defaults.notificationStatus,
+      activityLog: Array.isArray(saved.activityLog) ? saved.activityLog : defaults.activityLog,
       integrations: Array.isArray(saved.integrations) ? saved.integrations : defaults.integrations,
       noteSearch: saved.noteSearch || "",
       activeNoteId: saved.activeNoteId ?? defaults.activeNoteId,
@@ -529,6 +534,7 @@ function saveState() {
       notifications: state.notifications,
       notificationPanelOpen: state.notificationPanelOpen,
       notificationStatus: state.notificationStatus,
+      activityLog: state.activityLog,
       integrations: state.integrations,
       noteSearch: state.noteSearch,
       activeNoteId: state.activeNoteId,
@@ -562,6 +568,7 @@ function userWorkspaceState() {
     workspace: state.workspace,
     notifications: state.notifications,
     notificationStatus: state.notificationStatus,
+    activityLog: state.activityLog,
     integrations: state.integrations,
     noteSearch: state.noteSearch,
     activeNoteId: state.activeNoteId,
@@ -594,6 +601,7 @@ function applyWorkspaceState(workspace) {
   state.workspace = { ...base.workspace, ...(workspace?.workspace || {}) };
   state.notifications = Array.isArray(workspace?.notifications) ? workspace.notifications : base.notifications;
   state.notificationStatus = workspace?.notificationStatus || base.notificationStatus;
+  state.activityLog = Array.isArray(workspace?.activityLog) ? workspace.activityLog : base.activityLog;
   state.notificationPanelOpen = Boolean(workspace?.notificationPanelOpen);
   state.integrations = Array.isArray(workspace?.integrations) ? workspace.integrations : base.integrations;
   state.noteSearch = workspace?.noteSearch || "";
@@ -720,6 +728,42 @@ function normalizeNotification(record) {
     dismissed_at: record.dismissed_at || null,
     local: Boolean(record.local),
   };
+}
+
+function normalizeActivity(record) {
+  const after = record.afterState || record.after_state || {};
+  return {
+    id: record.id || localId("activity"),
+    entityType: record.entityType || record.entity_type || "workspace",
+    entityId: record.entityId || record.entity_id || null,
+    actionType: record.actionType || record.action_type || "updated",
+    beforeState: record.beforeState ?? record.before_state ?? null,
+    afterState: after,
+    source: record.source || "app",
+    createdAt: record.createdAt || record.created_at || new Date().toISOString(),
+    local: Boolean(record.local),
+  };
+}
+
+function activityLabel(activity) {
+  const labels = {
+    upload: "Upload",
+    syllabus: "Syllabus",
+    note: "Note",
+    integration: "Connector",
+    notification: "Notification",
+    scheduler: "Scheduler",
+    source: "Source",
+    mind: "Mind",
+    task: "Task",
+    onboarding: "Onboarding",
+  };
+  return labels[activity.entityType] || activity.entityType.replace(/_/g, " ");
+}
+
+function activitySummary(activity) {
+  const detail = activity.afterState?.summary || activity.afterState?.title || activity.afterState?.message || activity.afterState?.provider || "";
+  return detail || `${activity.actionType.replace(/_/g, " ")} from ${activity.source}`;
 }
 
 function normalizeUpload(record) {
@@ -916,6 +960,35 @@ async function notifyUser(notification, { toast = true } = {}) {
   }
 }
 
+function renderActivityLogPanelOnly() {
+  const panel = doc?.querySelector("[data-activity-panel]");
+  if (panel) panel.outerHTML = renderActivityPanel();
+}
+
+async function logActivity(activity) {
+  const normalized = normalizeActivity({ ...activity, local: true });
+  state.activityLog = [normalized, ...state.activityLog].slice(0, 50);
+  saveState();
+  renderActivityLogPanelOnly();
+
+  if (!state.workspace.phase2Enabled || !state.workspace.id || !state.auth.client || !state.auth.user) return;
+  try {
+    const created = await createActivityLogRecord(state.auth.client, state.workspace.id, state.auth.user.id, {
+      ...activity,
+      entityId: isUuid(activity.entityId) ? activity.entityId : null,
+    });
+    state.activityLog = state.activityLog.map((item) => item.id === normalized.id ? normalizeActivity(created) : item);
+    saveState();
+    renderActivityLogPanelOnly();
+  } catch (error) {
+    state.workspace = {
+      ...state.workspace,
+      error: error instanceof Error ? error.message : "Activity log unavailable.",
+    };
+    saveState();
+  }
+}
+
 async function attachSourceFiles(files) {
   const fileList = [...files];
   if (!fileList.length) return;
@@ -938,6 +1011,14 @@ async function attachSourceFiles(files) {
     body: "Your files were added as source records. Text extraction and review are the next pipeline step.",
     severity: "success",
   });
+  logActivity({
+    entityType: "upload",
+    actionType: "attached",
+    afterState: {
+      summary: `${fileList.length} source file${fileList.length === 1 ? "" : "s"} attached`,
+      filenames: fileList.map((file) => file.name).slice(0, 12),
+    },
+  });
 
   if (!state.workspace.phase2Enabled || !state.workspace.id || !state.auth.client) return;
   try {
@@ -952,6 +1033,14 @@ async function attachSourceFiles(files) {
     ].slice(0, 100);
     saveState();
     renderApp();
+    logActivity({
+      entityType: "upload",
+      actionType: "synced_metadata",
+      afterState: {
+        summary: `${created.length} upload record${created.length === 1 ? "" : "s"} synced to Supabase`,
+        uploadIds: created.map((item) => item.id).filter(isUuid),
+      },
+    });
   } catch (error) {
     state.workspace = {
       ...state.workspace,
@@ -986,6 +1075,17 @@ async function startSyllabusReview(uploadId) {
     sourceEntityType: "upload",
     sourceEntityId: upload.id,
   });
+  logActivity({
+    entityType: "syllabus",
+    entityId: isUuid(draft.id) ? draft.id : null,
+    actionType: "review_started",
+    afterState: {
+      title: draft.title,
+      summary: "Syllabus review card created from upload metadata.",
+      uploadName: upload.name,
+      parseStatus: draft.parseStatus,
+    },
+  });
 
   if (!state.workspace.phase2Enabled || !state.workspace.id || !state.auth.client) return;
   try {
@@ -997,6 +1097,12 @@ async function startSyllabusReview(uploadId) {
     state.syllabusReviews = state.syllabusReviews.map((item) => item.id === draft.id ? created : item);
     saveState();
     renderApp();
+    logActivity({
+      entityType: "syllabus",
+      entityId: isUuid(created.id) ? created.id : null,
+      actionType: "synced_review",
+      afterState: { title: created.title, parseStatus: created.parseStatus },
+    });
   } catch (error) {
     state.workspace = {
       ...state.workspace,
@@ -1030,6 +1136,13 @@ async function confirmSyllabusReview(reviewId) {
     severity: "success",
     sourceEntityType: "syllabus",
     sourceEntityId: reviewId,
+  });
+  logActivity({
+    entityType: "syllabus",
+    entityId: isUuid(reviewId) ? reviewId : null,
+    actionType: "confirmed",
+    beforeState: { parseStatus: current.parseStatus, confidence: current.confidence },
+    afterState: { title: updated.title, parseStatus: updated.parseStatus, confidence: updated.confidence },
   });
 
   if (!state.workspace.phase2Enabled || !state.auth.client || !isUuid(reviewId)) return;
@@ -1069,6 +1182,12 @@ async function createNotebookNote() {
     body: "Your note is ready. It autosaves locally and syncs to Supabase when the Phase 2 schema is active.",
     severity: "success",
   });
+  logActivity({
+    entityType: "note",
+    entityId: isUuid(note.id) ? note.id : null,
+    actionType: "created",
+    afterState: { title: note.title, domain: note.domain, tags: note.tags },
+  });
 
   if (!state.workspace.phase2Enabled || !state.workspace.id || !state.auth.client) return;
   try {
@@ -1077,6 +1196,12 @@ async function createNotebookNote() {
     state.activeNoteId = cloud.id;
     saveState();
     renderApp();
+    logActivity({
+      entityType: "note",
+      entityId: isUuid(cloud.id) ? cloud.id : null,
+      actionType: "synced",
+      afterState: { title: cloud.title, domain: cloud.domain },
+    });
   } catch (error) {
     state.workspace = {
       ...state.workspace,
@@ -1178,6 +1303,22 @@ async function updateIntegration(provider, patch, { toast = false, event = null 
   renderApp();
   await persistIntegration(updated);
   await persistIntegrationEvent(updated, event);
+  if (event) {
+    logActivity({
+      entityType: "integration",
+      entityId: isUuid(updated.id) ? updated.id : null,
+      actionType: event.eventType || event.type || "updated",
+      beforeState: { status: current.status, authState: current.authState, syncStatus: current.syncStatus },
+      afterState: {
+        provider: updated.provider,
+        title: updated.displayName,
+        status: updated.status,
+        authState: updated.authState,
+        syncStatus: updated.syncStatus,
+        message: event.message,
+      },
+    });
+  }
   if (toast) {
     notifyUser({
       type: "integration_update",
@@ -1650,6 +1791,7 @@ function commandPaletteItems() {
     { id: "personalization", title: "Open Personalization", subtitle: "Theme, density, type scale, accent, and layout profile.", domain: "command", scrollSelector: "[data-personalization-panel]", widgetId: "personalization", keywords: "theme density font scale accent layout profile personalize" },
     { id: "widgets", title: "Open Widget Layout", subtitle: "Pin, hide, restore, and reorder Command Center widgets.", domain: "command", scrollSelector: "[data-widget-manager-panel]", keywords: "widgets layout pin hide order dashboard customize" },
     { id: "connectors", title: "Open Connector Framework", subtitle: "Inspect auth, sync, webhooks, and provider lifecycle state.", domain: "command", scrollSelector: "[data-connector-panel]", widgetId: "connectors", keywords: "connect accounts canvas google calendar plaid deputy health webhook integrations" },
+    { id: "activity", title: "Open Activity Log", subtitle: "Review setup, upload, connector, and review audit events.", domain: "command", scrollSelector: "[data-activity-panel]", widgetId: "activity", keywords: "activity log audit history events trace debugging" },
     { id: "sources", title: "Open Live Data Sources", subtitle: "Sync local JSON, manual payloads, and webhook-fed source data.", domain: "command", scrollSelector: "[data-source-panel]", widgetId: "sources", keywords: "live data sources json sync payload webhook" },
     { id: "constraints", title: "Open Constraint Studio", subtitle: "Tune hard guardrails, soft preferences, and human override rules.", domain: "command", scrollSelector: "[data-constraint-panel]", widgetId: "constraints", keywords: "constraints schedule guardrails overrides solver" },
     { id: "modes", title: "Open Schedule Modes", subtitle: "Preview Balanced, Focus Week, Recovery, Finals, Work-Heavy, and Catch-Up modes.", domain: "command", scrollSelector: "[data-schedule-mode-panel]", widgetId: "modes", keywords: "schedule modes focus recovery finals work heavy catch up" },
@@ -1881,6 +2023,15 @@ function renderSetupChecklist() {
   return `<article class="panel span-12 setup-panel" style="--accent:${TOKENS.command};"><div class="setup-head"><div><div class="panel-label">setup states</div><h3 class="empty-title">Make APEX useful in the fewest steps.</h3><p class="row-subtitle">Each setup state explains what value unlocks and what is still missing, so the fresh app does not feel empty or mysterious.</p></div>${pill(`${completed}/${items.length} ready`, completed === items.length ? TOKENS.ok : TOKENS.warn)}</div><div class="setup-list">${items.map((item) => `<button class="setup-item ${item.done ? "is-complete" : ""}" data-domain="${item.domain}" style="--accent:${colorFor(item.domain)};"><span class="setup-icon">${iconSvg(item.domain, item.title)}</span><span class="setup-copy"><strong>${escapeHtml(item.title)}</strong><small>${escapeHtml(item.text)}</small></span><span class="setup-meter"><span style="width:${Math.round((item.completed / item.total) * 100)}%;"></span></span><span class="setup-feedback-line">${item.done ? "Unlocked: " : "Missing: "}${escapeHtml(item.done ? item.unlocked : item.missing)}</span><span class="setup-status">${escapeHtml(item.status)}</span><span class="setup-action">${escapeHtml(item.action)}</span></button>`).join("")}</div></article>`;
 }
 
+function renderActivityPanel() {
+  const rows = state.activityLog
+    .map(normalizeActivity)
+    .slice(0, 8)
+    .map((activity) => `<div class="row" style="--accent:${TOKENS.command};"><div class="row-badge">${escapeHtml(activityLabel(activity).slice(0, 1).toUpperCase())}</div><div class="row-copy"><div class="row-title">${escapeHtml(activityLabel(activity))} ${escapeHtml(activity.actionType.replace(/_/g, " "))}</div><div class="row-subtitle">${escapeHtml(activitySummary(activity))}</div></div><small class="muted">${escapeHtml(new Date(activity.createdAt).toLocaleDateString("en-US", { month: "short", day: "numeric" }))}</small></div>`)
+    .join("");
+  return `<article class="panel span-6" data-activity-panel style="--accent:${TOKENS.command};"><div class="panel-label">activity log</div>${listOrEmpty(rows, { domain: "command", title: "No activity recorded yet.", body: "APEX will start logging setup actions, uploads, connector events, and review decisions here.", primaryLabel: "Review setup", primaryDomain: "command" })}<div class="footer-note">This is the audit trail foundation for debugging, rollback visibility, and normalized Supabase migration.</div></article>`;
+}
+
 function renderCommand(intel) {
   const dayLabels = ["S", "M", "T", "W", "T", "F", "S"];
   const dayIndex = intel.generatedAt.getDay();
@@ -1906,6 +2057,7 @@ function renderCommand(intel) {
     constraints: renderConstraintPanel(intel),
     sources: renderSourcePanel(),
     connectors: renderConnectorPanel(),
+    activity: renderActivityPanel(),
     schedule: `<article class="panel span-12" style="--accent:${TOKENS.command};"><div class="panel-label">optimized schedule</div><div class="schedule-strip schedule-strip--solver">${scheduleBlocks || emptyState({ domain: "command", title: "No schedule blocks yet.", body: "Connect your calendar or add tasks to let the solver build a real day plan.", primaryLabel: "Open connectors", primaryDomain: "command", secondaryLabel: "Upload files", secondaryDomain: "notebook" })}</div></article>`,
   };
   return `<section class="section-shell">${heroBand(intel)}<div class="dashboard-grid">${renderWidgetManager()}${renderVisibleCommandWidgets(widgetPanels)}</div></section>`;
@@ -2174,6 +2326,15 @@ function applySourcePayload(rawPayload, origin = "manual payload") {
     body: `Updated ${applied.join(", ")} from an APEX source payload.`,
     severity: "success",
   });
+  logActivity({
+    entityType: "source",
+    actionType: "applied",
+    afterState: {
+      summary: `${origin} updated ${applied.join(", ")}`,
+      origin,
+      applied,
+    },
+  });
 }
 
 async function syncRemoteSource() {
@@ -2262,7 +2423,18 @@ doc?.addEventListener("click", async (event) => {
   const tab = target.closest("[data-tab-group]");
   if (tab) { state.subTabs[tab.dataset.tabGroup] = tab.dataset.tabValue; rerender(); return; }
   const task = target.closest("[data-task-id]");
-  if (task) { const id = Number(task.dataset.taskId); state.tasks = state.tasks.map((item) => item.id === id ? { ...item, done: !item.done } : item); rerender(); return; }
+  if (task) {
+    const id = Number(task.dataset.taskId);
+    const current = state.tasks.find((item) => item.id === id);
+    state.tasks = state.tasks.map((item) => item.id === id ? { ...item, done: !item.done } : item);
+    rerender();
+    if (current) logActivity({
+      entityType: "task",
+      actionType: current.done ? "reopened" : "completed",
+      afterState: { title: current.title, domain: current.domain, done: !current.done },
+    });
+    return;
+  }
   const noteButton = target.closest("[data-note-id]");
   if (noteButton) { state.activeNoteId = noteButton.dataset.noteId; rerender(); return; }
   if (target.closest("[data-note-create]")) { await createNotebookNote(); return; }
@@ -2322,7 +2494,7 @@ doc?.addEventListener("click", async (event) => {
   if (target.closest("[data-apply-source]")) { try { applySourcePayload(state.sourceConfig.draftPayload, "manual payload"); } catch (error) { state.sourceConfig = { ...state.sourceConfig, lastSyncStatus: "error", lastError: error instanceof Error ? error.message : "Invalid payload" }; rerender(); } return; }
   if (target.closest("[data-sync-source]")) { await syncRemoteSource(); scheduleAutoSync(); return; }
   if (target.closest("[data-reset-source]")) { state.sourceConfig = { ...state.sourceConfig, lastSyncStatus: "idle", lastError: "" }; rerender(); return; }
-  if (target.closest("[data-submit-checkin]")) { if (state.checkin.energy && state.checkin.focus && state.checkin.mood) { state.checkin.submitted = true; rerender(); notifyUser({ type: "mind_checkin", title: "Mind check-in logged", body: "The solver softened the next 24 hours using your energy, focus, and mood signals.", severity: "success" }); } return; }
+  if (target.closest("[data-submit-checkin]")) { if (state.checkin.energy && state.checkin.focus && state.checkin.mood) { state.checkin.submitted = true; rerender(); notifyUser({ type: "mind_checkin", title: "Mind check-in logged", body: "The solver softened the next 24 hours using your energy, focus, and mood signals.", severity: "success" }); logActivity({ entityType: "mind", actionType: "checkin_logged", afterState: { summary: "Daily Mind check-in logged", energy: state.checkin.energy, focus: state.checkin.focus, mood: state.checkin.mood } }); } return; }
   if (target.closest("[data-reset-checkin]")) { state.checkin = { energy: 0, focus: 0, mood: 0, submitted: false }; rerender(); return; }
   if (target.closest("[data-process-dump]")) { if (state.brainDump.trim()) { state.processedDump = processBrainDump(state.brainDump); rerender(); } return; }
   if (target.closest("[data-clear-dump]")) { state.brainDump = ""; state.processedDump = null; rerender(); return; }
@@ -2335,7 +2507,7 @@ doc?.addEventListener("click", async (event) => {
   if (readNotification) { await markNotificationRead(readNotification.dataset.notificationRead); return; }
   const dismissNotificationButton = target.closest("[data-notification-dismiss]");
   if (dismissNotificationButton) { await dismissNotification(dismissNotificationButton.dataset.notificationDismiss); return; }
-  if (target.closest("[data-onboarding-skip]")) { state.onboarding = { ...state.onboarding, tutorialOpen: false, tutorialSkipped: true }; rerender(); return; }
+  if (target.closest("[data-onboarding-skip]")) { state.onboarding = { ...state.onboarding, tutorialOpen: false, tutorialSkipped: true }; rerender(); logActivity({ entityType: "onboarding", actionType: "skipped", afterState: { summary: "Guided onboarding skipped" } }); return; }
   if (target.closest("[data-onboarding-next]")) { advanceOnboarding(); return; }
   if (target.closest("[data-onboarding-back]")) { retreatOnboarding(); return; }
   if (target.closest("[data-help-dismiss]")) { state.onboarding = { ...state.onboarding, sectionHelpSeen: { ...(state.onboarding?.sectionHelpSeen || {}), [state.activeDomain]: true } }; rerender(); return; }
@@ -2467,6 +2639,11 @@ function advanceOnboarding() {
       tutorialOpen: false,
       tutorialCompleted: true,
     };
+    logActivity({
+      entityType: "onboarding",
+      actionType: "completed",
+      afterState: { summary: "Guided onboarding completed" },
+    });
   } else {
     state.onboarding = {
       ...state.onboarding,
@@ -2508,6 +2685,8 @@ async function loadRelationalWorkspaceForUser(user) {
     if (uploads.length) state.uploadedFiles = uploads.map(normalizeUpload);
     const syllabi = await loadSyllabusRecords(state.auth.client, workspace.id);
     if (syllabi.length) state.syllabusReviews = syllabi.map(normalizeSyllabusReview);
+    const activity = await loadActivityLogRecords(state.auth.client, workspace.id);
+    if (activity.length) state.activityLog = activity.map(normalizeActivity);
   } catch (error) {
     state.workspace = {
       id: null,

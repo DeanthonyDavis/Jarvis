@@ -21,6 +21,7 @@ This file defines the current product UI rules so new screens feel intentional i
 - Loading states: use `.skeleton-line` when a future fetch needs a visible placeholder instead of a blank surface.
 - Preferences: use `.preference-chip` inside `.preference-grid`; chips should use `aria-pressed` when selectable.
 - Widget layout: use `.widget-manager-panel`, `.widget-manager-list`, and `.widget-manager-row` for dashboard module visibility/order controls. Pin, hide, and move controls must have labels and disabled states. Profile-specific layouts should explain which profile is being edited.
+- Activity log: use simple row entries with entity label, action, timestamp, and one-line summary. It should support trust/debugging without becoming a noisy feed.
 - Command palette: use `.command-palette` for app-wide quick switching. It must support `Ctrl`/`Cmd` + `K`, Escape, arrow keys, Enter, focus management, and descriptive result copy.
 - Mobile navigation: use `.mobile-nav-sheet` for small-screen navigation. Keep high-value actions above section links and preserve large touch targets.
 - Mobile shell: hide desktop-only sidebars below tablet widths. The phone experience should rely on bottom sheets, single-column content, and topbar quick actions.
@@ -45,6 +46,7 @@ This file defines the current product UI rules so new screens feel intentional i
 - Notebook: empty notes, uploads, and syllabus review queue.
 - Personalization: Command Center controls for theme, density, type scale, accent profile, and layout profile.
 - Widgets: Command Center layout controls for visible/hidden state, pinned priority, manual ordering, and profile-specific Guided/Operator/Focus layouts.
+- Activity: Command Center audit panel for setup, upload, syllabus, note, and connector actions.
 - Navigation: app-wide command palette for sections, setup surfaces, uploads, connectors, notifications, and scheduler panels.
 - Mobile: bottom-sheet navigation for sections plus Search, Personalize, and Upload actions.
 - Mobile install: web app manifest, theme color, safe-area viewport behavior, and SVG app icon for home-screen testing.

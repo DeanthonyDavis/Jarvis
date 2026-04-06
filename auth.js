@@ -7,6 +7,7 @@ const SYLLABUS_TABLE = "apex_syllabi";
 const NOTE_TABLE = "apex_notes";
 const INTEGRATION_TABLE = "apex_integrations";
 const INTEGRATION_EVENT_TABLE = "apex_integration_events";
+const ACTIVITY_TABLE = "apex_activity_log";
 
 export async function loadRuntimeConfig() {
   if (typeof fetch === "undefined") return { supabaseUrl: "", supabaseAnonKey: "" };
@@ -395,6 +396,36 @@ export async function createIntegrationEventRecord(client, workspaceId, integrat
     .from(INTEGRATION_EVENT_TABLE)
     .insert(payload)
     .select("id, workspace_id, integration_id, provider, event_type, status, message, result, created_at")
+    .single();
+  if (error) throw error;
+  return data;
+}
+
+export async function loadActivityLogRecords(client, workspaceId) {
+  const { data, error } = await client
+    .from(ACTIVITY_TABLE)
+    .select("id, workspace_id, user_id, entity_type, entity_id, action_type, before_state, after_state, source, created_at")
+    .eq("workspace_id", workspaceId)
+    .order("created_at", { ascending: false })
+    .limit(50);
+  if (error) throw error;
+  return data || [];
+}
+
+export async function createActivityLogRecord(client, workspaceId, userId, activity) {
+  const { data, error } = await client
+    .from(ACTIVITY_TABLE)
+    .insert({
+      workspace_id: workspaceId,
+      user_id: userId || null,
+      entity_type: activity.entityType || activity.entity_type || "workspace",
+      entity_id: activity.entityId || activity.entity_id || null,
+      action_type: activity.actionType || activity.action_type || "updated",
+      before_state: activity.beforeState ?? activity.before_state ?? null,
+      after_state: activity.afterState ?? activity.after_state ?? {},
+      source: activity.source || "app",
+    })
+    .select("id, workspace_id, user_id, entity_type, entity_id, action_type, before_state, after_state, source, created_at")
     .single();
   if (error) throw error;
   return data;
