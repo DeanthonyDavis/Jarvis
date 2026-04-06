@@ -1,11 +1,13 @@
 import { buildCommandCenterIntelligence, normalizeConstraints } from "./intelligence.js";
 import {
   createNotificationRecord,
+  createSyllabusRecord,
   createUploadRecord,
   dismissNotificationRecord,
   ensureUserWorkspace,
   initAuthClient,
   loadNotificationRecords,
+  loadSyllabusRecords,
   loadUploadRecords,
   loadUserWorkspace,
   markNotificationRecordRead,
@@ -13,6 +15,7 @@ import {
   signInWithPassword,
   signOut,
   signUpWithPassword,
+  updateSyllabusRecord,
 } from "./auth.js";
 import {
   TOKENS,
@@ -94,6 +97,7 @@ function defaultSnapshot() {
     noteSearch: "",
     activeNoteId: NOTES[0]?.id || null,
     uploadedFiles: [],
+    syllabusReviews: [],
     brainDump: "",
     processedDump: null,
     checkin: { energy: 0, focus: 0, mood: 0, submitted: false },
@@ -151,6 +155,7 @@ function loadState() {
       noteSearch: saved.noteSearch || "",
       activeNoteId: saved.activeNoteId ?? defaults.activeNoteId,
       uploadedFiles: Array.isArray(saved.uploadedFiles) ? saved.uploadedFiles : defaults.uploadedFiles,
+      syllabusReviews: Array.isArray(saved.syllabusReviews) ? saved.syllabusReviews : defaults.syllabusReviews,
       brainDump: saved.brainDump || "",
       processedDump: saved.processedDump || null,
       checkin: { ...defaults.checkin, ...(saved.checkin || {}) },
@@ -242,6 +247,7 @@ function saveState() {
       noteSearch: state.noteSearch,
       activeNoteId: state.activeNoteId,
       uploadedFiles: state.uploadedFiles,
+      syllabusReviews: state.syllabusReviews,
       brainDump: state.brainDump,
       processedDump: state.processedDump,
       checkin: state.checkin,
@@ -267,6 +273,7 @@ function userWorkspaceState() {
     noteSearch: state.noteSearch,
     activeNoteId: state.activeNoteId,
     uploadedFiles: state.uploadedFiles,
+    syllabusReviews: state.syllabusReviews,
     brainDump: state.brainDump,
     processedDump: state.processedDump,
     checkin: state.checkin,
@@ -292,6 +299,7 @@ function applyWorkspaceState(workspace) {
   state.noteSearch = workspace?.noteSearch || "";
   state.activeNoteId = workspace?.activeNoteId ?? null;
   state.uploadedFiles = Array.isArray(workspace?.uploadedFiles) ? workspace.uploadedFiles : [];
+  state.syllabusReviews = Array.isArray(workspace?.syllabusReviews) ? workspace.syllabusReviews : [];
   state.brainDump = workspace?.brainDump || "";
   state.processedDump = workspace?.processedDump || null;
   state.checkin = { ...base.checkin, ...(workspace?.checkin || {}) };
@@ -406,6 +414,46 @@ function normalizeUpload(record) {
   };
 }
 
+function isUuid(value) {
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(String(value || ""));
+}
+
+function normalizeSyllabusReview(record) {
+  return {
+    id: record.id || localId("syllabus"),
+    uploadId: record.uploadId || record.upload_id || null,
+    title: record.title || "Untitled syllabus review",
+    parseStatus: record.parseStatus || record.parse_status || "needs_review",
+    parsedSummary: record.parsedSummary || record.parsed_summary || {},
+    confidence: Number(record.confidence ?? 0),
+    createdAt: record.createdAt || record.created_at || new Date().toISOString(),
+    updatedAt: record.updatedAt || record.updated_at || record.createdAt || record.created_at || new Date().toISOString(),
+    local: Boolean(record.local),
+  };
+}
+
+function buildSyllabusDraft(upload) {
+  const name = upload?.name || "Syllabus upload";
+  const stem = name.replace(/\.[^.]+$/, "").replace(/[_-]+/g, " ").trim();
+  const codeMatch = stem.match(/\b[A-Z]{2,5}\s?-?\d{3,4}[A-Z]?\b/i);
+  return {
+    uploadId: upload?.id || null,
+    title: `${stem || "Syllabus"} review`,
+    parseStatus: "needs_review",
+    confidence: 0.35,
+    parsedSummary: {
+      courseName: codeMatch ? stem.replace(codeMatch[0], "").replace(/\s+/g, " ").trim() || stem : stem,
+      courseCode: codeMatch ? codeMatch[0].toUpperCase().replace("-", " ") : "Needs review",
+      extractedItems: [
+        { type: "assignment", title: "Review assignment schedule", status: "needs_review" },
+        { type: "exam", title: "Review exam dates", status: "needs_review" },
+        { type: "policy", title: "Review grading policy", status: "needs_review" },
+      ],
+      warning: "Placeholder extraction from filename only. Confirm before scheduling.",
+    },
+  };
+}
+
 async function notifyUser(notification, { toast = true } = {}) {
   const localNotification = normalizeNotification({ ...notification, local: true });
   state.notifications = [localNotification, ...state.notifications].slice(0, 30);
@@ -479,6 +527,91 @@ async function attachSourceFiles(files) {
       body: "APEX could not write upload metadata to Supabase, so this file remains in local fallback state.",
       severity: "warning",
     });
+  }
+}
+
+async function startSyllabusReview(uploadId) {
+  const upload = state.uploadedFiles.map(normalizeUpload).find((item) => item.id === uploadId);
+  if (!upload) return;
+  const existing = state.syllabusReviews.find((item) => item.uploadId === uploadId);
+  if (existing) {
+    pushToast("This upload is already in the syllabus review queue.");
+    return;
+  }
+
+  const draft = normalizeSyllabusReview({ ...buildSyllabusDraft(upload), id: localId("syllabus"), local: true });
+  state.syllabusReviews = [draft, ...state.syllabusReviews].slice(0, 100);
+  rerender();
+  notifyUser({
+    type: "syllabus_review",
+    title: "Syllabus review started",
+    body: "APEX created a review card. Confirm the extracted placeholders before they become schedule data.",
+    severity: "info",
+    sourceEntityType: "upload",
+    sourceEntityId: upload.id,
+  });
+
+  if (!state.workspace.phase2Enabled || !state.workspace.id || !state.auth.client) return;
+  try {
+    const cloudDraft = {
+      ...draft,
+      uploadId: isUuid(upload.id) ? upload.id : null,
+    };
+    const created = normalizeSyllabusReview(await createSyllabusRecord(state.auth.client, state.workspace.id, cloudDraft));
+    state.syllabusReviews = state.syllabusReviews.map((item) => item.id === draft.id ? created : item);
+    saveState();
+    renderApp();
+  } catch (error) {
+    state.workspace = {
+      ...state.workspace,
+      error: error instanceof Error ? error.message : "Syllabus review sync unavailable.",
+    };
+    notifyUser({
+      type: "syllabus_sync_error",
+      title: "Syllabus review saved locally",
+      body: "APEX could not write the review to Supabase, so it remains local fallback state.",
+      severity: "warning",
+    });
+  }
+}
+
+async function confirmSyllabusReview(reviewId) {
+  const current = state.syllabusReviews.map(normalizeSyllabusReview).find((item) => item.id === reviewId);
+  if (!current) return;
+  const updated = normalizeSyllabusReview({
+    ...current,
+    parseStatus: "confirmed",
+    confidence: Math.max(current.confidence, 0.75),
+    updatedAt: new Date().toISOString(),
+    local: current.local,
+  });
+  state.syllabusReviews = state.syllabusReviews.map((item) => item.id === reviewId ? updated : item);
+  rerender();
+  notifyUser({
+    type: "syllabus_confirmed",
+    title: "Syllabus review confirmed",
+    body: "The syllabus is marked confirmed. Real assignment creation will come after document text extraction is connected.",
+    severity: "success",
+    sourceEntityType: "syllabus",
+    sourceEntityId: reviewId,
+  });
+
+  if (!state.workspace.phase2Enabled || !state.auth.client || !isUuid(reviewId)) return;
+  try {
+    const cloud = normalizeSyllabusReview(await updateSyllabusRecord(state.auth.client, reviewId, {
+      parseStatus: "confirmed",
+      confidence: updated.confidence,
+      parsedSummary: updated.parsedSummary,
+    }));
+    state.syllabusReviews = state.syllabusReviews.map((item) => item.id === reviewId ? cloud : item);
+    saveState();
+    renderApp();
+  } catch (error) {
+    state.workspace = {
+      ...state.workspace,
+      error: error instanceof Error ? error.message : "Syllabus review update unavailable.",
+    };
+    saveState();
   }
 }
 
@@ -718,8 +851,17 @@ function renderNotebook(intel) {
   const filtered = NOTES.filter((note) => { const search = state.noteSearch.trim().toLowerCase(); return !search || note.title.toLowerCase().includes(search) || note.domain.toLowerCase().includes(search) || note.tags.some((tag) => tag.toLowerCase().includes(search)); });
   const activeNote = NOTES.find((note) => note.id === state.activeNoteId) || filtered[0] || null;
   const uploads = state.uploadedFiles.map(normalizeUpload);
-  const uploadRows = uploads.map((file) => `<div class="row" style="--accent:${TOKENS.notebook};"><div class="row-badge">${iconSvg("notebook", "Source file")}</div><div class="row-copy"><div class="row-title">${escapeHtml(file.name)}</div><div class="row-subtitle">${escapeHtml(file.type)} &middot; ${Math.max(1, Math.round(file.size / 1024))} KB &middot; ${escapeHtml(file.uploadStatus)} / ${escapeHtml(file.textStatus)}</div></div>${pill(file.local ? "local" : "cloud", file.local ? TOKENS.warn : TOKENS.ok)}</div>`).join("");
-  return `<section class="section-shell">${heroBand(intel)}<div class="notebook-layout"><aside class="panel panel--quiet" style="--accent:${TOKENS.notebook};"><div class="panel-label">search notes</div><input class="search-input" type="search" placeholder="Search all notes..." value="${escapeHtml(state.noteSearch)}" data-note-search /><div class="note-list" style="margin-top:1rem;">${filtered.map((note) => `<button class="note-button ${note.id === state.activeNoteId ? "is-active" : ""}" data-note-id="${note.id}" style="--accent:${colorFor(note.domain)};"><strong>${note.title}</strong><small>${note.updated} &middot; ${note.domain}</small></button>`).join("")}</div></aside><div class="section-shell"><article class="panel" style="--accent:${activeNote ? colorFor(activeNote.domain) : TOKENS.notebook};">${activeNote ? `<div class="section-list"><div><div class="panel-label">${iconSvg(activeNote.domain)} ${activeNote.domain}</div><h3 style="margin:0; font-family:Syne,system-ui,sans-serif; font-size:1.9rem;">${activeNote.title}</h3><div class="inline-chips" style="margin-top:0.9rem;">${activeNote.tags.map((tag) => pill(`#${tag}`, TOKENS.notebook)).join("")}</div></div><div class="note-content">${activeNote.summary}</div></div>` : `<div class="footer-note">No notes match that search yet.</div>`}</article><article class="panel" style="--accent:${TOKENS.notebook};"><div class="panel-label">source uploads</div><h3 class="empty-title">Upload syllabi, notes, and assignment sheets.</h3><p class="row-subtitle">APEX stores metadata now; text extraction, parsing, and review are the next pipeline step.</p><label class="upload-zone"><input type="file" multiple data-file-upload /><span>Choose files to attach</span><small>${uploads.length ? `${uploads.length} source file(s) tracked` : "No source files attached yet"}</small></label><div class="section-list" style="margin-top:1rem;">${uploadRows || `<div class="footer-note">No uploads yet. Start with a syllabus so Academy can eventually extract dates and assignments.</div>`}</div></article><article class="panel" style="--accent:${TOKENS.command};"><div class="panel-label">brain dump</div>${!state.processedDump ? `<textarea class="brain-dump" placeholder="Type anything: study thermo, email professor, pay rent, prep Friday quiz..." data-brain-dump>${escapeHtml(state.brainDump)}</textarea><div class="hero-actions"><button class="primary-action" data-process-dump>Process + sort</button></div>` : `<div class="processing-result"><div class="row is-hot" style="--accent:${TOKENS.ok};"><div class="row-badge">${iconSvg("command", "Processed")}</div><div class="row-copy"><div class="row-title">Dump routed into ${state.processedDump.domains.length} dashboards</div><div class="row-subtitle">${state.processedDump.summary}</div></div></div><div class="inline-chips">${state.processedDump.domains.map((domain) => pill(domain, colorFor(domain.toLowerCase()))).join("")}</div><button class="surface-action" data-clear-dump>New dump</button></div>`}</article></div></div></section>`;
+  const reviews = state.syllabusReviews.map(normalizeSyllabusReview);
+  const uploadRows = uploads.map((file) => {
+    const hasReview = reviews.some((review) => review.uploadId === file.id);
+    return `<div class="row" style="--accent:${TOKENS.notebook};"><div class="row-badge">${iconSvg("notebook", "Source file")}</div><div class="row-copy"><div class="row-title">${escapeHtml(file.name)}</div><div class="row-subtitle">${escapeHtml(file.type)} &middot; ${Math.max(1, Math.round(file.size / 1024))} KB &middot; ${escapeHtml(file.uploadStatus)} / ${escapeHtml(file.textStatus)}</div></div><div class="row-actions">${pill(file.local ? "local" : "cloud", file.local ? TOKENS.warn : TOKENS.ok)}<button class="surface-action surface-action--small" data-syllabus-start="${escapeHtml(file.id)}" ${hasReview ? "disabled" : ""}>${hasReview ? "In review" : "Review as syllabus"}</button></div></div>`;
+  }).join("");
+  const reviewRows = reviews.map((review) => {
+    const summary = review.parsedSummary || {};
+    const items = Array.isArray(summary.extractedItems) ? summary.extractedItems : [];
+    return `<div class="review-card" style="--accent:${review.parseStatus === "confirmed" ? TOKENS.ok : TOKENS.academy};"><div class="review-card__head"><div><div class="panel-label">${review.parseStatus === "confirmed" ? "confirmed syllabus" : "needs review"}</div><h4>${escapeHtml(review.title)}</h4></div>${pill(`${Math.round((review.confidence || 0) * 100)}% confidence`, review.parseStatus === "confirmed" ? TOKENS.ok : TOKENS.warn)}</div><div class="review-grid"><span>Course</span><strong>${escapeHtml(summary.courseName || "Needs review")}</strong><span>Code</span><strong>${escapeHtml(summary.courseCode || "Needs review")}</strong></div><div class="extraction-list">${items.map((item) => `<div><span>${escapeHtml(item.type)}</span><strong>${escapeHtml(item.title)}</strong></div>`).join("")}</div><p class="footer-note">${escapeHtml(summary.warning || "Review before scheduling assignments.")}</p><button class="primary-action" data-syllabus-confirm="${escapeHtml(review.id)}" ${review.parseStatus === "confirmed" ? "disabled" : ""}>${review.parseStatus === "confirmed" ? "Confirmed" : "Confirm review"}</button></div>`;
+  }).join("");
+  return `<section class="section-shell">${heroBand(intel)}<div class="notebook-layout"><aside class="panel panel--quiet" style="--accent:${TOKENS.notebook};"><div class="panel-label">search notes</div><input class="search-input" type="search" placeholder="Search all notes..." value="${escapeHtml(state.noteSearch)}" data-note-search /><div class="note-list" style="margin-top:1rem;">${filtered.map((note) => `<button class="note-button ${note.id === state.activeNoteId ? "is-active" : ""}" data-note-id="${note.id}" style="--accent:${colorFor(note.domain)};"><strong>${note.title}</strong><small>${note.updated} &middot; ${note.domain}</small></button>`).join("")}</div></aside><div class="section-shell"><article class="panel" style="--accent:${activeNote ? colorFor(activeNote.domain) : TOKENS.notebook};">${activeNote ? `<div class="section-list"><div><div class="panel-label">${iconSvg(activeNote.domain)} ${activeNote.domain}</div><h3 style="margin:0; font-family:Syne,system-ui,sans-serif; font-size:1.9rem;">${activeNote.title}</h3><div class="inline-chips" style="margin-top:0.9rem;">${activeNote.tags.map((tag) => pill(`#${tag}`, TOKENS.notebook)).join("")}</div></div><div class="note-content">${activeNote.summary}</div></div>` : `<div class="footer-note">No notes match that search yet.</div>`}</article><article class="panel" style="--accent:${TOKENS.notebook};"><div class="panel-label">source uploads</div><h3 class="empty-title">Upload syllabi, notes, and assignment sheets.</h3><p class="row-subtitle">APEX stores metadata now and can start a review queue for syllabi before real text extraction is connected.</p><label class="upload-zone"><input type="file" multiple data-file-upload /><span>Choose files to attach</span><small>${uploads.length ? `${uploads.length} source file(s) tracked` : "No source files attached yet"}</small></label><div class="section-list" style="margin-top:1rem;">${uploadRows || `<div class="footer-note">No uploads yet. Start with a syllabus so Academy can eventually extract dates and assignments.</div>`}</div></article><article class="panel" style="--accent:${TOKENS.academy};"><div class="panel-label">syllabus review queue</div><h3 class="empty-title">Confirm before APEX schedules anything.</h3><p class="row-subtitle">This is a safe placeholder pipeline: APEX creates review cards from upload metadata, then waits for your confirmation.</p><div class="review-list">${reviewRows || `<div class="footer-note">No syllabus reviews yet. Upload a syllabus, then choose Review as syllabus.</div>`}</div></article><article class="panel" style="--accent:${TOKENS.command};"><div class="panel-label">brain dump</div>${!state.processedDump ? `<textarea class="brain-dump" placeholder="Type anything: study thermo, email professor, pay rent, prep Friday quiz..." data-brain-dump>${escapeHtml(state.brainDump)}</textarea><div class="hero-actions"><button class="primary-action" data-process-dump>Process + sort</button></div>` : `<div class="processing-result"><div class="row is-hot" style="--accent:${TOKENS.ok};"><div class="row-badge">${iconSvg("command", "Processed")}</div><div class="row-copy"><div class="row-title">Dump routed into ${state.processedDump.domains.length} dashboards</div><div class="row-subtitle">${state.processedDump.summary}</div></div></div><div class="inline-chips">${state.processedDump.domains.map((domain) => pill(domain, colorFor(domain.toLowerCase()))).join("")}</div><button class="surface-action" data-clear-dump>New dump</button></div>`}</article></div></div></section>`;
 }
 
 function renderFreshDomainState(intel) {
@@ -909,6 +1051,10 @@ doc?.addEventListener("click", async (event) => {
   if (task) { const id = Number(task.dataset.taskId); state.tasks = state.tasks.map((item) => item.id === id ? { ...item, done: !item.done } : item); rerender(); return; }
   const noteButton = target.closest("[data-note-id]");
   if (noteButton) { state.activeNoteId = Number(noteButton.dataset.noteId); rerender(); return; }
+  const syllabusStart = target.closest("[data-syllabus-start]");
+  if (syllabusStart) { await startSyllabusReview(syllabusStart.dataset.syllabusStart); return; }
+  const syllabusConfirm = target.closest("[data-syllabus-confirm]");
+  if (syllabusConfirm) { await confirmSyllabusReview(syllabusConfirm.dataset.syllabusConfirm); return; }
   const score = target.closest("[data-score-field]");
   if (score) { state.checkin[score.dataset.scoreField] = Number(score.dataset.scoreValue); rerender(); return; }
   const toggle = target.closest("[data-constraint-toggle-key]");
@@ -1029,6 +1175,8 @@ async function loadRelationalWorkspaceForUser(user) {
     state.notifications = notifications.map(normalizeNotification);
     const uploads = await loadUploadRecords(state.auth.client, workspace.id);
     if (uploads.length) state.uploadedFiles = uploads.map(normalizeUpload);
+    const syllabi = await loadSyllabusRecords(state.auth.client, workspace.id);
+    if (syllabi.length) state.syllabusReviews = syllabi.map(normalizeSyllabusReview);
   } catch (error) {
     state.workspace = {
       id: null,
@@ -1121,6 +1269,7 @@ async function handleSignOut() {
     state.cloudSaveStatus = "idle";
     state.workspace = { id: null, name: "Local workspace", phase2Enabled: false, error: "" };
     state.notifications = [];
+    state.syllabusReviews = [];
     state.notificationPanelOpen = false;
     state.notificationStatus = "local";
     renderApp();
@@ -1150,6 +1299,7 @@ win?.addEventListener("storage", (event) => {
   state.brainDump = next.brainDump;
   state.processedDump = next.processedDump;
   state.uploadedFiles = next.uploadedFiles;
+  state.syllabusReviews = next.syllabusReviews;
   state.checkin = next.checkin;
   renderApp();
   scheduleAutoSync();

@@ -3,6 +3,7 @@ const STATE_TABLE = "apex_user_state";
 const WORKSPACE_TABLE = "apex_workspaces";
 const NOTIFICATION_TABLE = "apex_notifications";
 const UPLOAD_TABLE = "apex_uploads";
+const SYLLABUS_TABLE = "apex_syllabi";
 
 export async function loadRuntimeConfig() {
   if (typeof fetch === "undefined") return { supabaseUrl: "", supabaseAnonKey: "" };
@@ -194,6 +195,52 @@ export async function createUploadRecord(client, workspaceId, file) {
       extracted_text_status: "pending",
     })
     .select("id, original_filename, mime_type, file_size_bytes, upload_status, extracted_text_status, storage_path, created_at, updated_at")
+    .single();
+  if (error) throw error;
+  return data;
+}
+
+export async function loadSyllabusRecords(client, workspaceId) {
+  const { data, error } = await client
+    .from(SYLLABUS_TABLE)
+    .select("id, upload_id, title, parse_status, parsed_summary, confidence, created_at, updated_at")
+    .eq("workspace_id", workspaceId)
+    .order("created_at", { ascending: false })
+    .limit(100);
+  if (error) throw error;
+  return data || [];
+}
+
+export async function createSyllabusRecord(client, workspaceId, syllabus) {
+  const { data, error } = await client
+    .from(SYLLABUS_TABLE)
+    .insert({
+      workspace_id: workspaceId,
+      upload_id: syllabus.uploadId || null,
+      title: syllabus.title,
+      parse_status: syllabus.parseStatus || "needs_review",
+      parsed_summary: syllabus.parsedSummary || {},
+      confidence: syllabus.confidence ?? null,
+    })
+    .select("id, upload_id, title, parse_status, parsed_summary, confidence, created_at, updated_at")
+    .single();
+  if (error) throw error;
+  return data;
+}
+
+export async function updateSyllabusRecord(client, syllabusId, patch) {
+  const update = {};
+  if (patch.title !== undefined) update.title = patch.title;
+  if (patch.parseStatus !== undefined) update.parse_status = patch.parseStatus;
+  if (patch.parsedSummary !== undefined) update.parsed_summary = patch.parsedSummary;
+  if (patch.confidence !== undefined) update.confidence = patch.confidence;
+  update.updated_at = new Date().toISOString();
+
+  const { data, error } = await client
+    .from(SYLLABUS_TABLE)
+    .update(update)
+    .eq("id", syllabusId)
+    .select("id, upload_id, title, parse_status, parsed_summary, confidence, created_at, updated_at")
     .single();
   if (error) throw error;
   return data;

@@ -49,6 +49,7 @@ You can still open `index.html` directly for a static-only pass, but the local s
 - Consistent SVG domain icon system across navigation, topbar, help, and setup surfaces
 - Notification center with read/dismiss state, local fallback, and optional Supabase-backed records from the Phase 2 schema
 - Notebook source upload panel with local fallback and optional Supabase-backed `apex_uploads` metadata records
+- Syllabus review queue that turns an upload into a safe `needs_review -> confirmed` workflow before any scheduling data is trusted
 - Domain switching with a collapsible sidebar
 - Command Center driven by computed priorities, conflicts, load, weekly heat, and a real slot-assignment solver pass
 - Interactive tasks across Academy, Works, and Life
@@ -91,7 +92,9 @@ For local testing, copy `.env.example` to `.env` and fill in the same Supabase v
 
 `supabase/phase2_schema.sql` adds the normalized production-model foundation without removing the current workspace blob. It creates workspace membership, classes, assignments, syllabi, tasks, calendar events, finance records, notebooks, uploads, integrations, notifications, activity logs, scheduler preferences, and constraint rules with RLS policies and supporting indexes.
 
-Run it only after `supabase/schema.sql`. The app still uses `apex_user_state` as its compatibility layer until the UI and API are migrated table-by-table. If this file has been run, APEX will create/read a real workspace row and use `apex_notifications` for notification records plus `apex_uploads` for upload metadata. If it has not been run yet, notifications and uploads fall back to local workspace state.
+Run it only after `supabase/schema.sql`. The app still uses `apex_user_state` as its compatibility layer until the UI and API are migrated table-by-table. If this file has been run, APEX will create/read a real workspace row and use `apex_notifications` for notification records, `apex_uploads` for upload metadata, and `apex_syllabi` for syllabus review state. If it has not been run yet, notifications, uploads, and syllabus reviews fall back to local workspace state.
+
+The syllabus review flow is intentionally conservative right now: it creates placeholder extraction cards from upload metadata and filename hints only. It does not parse PDF/DOCX text yet. Users must confirm the review before later phases turn parsed dates and assignments into schedule data.
 
 ## First User Testing
 

@@ -102,12 +102,18 @@ create table if not exists public.apex_syllabi (
   class_id uuid references public.apex_classes(id) on delete set null,
   upload_id uuid,
   title text not null,
-  parse_status text not null default 'pending' check (parse_status in ('pending', 'parsed', 'needs_review', 'failed')),
+  parse_status text not null default 'pending' check (parse_status in ('pending', 'parsed', 'needs_review', 'confirmed', 'failed')),
   parsed_summary jsonb not null default '{}'::jsonb,
   confidence numeric(4,3),
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
+
+alter table public.apex_syllabi
+drop constraint if exists apex_syllabi_parse_status_check;
+alter table public.apex_syllabi
+add constraint apex_syllabi_parse_status_check
+check (parse_status in ('pending', 'parsed', 'needs_review', 'confirmed', 'failed'));
 
 create table if not exists public.apex_tasks (
   id uuid primary key default gen_random_uuid(),
