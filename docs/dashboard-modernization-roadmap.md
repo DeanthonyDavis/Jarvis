@@ -12,6 +12,7 @@ This roadmap turns the UI recommendations into implementation phases for APEX.
 - Widget controls for pinning, hiding, restoring, manual ordering, and resetting the Command Center layout.
 - Profile-specific Command Center widget layouts for Guided, Operator, and Focus profiles.
 - Command palette / quick switcher with keyboard navigation and deep links to setup, widgets, connectors, sources, uploads, and notifications.
+- Mobile bottom-sheet navigation for small screens with section links and high-value setup actions.
 
 ## Next: Modular Widgets
 
@@ -32,7 +33,7 @@ The current app is still a vanilla module renderer. A React/Vue rewrite should b
 ## Navigation Upgrades
 
 - Keep the sidebar for now while the command palette handles fast navigation and deep links.
-- Add a mobile bottom-sheet navigation pattern after the component split.
+- Keep mobile navigation in a bottom sheet while larger-screen navigation stays sidebar-first.
 - Add pinned/favorite destinations once widgets have IDs and saved ordering.
 
 ## Accessibility Guardrails

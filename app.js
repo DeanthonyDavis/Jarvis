@@ -382,6 +382,7 @@ const state = {
   commandPaletteOpen: false,
   commandPaletteQuery: "",
   commandPaletteIndex: 0,
+  mobileNavOpen: false,
 };
 
 const app = doc?.querySelector("#app") || null;
@@ -1725,6 +1726,28 @@ function executeCommandPaletteAction(actionId) {
   scrollToSelectorAfterRender(item.scrollSelector);
 }
 
+function renderMobileNavSheet() {
+  let panel = doc?.querySelector("[data-mobile-nav-sheet]");
+  if (!state.mobileNavOpen) {
+    panel?.remove();
+    return;
+  }
+  if (!panel) {
+    panel = doc.createElement("aside");
+    panel.setAttribute("data-mobile-nav-sheet", "");
+    doc.body.appendChild(panel);
+  }
+  const prefs = normalizePreferences(state.preferences);
+  const profile = COMMAND_WIDGET_PROFILE_PRESETS[activeWidgetProfile()] || COMMAND_WIDGET_PROFILE_PRESETS.guided;
+  panel.className = `mobile-nav-sheet theme-${prefs.theme} text-${prefs.fontScale}`;
+  panel.innerHTML = `<div class="mobile-nav-sheet__scrim" data-mobile-nav-close></div><div class="mobile-nav-sheet__panel" role="dialog" aria-modal="true" aria-label="Mobile navigation"><div class="mobile-nav-grabber"></div><div class="mobile-nav-head"><div><div class="panel-label">navigation</div><h4>Move through APEX</h4><p>${escapeHtml(profile.label)} layout profile is active.</p></div><button class="surface-action surface-action--small" data-mobile-nav-close aria-label="Close mobile menu">Close</button></div><div class="mobile-nav-actions"><button class="primary-action" data-command-open data-mobile-nav-close>Search everything</button><button class="surface-action" data-domain="command" data-scroll-personalization data-mobile-nav-close>Personalize</button><button class="surface-action" data-command-action="uploads" data-mobile-nav-close>Upload files</button></div><nav class="mobile-nav-grid" aria-label="Mobile sections">${DOMAINS.map((domain) => `<button class="mobile-nav-item ${state.activeDomain === domain.id ? "is-active" : ""}" data-domain="${domain.id}" data-mobile-nav-close style="--accent:${colorFor(domain.id)};" aria-current="${state.activeDomain === domain.id ? "page" : "false"}"><span>${iconSvg(domain.id, domain.label)}</span><strong>${domain.label}</strong><small>${domain.blurb}</small></button>`).join("")}</nav></div>`;
+}
+
+function closeMobileNavSheet() {
+  state.mobileNavOpen = false;
+  renderMobileNavSheet();
+}
+
 function heroBand(intel) {
   const domain = activeDomain();
   const loadValue = intel.loadDisplay || `${intel.loadScore}%`;
@@ -2010,12 +2033,13 @@ function renderApp() {
   intel.planChanges = state.lastPlanChanges || latestPlanChanges;
   const prefs = normalizePreferences(state.preferences);
   const shellClass = `theme-${prefs.theme} density-${prefs.density} text-${prefs.fontScale} layout-${prefs.layoutProfile}`;
-  app.innerHTML = `<div class="app-shell ${shellClass}" style="--accent:${selectedAccent(domain.id)};"><a class="skip-link" href="#main-content">Skip to content</a><div class="ambient"><div class="orb orb--one"></div><div class="orb orb--two"></div><div class="orb orb--three"></div></div><aside class="sidebar ${state.sidebarCollapsed ? "is-collapsed" : ""}"><div class="brand"><div class="brand-mark">${iconSvg("command")}</div><div class="brand-copy"><h1>APEX</h1><p>Universal 2.0</p></div></div><nav class="sidebar-nav" aria-label="Primary sections">${DOMAINS.map((item) => `<button class="nav-button ${state.activeDomain === item.id ? "is-active" : ""}" data-domain="${item.id}" style="--accent:${colorFor(item.id)};" aria-current="${state.activeDomain === item.id ? "page" : "false"}"><span class="nav-icon">${iconSvg(item.id, item.label)}</span><span class="nav-copy"><strong>${item.label}</strong><span>${item.blurb}</span></span></button>`).join("")}</nav><div class="sidebar-footer"><button class="collapse-button" data-collapse-sidebar aria-label="${state.sidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"}"><span>${state.sidebarCollapsed ? "&#9654;" : "&#9664;"}</span><span>${state.sidebarCollapsed ? "Expand" : "Collapse"}</span></button></div></aside><main class="main" id="main-content"><header class="topbar"><div class="topbar-title"><div class="topbar-icon">${iconSvg(domain.id, domain.label)}</div><div class="topbar-copy"><h2>APEX ${domain.label}</h2><p>${formatToday()} &middot; ${state.auth.user.email}</p></div></div><div class="topbar-metrics"><button class="command-trigger" data-command-open aria-label="Open command palette"><span>${iconSvg("command", "Command palette")}</span><strong>Search</strong><kbd>Ctrl K</kbd></button><div class="metric-pill"><span class="metric-dot"></span><span>Load</span><strong data-shell-load>${intel.loadDisplay || `${intel.loadScore}%`}</strong></div><div class="metric-pill"><span class="metric-dot" style="background:${TOKENS.command};"></span><span>Cloud</span><strong data-shell-cloud>${state.cloudSaveStatus}</strong></div><div class="metric-pill"><span class="metric-dot" data-shell-source-dot style="background:${statusTone(state.sourceConfig.lastSyncStatus)};"></span><span>Source</span><strong data-shell-source>${state.sourceConfig.lastSyncStatus}</strong></div><button class="metric-pill metric-button ${unreadNotifications().length ? "has-unread" : ""}" data-notification-toggle type="button" aria-label="Open notification center"><span class="metric-dot" data-shell-notification-dot style="background:${unreadNotifications().length ? TOKENS.warn : TOKENS.ok};"></span><span>Alerts</span><strong data-shell-notifications>${unreadNotifications().length}</strong></button><button class="surface-action" data-domain="command" data-scroll-personalization>Personalize</button><button class="surface-action" data-auth-signout>Sign Out</button><div class="mini-domain-rail" aria-label="Quick sections">${DOMAINS.filter((item) => item.id !== "command").map((item) => `<button class="stat-dot-button ${item.id === state.activeDomain ? "is-active" : ""}" data-domain="${item.id}" style="--dot:${colorFor(item.id)};" title="${item.label}" aria-label="Open ${item.label}"></button>`).join("")}</div></div></header><div class="content">${renderContent(intel)}</div></main>${renderOnboarding()}${renderSectionHelp()}</div>`;
+  app.innerHTML = `<div class="app-shell ${shellClass}" style="--accent:${selectedAccent(domain.id)};"><a class="skip-link" href="#main-content">Skip to content</a><div class="ambient"><div class="orb orb--one"></div><div class="orb orb--two"></div><div class="orb orb--three"></div></div><aside class="sidebar ${state.sidebarCollapsed ? "is-collapsed" : ""}"><div class="brand"><div class="brand-mark">${iconSvg("command")}</div><div class="brand-copy"><h1>APEX</h1><p>Universal 2.0</p></div></div><nav class="sidebar-nav" aria-label="Primary sections">${DOMAINS.map((item) => `<button class="nav-button ${state.activeDomain === item.id ? "is-active" : ""}" data-domain="${item.id}" style="--accent:${colorFor(item.id)};" aria-current="${state.activeDomain === item.id ? "page" : "false"}"><span class="nav-icon">${iconSvg(item.id, item.label)}</span><span class="nav-copy"><strong>${item.label}</strong><span>${item.blurb}</span></span></button>`).join("")}</nav><div class="sidebar-footer"><button class="collapse-button" data-collapse-sidebar aria-label="${state.sidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"}"><span>${state.sidebarCollapsed ? "&#9654;" : "&#9664;"}</span><span>${state.sidebarCollapsed ? "Expand" : "Collapse"}</span></button></div></aside><main class="main" id="main-content"><header class="topbar"><div class="topbar-title"><div class="topbar-icon">${iconSvg(domain.id, domain.label)}</div><div class="topbar-copy"><h2>APEX ${domain.label}</h2><p>${formatToday()} &middot; ${state.auth.user.email}</p></div></div><div class="topbar-metrics"><button class="mobile-menu-trigger" data-mobile-nav-open aria-label="Open mobile menu"><span>${iconSvg(domain.id, "Mobile menu")}</span><strong>Menu</strong></button><button class="command-trigger" data-command-open aria-label="Open command palette"><span>${iconSvg("command", "Command palette")}</span><strong>Search</strong><kbd>Ctrl K</kbd></button><div class="metric-pill"><span class="metric-dot"></span><span>Load</span><strong data-shell-load>${intel.loadDisplay || `${intel.loadScore}%`}</strong></div><div class="metric-pill"><span class="metric-dot" style="background:${TOKENS.command};"></span><span>Cloud</span><strong data-shell-cloud>${state.cloudSaveStatus}</strong></div><div class="metric-pill"><span class="metric-dot" data-shell-source-dot style="background:${statusTone(state.sourceConfig.lastSyncStatus)};"></span><span>Source</span><strong data-shell-source>${state.sourceConfig.lastSyncStatus}</strong></div><button class="metric-pill metric-button ${unreadNotifications().length ? "has-unread" : ""}" data-notification-toggle type="button" aria-label="Open notification center"><span class="metric-dot" data-shell-notification-dot style="background:${unreadNotifications().length ? TOKENS.warn : TOKENS.ok};"></span><span>Alerts</span><strong data-shell-notifications>${unreadNotifications().length}</strong></button><button class="surface-action" data-domain="command" data-scroll-personalization>Personalize</button><button class="surface-action" data-auth-signout>Sign Out</button><div class="mini-domain-rail" aria-label="Quick sections">${DOMAINS.filter((item) => item.id !== "command").map((item) => `<button class="stat-dot-button ${item.id === state.activeDomain ? "is-active" : ""}" data-domain="${item.id}" style="--dot:${colorFor(item.id)};" title="${item.label}" aria-label="Open ${item.label}"></button>`).join("")}</div></div></header><div class="content">${renderContent(intel)}</div></main>${renderOnboarding()}${renderSectionHelp()}</div>`;
   state.lastPlanSnapshot = nextPlanSnapshot;
   persistPlanSnapshotOnly();
   renderToast();
   renderNotificationCenter();
   renderCommandPalette();
+  renderMobileNavSheet();
 }
 
 function processBrainDump(text) {
@@ -2199,13 +2223,17 @@ async function syncRemoteSource() {
 doc?.addEventListener("click", async (event) => {
   const target = event.target instanceof Element ? event.target : null;
   if (!target) return;
-  if (target.closest("[data-command-open]")) { openCommandPalette(); return; }
+  const shouldCloseMobileNav = Boolean(target.closest("[data-mobile-nav-close]"));
+  if (target.closest("[data-mobile-nav-open]")) { state.mobileNavOpen = true; renderMobileNavSheet(); return; }
+  if (target.matches("[data-mobile-nav-close]") || target.closest(".mobile-nav-sheet__scrim")) { closeMobileNavSheet(); return; }
+  if (target.closest("[data-command-open]")) { if (shouldCloseMobileNav) state.mobileNavOpen = false; openCommandPalette(); renderMobileNavSheet(); return; }
   if (target.closest("[data-command-close]")) { closeCommandPalette(); return; }
   const commandAction = target.closest("[data-command-action]");
-  if (commandAction) { executeCommandPaletteAction(commandAction.dataset.commandAction); return; }
+  if (commandAction) { if (shouldCloseMobileNav) state.mobileNavOpen = false; executeCommandPaletteAction(commandAction.dataset.commandAction); renderMobileNavSheet(); return; }
   const domainButton = target.closest("[data-domain]");
   if (domainButton) {
     state.activeDomain = domainButton.dataset.domain;
+    if (shouldCloseMobileNav) state.mobileNavOpen = false;
     rerender();
     if (domainButton.matches("[data-scroll-personalization]")) {
       requestAnimationFrame(() => doc?.querySelector("[data-personalization-panel]")?.scrollIntoView({ block: "start", behavior: "smooth" }));
@@ -2371,12 +2399,17 @@ doc?.addEventListener("keydown", (event) => {
     else openCommandPalette();
     return;
   }
-  if (!state.commandPaletteOpen) return;
-  if (event.key === "Escape") {
+  if (state.commandPaletteOpen && event.key === "Escape") {
     event.preventDefault();
     closeCommandPalette();
     return;
   }
+  if (state.mobileNavOpen && event.key === "Escape") {
+    event.preventDefault();
+    closeMobileNavSheet();
+    return;
+  }
+  if (!state.commandPaletteOpen) return;
   const items = filteredCommandPaletteItems();
   if (event.key === "ArrowDown") {
     event.preventDefault();

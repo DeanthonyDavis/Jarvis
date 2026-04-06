@@ -70,6 +70,7 @@ You can still open `index.html` directly for a static-only pass, but the local s
 - Command Center widget controls for pinning, hiding, restoring, manual ordering, and resetting the dashboard layout
 - Profile-specific widget layouts for Guided, Operator, and Focus Command Center views
 - App-wide command palette with `Ctrl`/`Cmd` + `K`, search, keyboard navigation, and deep links into setup, widgets, connectors, uploads, and notifications
+- Mobile bottom-sheet navigation with section links plus Search, Personalize, and Upload actions
 - Interactive tasks across Academy, Works, and Life
 - Academy and Works sub-tabs
 - Mind daily check-in with burnout recalculation
