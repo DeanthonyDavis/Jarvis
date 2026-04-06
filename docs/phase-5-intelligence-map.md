@@ -8,7 +8,8 @@ Already shipped:
 
 - Schedule modes: Balanced, Focus Week, Light Recovery, Finals Mode, Work-Heavy, and Catch-Up.
 - Mode overlays that adjust solver weights without deleting user-defined hard and soft constraints.
-- Solver explanations on assigned schedule chunks.
+- Structured solver explanations on assigned, locked, open, and unscheduled schedule outcomes.
+- A Command Center "Why this plan?" panel with reasons, tradeoffs, constraints, confidence, and carryover.
 - Load Index setup behavior for empty accounts instead of a fake baseline percentage.
 - Constraint-aware schedule assignment with hard-locked blocks and unscheduled urgent work detection.
 
@@ -30,18 +31,13 @@ Phase 5 is complete when APEX can do all of the following:
 
 Current state:
 
-- Assigned chunks include a basic `why` explanation.
+- Assigned chunks include structured explanations with primary reason, supporting reasons, constraints, tradeoffs, and confidence.
+- Locked and open blocks include block-level explanations.
+- Unscheduled chunks include carryover explanations.
+- Command Center includes a "Why this plan?" panel.
 
 Remaining work:
 
-- Add an `explanations` object to each schedule block with these fields:
-  - `primaryReason`
-  - `supportingReasons`
-  - `constraintsApplied`
-  - `tradeoffs`
-  - `confidence`
-- Add explanations for open blocks, locked blocks, and unscheduled chunks.
-- Add a visible "Why this plan?" panel in Command Center.
 - Add a "What changed since last plan" summary after each schedule recalculation.
 
 Definition of done:
@@ -222,4 +218,3 @@ These should wait until after Phase 5 is complete:
 - HealthKit or Health Connect.
 - Full document OCR and RAG.
 - Analytics dashboards.
-

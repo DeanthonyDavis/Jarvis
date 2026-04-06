@@ -429,23 +429,108 @@ function scoreChunkForBlock(chunk, block, constraints, checkin, context) {
   return score;
 }
 
-function explainChunkPlacement(chunk, block, constraints, checkin) {
+function explainScheduledChunk(chunk, block, constraints, checkin) {
   const reasons = [];
+  const tradeoffs = [];
+  const constraintsApplied = [];
   const startHour = block.availableStart.getHours();
   const overlap = overlapScore(`${block.label} ${block.domain}`, `${chunk.title} ${chunk.course || ""}`);
+
   if (chunk.dueDate) {
     const leadHours = diffHours(chunk.dueDate, block.availableEnd);
     if (leadHours <= 12) reasons.push("deadline window");
-    else if (leadHours <= 24) reasons.push("due in 24h");
+    else if (leadHours <= 24) reasons.push("due in 24 hours");
+    else if (leadHours <= 48) reasons.push("near-term due date");
   }
-  if (block.preferredDomain === chunk.domain) reasons.push(`${DOMAIN_LABELS[chunk.domain] || chunk.domain} block`);
+  if (block.preferredDomain === chunk.domain) reasons.push(`${DOMAIN_LABELS[chunk.domain] || chunk.domain} context match`);
   if (block.kind === "focus" && chunk.energy >= 2) reasons.push("focus block fit");
-  if (startHour < 12 && chunk.energy >= 2 && constraints.soft.morningFocusBias >= 6) reasons.push("morning focus mode");
-  if (startHour >= 18 && chunk.energy >= 2 && constraints.soft.keepEveningLight >= 6) reasons.push("evening penalty avoided elsewhere");
-  if (checkin.submitted && checkin.energy <= 2 && chunk.energy <= 2) reasons.push("low-energy safe");
-  if (overlap > 0) reasons.push("matched block context");
-  if (!reasons.length) reasons.push("best available fit");
-  return `Why: ${reasons.slice(0, 3).join(", ")}.`;
+  if (overlap > 0) reasons.push("matched block keywords");
+  if (startHour < 12 && chunk.energy >= 2 && constraints.soft.morningFocusBias >= 6) reasons.push("morning focus bias");
+  if (checkin.submitted && checkin.energy <= 2 && chunk.energy <= 2) reasons.push("low-energy safe task");
+
+  if (constraints.hard.maxFocusBlockMinutes && chunk.minutes >= constraints.hard.maxFocusBlockMinutes) {
+    constraintsApplied.push(`max ${constraints.hard.maxFocusBlockMinutes}m focus chunk`);
+  }
+  if (constraints.soft.keepEveningLight >= 6 && startHour < 18) tradeoffs.push("kept heavier work away from the evening");
+  if (constraints.soft.protectFutureWork >= 5 && chunk.domain !== "future") tradeoffs.push("protected future-work slots from being overwritten");
+  if (checkin.submitted && checkin.energy <= 2 && chunk.energy >= 3) tradeoffs.push("accepted a higher-energy task despite low check-in energy");
+
+  return {
+    primaryReason: reasons[0] || "best available fit",
+    supportingReasons: reasons.slice(1, 4),
+    constraintsApplied,
+    tradeoffs,
+    confidence: CLAMP(Math.round(chunk.score / 8), 35, 98),
+  };
+}
+
+function explainBlock(block, assignedMinutes, remainingMinutes) {
+  if (block.lockedBy.includes("elapsed")) {
+    return {
+      primaryReason: "Time has already passed",
+      supportingReasons: ["APEX will not place new work into elapsed blocks."],
+      constraintsApplied: ["elapsed block"],
+      tradeoffs: [],
+      confidence: 99,
+    };
+  }
+  if (block.hardLocked) {
+    const label = block.lockedBy.includes("class")
+      ? "Class lock preserved"
+      : block.lockedBy.includes("work")
+        ? "Work shift lock preserved"
+        : block.lockedBy.includes("recovery")
+          ? "Recovery protection preserved"
+          : block.lockedBy.includes("wind-down")
+            ? "Wind-down boundary preserved"
+            : "Hard guardrail preserved";
+    return {
+      primaryReason: label,
+      supportingReasons: [`${block.label} stayed fixed because it is a ${block.kind} block.`],
+      constraintsApplied: block.lockedBy,
+      tradeoffs: assignedMinutes ? ["No flexible tasks were allowed to override this block."] : [],
+      confidence: 96,
+    };
+  }
+  if (block.assignments.length) {
+    return {
+      primaryReason: "Highest-scoring eligible work fit here",
+      supportingReasons: block.assignments.slice(0, 2).map((assignment) => assignment.explanation?.primaryReason || assignment.placement),
+      constraintsApplied: [],
+      tradeoffs: remainingMinutes ? [`${remainingMinutes}m left open inside this block.`] : ["Used the available flexible capacity."],
+      confidence: CLAMP(Math.round(block.assignments.reduce((sum, item) => sum + (item.confidence || 50), 0) / block.assignments.length), 35, 98),
+    };
+  }
+  return {
+    primaryReason: "Flexible capacity left open",
+    supportingReasons: ["No remaining eligible chunk beat the current constraints for this slot."],
+    constraintsApplied: [],
+    tradeoffs: ["Open capacity is visible instead of being silently filled with low-confidence work."],
+    confidence: 72,
+  };
+}
+
+function explainUnscheduledChunk(chunk, candidateCount, constraints) {
+  const reasons = [];
+  if ((candidateCount.get(chunk.id) || 0) === 0) reasons.push("no eligible block remained");
+  if (chunk.urgent) reasons.push("urgent but blocked by current guardrails");
+  if (chunk.dueDate) reasons.push("deadline window constrained placement");
+  if (chunk.minutes > constraints.hard.maxFocusBlockMinutes) reasons.push("split by max focus block rule");
+  if (!reasons.length) reasons.push("lost to higher-scoring work");
+  return {
+    ...chunk,
+    why: `Unscheduled because ${reasons.slice(0, 3).join(", ")}.`,
+    explanation: {
+      primaryReason: reasons[0],
+      supportingReasons: reasons.slice(1, 4),
+      constraintsApplied: [
+        `max focus ${constraints.hard.maxFocusBlockMinutes}m`,
+        `wind-down ${constraints.hard.windDownHour}:00`,
+      ],
+      tradeoffs: ["APEX surfaced this instead of silently overbooking the day."],
+      confidence: chunk.urgent ? 86 : 72,
+    },
+  };
 }
 
 function solveSchedule({ now, schedule, taskInsights, constraints, checkin }) {
@@ -516,9 +601,13 @@ function solveSchedule({ now, schedule, taskInsights, constraints, checkin }) {
         ...chunk,
         placement: `${hoursBadge(block.availableStart)} fit`,
         score: option.localScore,
-        why: explainChunkPlacement(chunk, block, constraints, checkin),
         confidence: CLAMP(Math.round(option.localScore / 8), 35, 98),
       };
+      assignment.explanation = explainScheduledChunk(assignment, block, constraints, checkin);
+      assignment.why = `Why: ${[
+        assignment.explanation.primaryReason,
+        ...assignment.explanation.supportingReasons,
+      ].filter(Boolean).slice(0, 3).join(", ")}.`;
       block.assignments.push(assignment);
       block.remaining -= chunk.minutes;
       search(index + 1, blockState, unscheduled, score + option.localScore, scheduledMinutes + chunk.minutes);
@@ -553,11 +642,13 @@ function solveSchedule({ now, schedule, taskInsights, constraints, checkin }) {
       remainingMinutes,
       status: block.hardLocked ? "locked" : block.assignments.length ? "assigned" : "open",
       note,
+      explanation: explainBlock(block, assignedMinutes, remainingMinutes),
     };
   });
 
-  const unscheduledMinutes = best.unscheduled.reduce((sum, chunk) => sum + chunk.minutes, 0);
-  const unscheduledUrgentCount = best.unscheduled.filter((chunk) => chunk.urgent).length;
+  const unscheduled = best.unscheduled.map((chunk) => explainUnscheduledChunk(chunk, candidateCount, constraints));
+  const unscheduledMinutes = unscheduled.reduce((sum, chunk) => sum + chunk.minutes, 0);
+  const unscheduledUrgentCount = unscheduled.filter((chunk) => chunk.urgent).length;
 
   return {
     schedulePlan,
@@ -570,7 +661,7 @@ function solveSchedule({ now, schedule, taskInsights, constraints, checkin }) {
       flexibleCapacityMinutes,
       hardGuardrails: best.blocks.filter((block) => block.hardLocked && !block.lockedBy.includes("elapsed")).length,
       score: Math.round(best.score),
-      unscheduled: best.unscheduled,
+      unscheduled,
     },
   };
 }
@@ -756,6 +847,46 @@ function buildRecommendations({ taskInsights, courseInsights, billInsights, chec
   return items.slice(0, 4);
 }
 
+function buildPlanExplanation({ solver, constraints, checkin, loadLabel }) {
+  const assignedBlocks = solver.schedulePlan.filter((block) => block.status === "assigned");
+  const lockedBlocks = solver.schedulePlan.filter((block) => block.status === "locked" && !block.lockedBy.includes("elapsed"));
+  const openBlocks = solver.schedulePlan.filter((block) => block.status === "open");
+  const unscheduled = solver.summary.unscheduled || [];
+  const modeReasons = [];
+  if (constraints.soft.morningFocusBias >= 6) modeReasons.push("morning focus bias");
+  if (constraints.soft.keepEveningLight >= 6) modeReasons.push("light evenings");
+  if (constraints.soft.lowEnergyProtection >= 6) modeReasons.push("energy protection");
+  if (constraints.soft.batchShallowWork >= 6) modeReasons.push("shallow-work batching");
+
+  return {
+    primaryReason: unscheduled.length
+      ? "APEX preserved hard guardrails and surfaced carryover work."
+      : assignedBlocks.length
+        ? "APEX fit the highest-scoring eligible work into flexible blocks."
+        : "APEX preserved the day without forcing low-confidence work.",
+    supportingReasons: [
+      `${assignedBlocks.length} flexible block(s) received assignments.`,
+      `${lockedBlocks.length} hard-locked block(s) stayed protected.`,
+      `${openBlocks.length} flexible block(s) remain open.`,
+      modeReasons.length ? `Active planner bias: ${modeReasons.join(", ")}.` : "Balanced planner bias is active.",
+    ],
+    tradeoffs: [
+      unscheduled.length ? `${unscheduled.length} chunk(s) remain unscheduled instead of overbooking.` : "No carryover required under the current rules.",
+      checkin.submitted && checkin.energy <= 2 ? "Low energy check-in increased recovery protection." : "No low-energy override was applied.",
+      loadLabel === "setup" ? "Load remains in setup mode until real data exists." : "Load was computed from tasks, constraints, bills, courses, and solver fit.",
+    ],
+    constraintsApplied: [
+      constraints.hard.lockClasses ? "classes locked" : "classes flexible",
+      constraints.hard.lockWorkShifts ? "work shifts locked" : "work shifts flexible",
+      constraints.hard.protectRecoveryBlocks ? "recovery protected" : "recovery flexible",
+      `wind-down ${constraints.hard.windDownHour}:00`,
+      `max focus ${constraints.hard.maxFocusBlockMinutes}m`,
+    ],
+    confidence: unscheduled.filter((chunk) => chunk.urgent).length ? 68 : assignedBlocks.length ? 84 : 72,
+    unscheduled,
+  };
+}
+
 export function buildCommandCenterIntelligence({
   now,
   tasks,
@@ -814,6 +945,12 @@ export function buildCommandCenterIntelligence({
     loadScore,
     solverSummary: solver.summary,
   });
+  const planExplanation = buildPlanExplanation({
+    solver,
+    constraints: normalizedConstraints,
+    checkin,
+    loadLabel,
+  });
   const weeklyOutlook = buildWeeklyOutlook(now, taskInsights, courseInsights, billInsights);
   const hottestDay = weeklyOutlook.reduce((best, day) => (day.score > best.score ? day : best), weeklyOutlook[0]);
 
@@ -831,6 +968,7 @@ export function buildCommandCenterIntelligence({
     billInsights,
     conflicts,
     recommendations,
+    planExplanation,
     domainLoads,
     weeklyOutlook,
     hottestDay,

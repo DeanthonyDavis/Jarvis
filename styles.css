@@ -1270,6 +1270,58 @@ textarea:focus-visible {
   font-size: 0.86rem;
 }
 
+.why-plan-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1.05fr) minmax(280px, 0.95fr);
+  gap: 1rem;
+  align-items: start;
+}
+
+.why-plan-main,
+.why-plan-side,
+.unscheduled-strip {
+  padding: 1rem;
+  border-radius: 22px;
+  border: 1px solid rgba(255, 255, 255, 0.07);
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.why-list {
+  display: grid;
+  gap: 0.6rem;
+  margin-top: 1rem;
+}
+
+.why-list > div {
+  display: grid;
+  gap: 0.25rem;
+  padding: 0.75rem 0.85rem;
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.032);
+}
+
+.why-list span {
+  color: var(--text-soft);
+  font-size: 0.7rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.why-list strong {
+  line-height: 1.45;
+}
+
+.why-list--compact {
+  margin-top: 0.65rem;
+}
+
+.unscheduled-strip {
+  display: grid;
+  gap: 0.75rem;
+  margin-top: 1rem;
+}
+
 .review-card {
   display: grid;
   gap: 1rem;
@@ -2013,6 +2065,7 @@ textarea:focus-visible {
   .control-grid,
   .connector-grid,
   .mode-grid,
+  .why-plan-layout,
   .solver-grid,
   .meta-grid,
   .setup-list {
@@ -2080,6 +2133,7 @@ textarea:focus-visible {
   .control-grid,
   .connector-grid,
   .mode-grid,
+  .why-plan-layout,
   .solver-grid,
   .meta-grid,
   .setup-list {
