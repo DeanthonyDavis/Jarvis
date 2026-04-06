@@ -61,6 +61,7 @@ You can still open `index.html` directly for a static-only pass, but the local s
 - Command Center "Why this plan?" panel with constraints, tradeoffs, confidence, and unscheduled carryover
 - Local "What changed since last plan" schedule-run comparison for plan deltas after recalculation
 - Human override rules for earliest/latest scheduling windows, max deep-work blocks, and reserved dayparts
+- Outcome-focused onboarding with setup-state progress, completion feedback, unlocked value, and missing next steps
 - Interactive tasks across Academy, Works, and Life
 - Academy and Works sub-tabs
 - Mind daily check-in with burnout recalculation

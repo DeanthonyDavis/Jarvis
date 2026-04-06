@@ -1451,6 +1451,14 @@ textarea:focus-visible {
     rgba(255, 255, 255, 0.025);
 }
 
+.setup-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 1rem;
+  margin-bottom: 1.05rem;
+}
+
 .setup-list {
   display: grid;
   grid-template-columns: repeat(5, minmax(0, 1fr));
@@ -1458,7 +1466,7 @@ textarea:focus-visible {
 }
 
 .setup-item {
-  min-height: 10.5rem;
+  min-height: 15rem;
   display: flex;
   flex-direction: column;
   align-items: flex-start;
@@ -1507,6 +1515,27 @@ textarea:focus-visible {
 .setup-copy small {
   color: var(--text-muted);
   line-height: 1.55;
+}
+
+.setup-meter {
+  width: 100%;
+  height: 5px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.setup-meter span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, var(--accent), color-mix(in srgb, var(--accent) 42%, white 18%));
+}
+
+.setup-feedback-line {
+  color: var(--text-muted);
+  font-size: 0.78rem;
+  line-height: 1.5;
 }
 
 .setup-status {
@@ -2045,6 +2074,31 @@ textarea:focus-visible {
 
 .setup-progress span.is-active {
   background: linear-gradient(90deg, var(--accent), color-mix(in srgb, var(--accent) 52%, white 12%));
+}
+
+.setup-feedback {
+  display: grid;
+  gap: 0.3rem;
+  margin-top: 0.95rem;
+  padding: 0.8rem 0.9rem;
+  border-radius: 18px;
+  border: 1px solid color-mix(in srgb, var(--accent) 24%, rgba(255, 255, 255, 0.08));
+  background: color-mix(in srgb, var(--accent) 8%, rgba(255, 255, 255, 0.03));
+}
+
+.setup-feedback.is-complete {
+  border-color: color-mix(in srgb, var(--ok) 30%, rgba(255, 255, 255, 0.08));
+  background: color-mix(in srgb, var(--ok) 8%, rgba(255, 255, 255, 0.03));
+}
+
+.setup-feedback strong {
+  font-family: "Syne", system-ui, sans-serif;
+}
+
+.setup-feedback span,
+.setup-feedback small {
+  color: var(--text-muted);
+  line-height: 1.5;
 }
 
 .onboarding-card h3,

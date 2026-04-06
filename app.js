@@ -1063,18 +1063,121 @@ function renderAuthShell() {
   app.innerHTML = `<div class="auth-shell"><div class="ambient"><div class="orb orb--one"></div><div class="orb orb--two"></div><div class="orb orb--three"></div></div><div class="auth-poster"><div class="eyebrow">${iconSvg("command")}<span>APEX Universal 2.0</span></div><h2>Your Life OS starts empty, then learns from your actual sources.</h2><p>Log in, take the guided first run, and connect files, LMS, calendar, and webhook data only when you're ready.</p></div>${body}</div>`;
 }
 
+function connectorIsConnected(providers, connectors = mergeIntegrationTemplates()) {
+  return connectors.some((item) => providers.includes(item.provider) && item.status === "connected");
+}
+
+function setupProgress(checks) {
+  const completed = checks.filter((item) => item.done).length;
+  return {
+    completed,
+    total: checks.length,
+    done: completed === checks.length,
+    label: `${completed}/${checks.length} complete`,
+  };
+}
+
+function buildSetupGuideItems() {
+  const connectors = mergeIntegrationTemplates();
+  const hasBudget = Number(state.budget?.income || 0) > 0 || Number(state.budget?.spent || 0) > 0 || Number(state.budget?.left || 0) > 0;
+  const constraintsChanged = JSON.stringify(normalizeConstraints(state.constraints)) !== JSON.stringify(normalizeConstraints(DEFAULT_CONSTRAINTS));
+  const item = (config) => {
+    const progress = setupProgress(config.checks);
+    const missing = config.checks.find((check) => !check.done)?.label || "Nothing missing right now.";
+    return {
+      ...config,
+      ...progress,
+      missing,
+      status: progress.done ? "Ready" : progress.label,
+    };
+  };
+
+  return [
+    item({
+      title: "Syllabus intake",
+      headline: "Upload your syllabus",
+      text: "Upload your syllabus so due dates can auto-populate after review.",
+      domain: "notebook",
+      action: "Upload in Notebook",
+      unlocked: "APEX can start a review queue for course dates, policies, and assignment hints.",
+      checks: [
+        { label: "Upload a syllabus or assignment file", done: state.uploadedFiles.length > 0 },
+        { label: "Start or confirm syllabus review", done: state.syllabusReviews.length > 0 },
+      ],
+    }),
+    item({
+      title: "School setup",
+      headline: "Connect school tools",
+      text: "Connect school tools so assignments, courses, and grade context can sync automatically.",
+      domain: "academy",
+      action: "Open Academy",
+      unlocked: "Academic risk, priorities, and study blocks become grounded in real class context.",
+      checks: [
+        { label: "Add or import courses", done: state.courses.length > 0 },
+        { label: "Connect Canvas or LMS source", done: connectorIsConnected(["canvas"], connectors) },
+        { label: "Import academy tasks", done: state.tasks.some((task) => task.domain === "academy") },
+        { label: "Attach a school source file", done: state.uploadedFiles.length > 0 || state.syllabusReviews.length > 0 },
+      ],
+    }),
+    item({
+      title: "Calendar and work",
+      headline: "Connect calendar and shifts",
+      text: "Connect calendar or work sources so study plans avoid conflicts before they happen.",
+      domain: "works",
+      action: "Open Works",
+      unlocked: "The solver can protect shifts, meetings, and fixed commitments as hard constraints.",
+      checks: [
+        { label: "Add schedule blocks", done: state.schedule.length > 0 },
+        { label: "Connect Google Calendar", done: connectorIsConnected(["google_calendar"], connectors) },
+        { label: "Connect shifts or work source", done: connectorIsConnected(["deputy"], connectors) || state.schedule.some((item) => item.domain === "works") },
+        { label: "Add work tasks", done: state.tasks.some((task) => task.domain === "works") },
+      ],
+    }),
+    item({
+      title: "Finance context",
+      headline: "Add bills or finance",
+      text: "Add bills so your schedule reflects financial pressure too.",
+      domain: "life",
+      action: "Open Life",
+      unlocked: "Bill timing can influence warnings, weekly pressure, and next-best-move recommendations.",
+      checks: [
+        { label: "Add bills", done: state.bills.length > 0 },
+        { label: "Connect Plaid finance", done: connectorIsConnected(["plaid"], connectors) },
+        { label: "Add budget context", done: hasBudget },
+        { label: "Add paycheck timing", done: state.paychecks.length > 0 },
+      ],
+    }),
+    item({
+      title: "Scheduler tuning",
+      headline: "Tune scheduler guardrails",
+      text: "Tune the scheduler so APEX respects your real-life boundaries and preferred work style.",
+      domain: "command",
+      action: "Tune Constraints",
+      unlocked: "The planner can explain tradeoffs using your own windows, modes, and recovery rules.",
+      checks: [
+        { label: "Finish or skip tutorial", done: Boolean(state.onboarding?.tutorialCompleted || state.onboarding?.tutorialSkipped) },
+        { label: "Review constraint settings", done: constraintsChanged },
+        { label: "Choose or preview a schedule mode", done: state.scheduleMode !== "balanced" || Boolean(state.pendingScheduleMode) },
+        { label: "Log a Mind check-in", done: Boolean(state.checkin?.submitted) },
+      ],
+    }),
+  ];
+}
+
 function renderOnboarding() {
   if (!state.onboarding?.tutorialOpen) return "";
-  const steps = [
-    ["Start Clean", "Your account begins with no demo classes or tasks. APEX only schedules what you add or connect."],
-    ["Add Syllabus Files", "Go to Notebook to attach syllabi, PDFs, notes, or assignment sheets as source files."],
-    ["Connect School", "Use Academy and Live Data Sources to bring in LMS courses, assignments, and grade signals."],
-    ["Connect Life & Work", "Use Works and Life to connect shifts, bills, finance, and calendar context when you are ready."],
-    ["Tune Scheduling", "Set hard constraints for immovable commitments and soft preferences for how you like to work."],
-  ];
+  const steps = buildSetupGuideItems();
   const index = Math.min(state.onboarding.activeStep || 0, steps.length - 1);
-  const [title, text] = steps[index];
-  return `<div class="onboarding-card"><div class="panel-label">setup ${index + 1}/${steps.length}</div><div class="setup-progress">${steps.map((_step, stepIndex) => `<span class="${stepIndex <= index ? "is-active" : ""}"></span>`).join("")}</div><h3>${title}</h3><p>${text}</p><div class="source-actions"><button class="surface-action" data-onboarding-back ${index === 0 ? "disabled" : ""}>Back</button><button class="primary-action" data-onboarding-next>${index === steps.length - 1 ? "Finish Setup" : "Next"}</button><button class="surface-action" data-onboarding-skip>Skip</button></div></div>`;
+  const step = steps[index];
+  const next = steps[index + 1];
+  const feedback = step.done
+    ? ["Your app just got smarter.", step.unlocked]
+    : ["What this unlocks", step.unlocked];
+  const smallFeedback = step.done
+    ? "Still optional: keep connecting more sources when you are ready."
+    : `Still missing: ${step.missing}`;
+  const nextLabel = index === steps.length - 1 ? "Finish Setup" : `Next${next ? `: ${next.title}` : ""}`;
+  return `<div class="onboarding-card" style="--accent:${colorFor(step.domain)};"><div class="panel-label">setup ${index + 1}/${steps.length}</div><div class="setup-progress">${steps.map((_step, stepIndex) => `<span class="${stepIndex <= index ? "is-active" : ""}"></span>`).join("")}</div><h3>${escapeHtml(step.headline)}</h3><p>${escapeHtml(step.text)}</p><div class="setup-feedback ${step.done ? "is-complete" : ""}"><strong>${escapeHtml(feedback[0])}</strong><span>${escapeHtml(feedback[1])}</span><small>${escapeHtml(smallFeedback)}</small></div><div class="source-actions"><button class="surface-action" data-onboarding-back ${index === 0 ? "disabled" : ""}>Back</button><button class="primary-action" data-onboarding-next>${escapeHtml(nextLabel)}</button><button class="surface-action" data-onboarding-skip>Skip</button></div></div>`;
 }
 
 function renderSectionHelp() {
@@ -1183,16 +1286,9 @@ function renderConnectorPanel() {
 }
 
 function renderSetupChecklist() {
-  const connectors = mergeIntegrationTemplates();
-  const isConnected = (providers) => connectors.some((item) => providers.includes(item.provider) && item.status === "connected");
-  const items = [
-    { title: "Upload Syllabus Files", text: "Attach syllabi, PDFs, or assignment sheets.", domain: "notebook", done: state.uploadedFiles.length > 0, action: "Open Notebook" },
-    { title: "Connect School Accounts", text: "Bring in courses, assignments, and grade signals.", domain: "academy", done: state.courses.length > 0 || isConnected(["canvas"]), action: "Open Academy" },
-    { title: "Connect Calendar & Work", text: "Sync shifts, events, and project commitments.", domain: "works", done: state.schedule.length > 0 || isConnected(["google_calendar", "deputy"]), action: "Open Works" },
-    { title: "Connect Finance", text: "Add bills or connect finance sources when ready.", domain: "life", done: state.bills.length > 0 || isConnected(["plaid"]), action: "Open Life" },
-    { title: "Tune Scheduler", text: "Set hard and soft constraints for the solver.", domain: "command", done: state.onboarding?.tutorialCompleted || state.onboarding?.tutorialSkipped, action: "Tune Constraints" },
-  ];
-  return `<article class="panel span-12 setup-panel" style="--accent:${TOKENS.command};"><div class="panel-label">first-time setup</div><div class="setup-list">${items.map((item) => `<button class="setup-item ${item.done ? "is-complete" : ""}" data-domain="${item.domain}" style="--accent:${colorFor(item.domain)};"><span class="setup-icon">${iconSvg(item.domain, item.title)}</span><span class="setup-copy"><strong>${item.title}</strong><small>${item.text}</small></span><span class="setup-status">${item.done ? "Ready" : "Not Started"}</span><span class="setup-action">${item.action}</span></button>`).join("")}</div></article>`;
+  const items = buildSetupGuideItems();
+  const completed = items.filter((item) => item.done).length;
+  return `<article class="panel span-12 setup-panel" style="--accent:${TOKENS.command};"><div class="setup-head"><div><div class="panel-label">setup states</div><h3 class="empty-title">Make APEX useful in the fewest steps.</h3><p class="row-subtitle">Each setup state explains what value unlocks and what is still missing, so the fresh app does not feel empty or mysterious.</p></div>${pill(`${completed}/${items.length} ready`, completed === items.length ? TOKENS.ok : TOKENS.warn)}</div><div class="setup-list">${items.map((item) => `<button class="setup-item ${item.done ? "is-complete" : ""}" data-domain="${item.domain}" style="--accent:${colorFor(item.domain)};"><span class="setup-icon">${iconSvg(item.domain, item.title)}</span><span class="setup-copy"><strong>${escapeHtml(item.title)}</strong><small>${escapeHtml(item.text)}</small></span><span class="setup-meter"><span style="width:${Math.round((item.completed / item.total) * 100)}%;"></span></span><span class="setup-feedback-line">${item.done ? "Unlocked: " : "Missing: "}${escapeHtml(item.done ? item.unlocked : item.missing)}</span><span class="setup-status">${escapeHtml(item.status)}</span><span class="setup-action">${escapeHtml(item.action)}</span></button>`).join("")}</div></article>`;
 }
 
 function renderCommand(intel) {
