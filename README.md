@@ -42,8 +42,10 @@ You can still open `index.html` directly for a static-only pass, but the local s
 
 - Supabase login/signup gate for beta testing
 - Fresh first-run workspace with no preset demo data after signup
-- Optional onboarding tutorial with skip
-- Contextual help boxes when opening each app section
+- Guided onboarding tutorial with Back, Next, Skip, and visible setup progress
+- Contextual section guide boxes that can be dismissed after each section is understood
+- Command Center first-time setup checklist for uploading syllabi and connecting school, work/calendar, and finance sources
+- Consistent SVG domain icon system across navigation, topbar, help, and setup surfaces
 - Domain switching with a collapsible sidebar
 - Command Center driven by computed priorities, conflicts, load, weekly heat, and a real slot-assignment solver pass
 - Interactive tasks across Academy, Works, and Life
@@ -61,7 +63,7 @@ You can still open `index.html` directly for a static-only pass, but the local s
   - `POST /api/webhooks/calendar`
   - `POST /api/webhooks/lms`
   - `POST /api/webhooks/apex`
-- Rotating APEX toast notifications
+- Action-scoped toast notifications only; no background notification loop
 
 ## Connector Notes
 
