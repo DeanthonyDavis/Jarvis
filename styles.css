@@ -1825,6 +1825,7 @@ textarea:focus-visible {
 }
 
 .review-card {
+  min-width: 0;
   display: grid;
   gap: 1rem;
   padding: 1.05rem;
@@ -1839,6 +1840,7 @@ textarea:focus-visible {
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
+  flex-wrap: wrap;
   gap: 1rem;
 }
 
@@ -1846,6 +1848,8 @@ textarea:focus-visible {
   margin: 0.2rem 0 0;
   font-family: "Syne", system-ui, sans-serif;
   font-size: 1.15rem;
+  line-height: 1.25;
+  overflow-wrap: anywhere;
 }
 
 .review-grid,
@@ -1872,9 +1876,17 @@ textarea:focus-visible {
 
 .extraction-list > div {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   justify-content: space-between;
   gap: 0.8rem;
+}
+
+.review-grid strong,
+.extraction-list strong {
+  min-width: 0;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+  text-align: right;
 }
 
 .setup-panel {
@@ -2600,6 +2612,125 @@ textarea:focus-visible {
   box-shadow: 0 -24px 80px rgba(67, 51, 32, 0.2);
 }
 
+.upload-sheet {
+  position: fixed;
+  inset: 0;
+  z-index: 10;
+  display: grid;
+  align-items: end;
+}
+
+.upload-sheet.theme-contrast {
+  --bg: #000;
+  --panel: rgba(255, 255, 255, 0.07);
+  --border: rgba(255, 255, 255, 0.24);
+  --text: #ffffff;
+  --text-muted: #d7d7e5;
+  --text-soft: #b5b5c7;
+}
+
+.upload-sheet.theme-daylight {
+  --bg: #f5f2ea;
+  --panel: rgba(255, 255, 255, 0.76);
+  --border: rgba(29, 25, 43, 0.16);
+  --text: #171520;
+  --text-muted: #4d465f;
+  --text-soft: #746d84;
+  color-scheme: light;
+}
+
+.upload-sheet.text-large { font-size: 1.06rem; }
+.upload-sheet.text-xl { font-size: 1.14rem; }
+
+.upload-sheet__scrim {
+  position: fixed;
+  inset: 0;
+  background:
+    radial-gradient(circle at 50% 0%, color-mix(in srgb, var(--acad) 18%, transparent), transparent 45%),
+    rgba(0, 0, 0, 0.58);
+  backdrop-filter: blur(14px);
+}
+
+.upload-sheet__panel {
+  position: relative;
+  z-index: 1;
+  width: min(48rem, 100vw);
+  max-height: min(88vh, 48rem);
+  justify-self: center;
+  overflow: auto;
+  padding: 0.7rem 1rem max(1rem, env(safe-area-inset-bottom));
+  border: 1px solid color-mix(in srgb, var(--acad) 24%, var(--border));
+  border-radius: 30px 30px 0 0;
+  background: rgba(8, 10, 16, 0.97);
+  box-shadow: 0 -24px 80px rgba(0, 0, 0, 0.55);
+  animation: sheetUp 220ms ease;
+}
+
+.upload-sheet.theme-daylight .upload-sheet__panel {
+  background: rgba(255, 252, 245, 0.97);
+  box-shadow: 0 -24px 80px rgba(67, 51, 32, 0.2);
+}
+
+.upload-sheet__head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-bottom: 1rem;
+}
+
+.upload-sheet__head h4 {
+  margin: 0.2rem 0 0;
+  font-family: "Syne", system-ui, sans-serif;
+  font-size: clamp(1.35rem, 5vw, 1.85rem);
+  letter-spacing: -0.05em;
+}
+
+.upload-sheet__head p {
+  max-width: 42rem;
+  margin: 0.35rem 0 0;
+  color: var(--text-muted);
+  line-height: 1.55;
+}
+
+.upload-zone--sheet {
+  margin: 0;
+}
+
+.upload-sheet__stats {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.85rem;
+  margin-top: 1rem;
+}
+
+.upload-sheet__stats article {
+  min-width: 0;
+  padding: 0.9rem;
+  border: 1px solid var(--border);
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.035);
+}
+
+.upload-sheet-row {
+  min-width: 0;
+  display: grid;
+  gap: 0.22rem;
+  padding: 0.65rem 0;
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.upload-sheet-row strong,
+.upload-sheet-row span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.upload-sheet-row span {
+  color: var(--text-soft);
+  font-size: 0.82rem;
+}
+
 .mobile-nav-grabber {
   width: 3rem;
   height: 0.28rem;
@@ -3024,6 +3155,8 @@ textarea:focus-visible {
   .connector-grid,
   .mode-grid,
   .mode-preview-grid,
+  .review-grid,
+  .upload-sheet__stats,
   .toggle-grid--wide,
   .why-plan-layout,
   .plan-change-card,
@@ -3079,5 +3212,22 @@ textarea:focus-visible {
 
   .mobile-nav-grid {
     grid-template-columns: 1fr;
+  }
+
+  .review-card__head,
+  .extraction-list > div,
+  .upload-sheet__head {
+    display: grid;
+    justify-content: stretch;
+  }
+
+  .review-grid strong,
+  .extraction-list strong {
+    text-align: left;
+  }
+
+  .upload-sheet__panel {
+    width: 100vw;
+    max-height: 92vh;
   }
 }

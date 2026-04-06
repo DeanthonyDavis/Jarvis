@@ -214,7 +214,8 @@ function getScheduleMinuteMarks(schedule) {
 
 function buildCourseInsights(courses, now) {
   return courses.map((course) => {
-    const gradeGap = Math.max(0, (course.target || 0) - (course.grade || 0));
+    const hasGrade = course.grade !== null && course.grade !== undefined && course.grade !== "" && course.target !== null && course.target !== undefined && course.target !== "" && Number.isFinite(Number(course.grade)) && Number.isFinite(Number(course.target));
+    const gradeGap = hasGrade ? Math.max(0, Number(course.target) - Number(course.grade)) : 0;
     const examDate = parseSimpleDate(course.exam, now, 11);
     const daysToExam = examDate ? diffDays(examDate, now) : null;
     const score =
@@ -227,6 +228,8 @@ function buildCourseInsights(courses, now) {
       examDate,
       daysToExam,
       riskScore: CLAMP(Math.round(score), 0, 100),
+      hasGrade,
+      gradeLabel: hasGrade ? `${course.grade}%` : "No grade yet",
       status: score >= 45 ? "at-risk" : score >= 20 ? "watch" : "stable",
     };
   });

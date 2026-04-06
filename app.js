@@ -389,12 +389,15 @@ const state = {
   commandPaletteQuery: "",
   commandPaletteIndex: 0,
   mobileNavOpen: false,
+  uploadSheetOpen: false,
 };
 
 const app = doc?.querySelector("#app") || null;
 const colorFor = (domain) => TOKENS[domain] || TOKENS.command;
 const activeDomain = () => DOMAINS.find((domain) => domain.id === state.activeDomain);
 const localId = (prefix) => `${prefix}-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+const normalizedKey = (...parts) => parts.map((part) => String(part || "").trim().toLowerCase().replace(/\s+/g, " ")).join("|");
+const nextNumericTaskId = () => Math.max(0, ...state.tasks.map((task) => Number(task.id) || 0)) + 1;
 const unreadNotifications = () => state.notifications.filter((item) => !item.read_at && !item.dismissed_at && !item.resolved_at);
 function constraintsForMode(modeKey = state.scheduleMode) {
   const mode = SCHEDULE_MODES[modeKey] || SCHEDULE_MODES.balanced;
@@ -435,7 +438,13 @@ function gauge(value, accent, label, subtitle = "", displayValue = `${value}%`) 
 }
 
 function emptyState({ domain = "command", title, body, primaryLabel = "Open setup", primaryDomain = "command", secondaryLabel = "", secondaryDomain = "notebook", compact = false } = {}) {
-  return `<div class="empty-state ${compact ? "empty-state--compact" : ""}" style="--accent:${colorFor(domain)};"><div class="empty-state__icon">${iconSvg(domain, title || "Empty state")}</div><h3 class="empty-title">${escapeHtml(title || "Nothing here yet.")}</h3><p>${escapeHtml(body || "Add a source or complete setup to unlock this area.")}</p>${primaryLabel || secondaryLabel ? `<div class="empty-state__actions">${primaryLabel ? `<button class="primary-action" data-domain="${escapeHtml(primaryDomain)}">${escapeHtml(primaryLabel)}</button>` : ""}${secondaryLabel ? `<button class="surface-action" data-domain="${escapeHtml(secondaryDomain)}">${escapeHtml(secondaryLabel)}</button>` : ""}</div>` : ""}</div>`;
+  const actionButton = (label, destination, className) => {
+    if (!label) return "";
+    return destination === "upload"
+      ? `<button class="${className}" data-upload-sheet-open>${escapeHtml(label)}</button>`
+      : `<button class="${className}" data-domain="${escapeHtml(destination)}">${escapeHtml(label)}</button>`;
+  };
+  return `<div class="empty-state ${compact ? "empty-state--compact" : ""}" style="--accent:${colorFor(domain)};"><div class="empty-state__icon">${iconSvg(domain, title || "Empty state")}</div><h3 class="empty-title">${escapeHtml(title || "Nothing here yet.")}</h3><p>${escapeHtml(body || "Add a source or complete setup to unlock this area.")}</p>${primaryLabel || secondaryLabel ? `<div class="empty-state__actions">${actionButton(primaryLabel, primaryDomain, "primary-action")}${actionButton(secondaryLabel, secondaryDomain, "surface-action")}</div>` : ""}</div>`;
 }
 
 function stateNotice(kind, title, body, domain = "command") {
@@ -967,6 +976,97 @@ function summaryFromParsedUpload(upload, parsed, extraction) {
   };
 }
 
+function courseFromSyllabusReview(review) {
+  const summary = review.parsedSummary || {};
+  const rawCode = String(summary.courseCode || "").trim();
+  const code = rawCode && rawCode.toLowerCase() !== "needs review" ? rawCode.toUpperCase().replace("-", " ") : "";
+  const name = String(summary.courseName || review.title || "Imported course").replace(/\s+review$/i, "").trim() || "Imported course";
+  if (!code && !name) return null;
+  return {
+    id: localId("course"),
+    name,
+    code: code || "Review code",
+    grade: null,
+    target: null,
+    trend: 0,
+    color: TOKENS.academy,
+    exam: "",
+    plat: "Syllabus",
+    platform: "Syllabus",
+    hist: [],
+    source: "syllabus",
+    sourceReviewId: review.id,
+  };
+}
+
+function taskItemsFromSyllabusReview(review) {
+  const summary = review.parsedSummary || {};
+  const items = [
+    ...(Array.isArray(summary.assignments) ? summary.assignments : []),
+    ...(Array.isArray(summary.exams) ? summary.exams : []),
+    ...(Array.isArray(summary.extractedItems) ? summary.extractedItems : []),
+  ];
+  const seen = new Set();
+  return items
+    .map((item) => ({
+      type: String(item.type || "").toLowerCase(),
+      title: String(item.title || item.name || "").trim(),
+      due: String(item.dateText || item.due || item.date || "").trim(),
+      status: String(item.status || "").toLowerCase(),
+    }))
+    .filter((item) => !(item.status === "needs_review" && !item.due && /^review\s+/i.test(item.title)))
+    .filter((item) => item.title && /assignment|exam|quiz|project|paper|lab|deadline|midterm|final|test/.test(`${item.type} ${item.title}`))
+    .filter((item) => {
+      const key = normalizedKey(item.type, item.title, item.due);
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    })
+    .slice(0, 20);
+}
+
+function applyConfirmedSyllabusReview(review) {
+  const summary = review.parsedSummary || {};
+  const course = courseFromSyllabusReview(review);
+  let courseAdded = false;
+  if (course) {
+    const courseKey = normalizedKey(course.code !== "Review code" ? course.code : course.name);
+    const exists = state.courses.some((item) => normalizedKey(item.code || item.name) === courseKey || item.sourceReviewId === review.id);
+    if (!exists) {
+      state.courses = [course, ...state.courses];
+      courseAdded = true;
+    }
+  }
+
+  const existingTaskKeys = new Set(state.tasks.map((task) => normalizedKey(task.course, task.title, task.due)));
+  let nextId = nextNumericTaskId();
+  const newTasks = taskItemsFromSyllabusReview(review)
+    .map((item) => {
+      const task = {
+        id: nextId,
+        title: item.title,
+        domain: "academy",
+        due: item.due || "Needs date review",
+        urgent: /exam|midterm|final|test/.test(`${item.type} ${item.title}`),
+        done: false,
+        course: summary.courseCode && summary.courseCode !== "Needs review" ? summary.courseCode : course?.code || "",
+        source: "syllabus",
+        sourceReviewId: review.id,
+      };
+      nextId += 1;
+      return task;
+    })
+    .filter((task) => {
+      const key = normalizedKey(task.course, task.title, task.due);
+      if (existingTaskKeys.has(key)) return false;
+      existingTaskKeys.add(key);
+      return true;
+    });
+  if (newTasks.length) state.tasks = [...newTasks, ...state.tasks];
+
+  return { courseAdded, tasksAdded: newTasks.length };
+}
+
 async function upsertParsedSyllabusReview(upload, parsed, extraction) {
   const summary = summaryFromParsedUpload(upload, parsed, extraction);
   const existing = state.syllabusReviews.map(normalizeSyllabusReview).find((review) => review.uploadId === upload.id);
@@ -1282,6 +1382,7 @@ async function startSyllabusReview(uploadId) {
 async function confirmSyllabusReview(reviewId) {
   const current = state.syllabusReviews.map(normalizeSyllabusReview).find((item) => item.id === reviewId);
   if (!current) return;
+  const wasConfirmed = current.parseStatus === "confirmed";
   const updated = normalizeSyllabusReview({
     ...current,
     parseStatus: "confirmed",
@@ -1290,11 +1391,14 @@ async function confirmSyllabusReview(reviewId) {
     local: current.local,
   });
   state.syllabusReviews = state.syllabusReviews.map((item) => item.id === reviewId ? updated : item);
+  const created = wasConfirmed ? { courseAdded: false, tasksAdded: 0 } : applyConfirmedSyllabusReview(updated);
   rerender();
   notifyUser({
     type: "syllabus_confirmed",
-    title: "Syllabus review confirmed",
-    body: "The syllabus is marked confirmed. Real assignment creation will come after document text extraction is connected.",
+    title: created.courseAdded || created.tasksAdded ? "Syllabus added to Academy" : "Syllabus review confirmed",
+    body: created.courseAdded || created.tasksAdded
+      ? `Added ${created.courseAdded ? "1 course" : "0 courses"} and ${created.tasksAdded} academic task${created.tasksAdded === 1 ? "" : "s"} from the reviewed syllabus.`
+      : "The syllabus is confirmed. No new course or assignment rows were added because they already exist or the parser found no actionable dates.",
     severity: "success",
     sourceEntityType: "syllabus",
     sourceEntityId: reviewId,
@@ -1304,7 +1408,12 @@ async function confirmSyllabusReview(reviewId) {
     entityId: isUuid(reviewId) ? reviewId : null,
     actionType: "confirmed",
     beforeState: { parseStatus: current.parseStatus, confidence: current.confidence },
-    afterState: { title: updated.title, parseStatus: updated.parseStatus, confidence: updated.confidence },
+    afterState: {
+      title: updated.title,
+      parseStatus: updated.parseStatus,
+      confidence: updated.confidence,
+      summary: `Confirmed syllabus review. Added ${created.courseAdded ? "1 course" : "0 courses"} and ${created.tasksAdded} academic task${created.tasksAdded === 1 ? "" : "s"}.`,
+    },
   });
 
   if (!state.workspace.phase2Enabled || !state.auth.client || !isUuid(reviewId)) return;
@@ -1958,7 +2067,7 @@ function commandPaletteItems() {
     { id: "constraints", title: "Open Constraint Studio", subtitle: "Tune hard guardrails, soft preferences, and human override rules.", domain: "command", scrollSelector: "[data-constraint-panel]", widgetId: "constraints", keywords: "constraints schedule guardrails overrides solver" },
     { id: "modes", title: "Open Schedule Modes", subtitle: "Preview Balanced, Focus Week, Recovery, Finals, Work-Heavy, and Catch-Up modes.", domain: "command", scrollSelector: "[data-schedule-mode-panel]", widgetId: "modes", keywords: "schedule modes focus recovery finals work heavy catch up" },
     { id: "why-plan", title: "Open Why This Plan", subtitle: "Review solver reasoning, tradeoffs, confidence, and schedule deltas.", domain: "command", scrollSelector: "[data-why-plan-panel]", widgetId: "why", keywords: "why this plan reasoning confidence tradeoffs deltas explanations" },
-    { id: "uploads", title: "Upload Files", subtitle: "Go to Notebook source uploads for syllabi, notes, and assignment sheets.", domain: "notebook", scrollSelector: "[data-upload-panel]", keywords: "upload syllabus files notes pdf assignment sheet notebook" },
+    { id: "uploads", title: "Upload Files", subtitle: "Open upload without leaving your current section.", action: "uploadSheet", domain: state.activeDomain || "command", keywords: "upload syllabus files notes pdf assignment sheet source" },
     { id: "syllabus-review", title: "Review Syllabus Queue", subtitle: "Confirm parsed syllabus placeholders before anything is scheduled.", domain: "notebook", scrollSelector: "[data-syllabus-review-panel]", keywords: "syllabus review confirm course assignments dates" },
     { id: "notifications", title: "Open Notifications", subtitle: "View unread, dismissed, and local/cloud notification state.", action: "notifications", domain: "command", keywords: "alerts notifications unread read dismissed" },
   ];
@@ -2019,6 +2128,11 @@ function executeCommandPaletteAction(actionId) {
     renderNotificationCenter();
     return;
   }
+  if (item.action === "uploadSheet") {
+    state.uploadSheetOpen = true;
+    renderUploadSheet();
+    return;
+  }
   if (item.widgetId && item.domain === "command") {
     state.widgets = normalizeWidgets(state.widgets);
     const profile = activeWidgetProfile();
@@ -2050,6 +2164,32 @@ function renderMobileNavSheet() {
 function closeMobileNavSheet() {
   state.mobileNavOpen = false;
   renderMobileNavSheet();
+}
+
+function renderUploadSheet() {
+  let panel = doc?.querySelector("[data-upload-sheet]");
+  if (!state.uploadSheetOpen) {
+    panel?.remove();
+    return;
+  }
+  if (!panel) {
+    panel = doc.createElement("aside");
+    panel.setAttribute("data-upload-sheet", "");
+    doc.body.appendChild(panel);
+  }
+  const prefs = normalizePreferences(state.preferences);
+  const domain = activeDomain();
+  const uploads = state.uploadedFiles.map(normalizeUpload).slice(0, 5);
+  const reviews = state.syllabusReviews.map(normalizeSyllabusReview).slice(0, 4);
+  const uploadRows = uploads.map((file) => `<div class="upload-sheet-row"><strong>${escapeHtml(file.name)}</strong><span>${escapeHtml(file.textStatus)}${file.extractionMethod ? ` via ${escapeHtml(file.extractionMethod)}` : ""}</span></div>`).join("");
+  const reviewRows = reviews.map((review) => `<div class="upload-sheet-row"><strong>${escapeHtml(review.title)}</strong><span>${escapeHtml(review.parseStatus.replace(/_/g, " "))} | ${Math.round((review.confidence || 0) * 100)}% confidence</span></div>`).join("");
+  panel.className = `upload-sheet theme-${prefs.theme} text-${prefs.fontScale}`;
+  panel.innerHTML = `<div class="upload-sheet__scrim" data-upload-sheet-close></div><div class="upload-sheet__panel" role="dialog" aria-modal="true" aria-label="Upload source files"><div class="mobile-nav-grabber"></div><div class="upload-sheet__head"><div><div class="panel-label">source upload</div><h4>Upload without leaving ${escapeHtml(domain?.label || "this section")}</h4><p>APEX will extract text, run syllabus parsing, and create a review card in the background. You stay right where you are.</p></div><button class="surface-action surface-action--small" data-upload-sheet-close aria-label="Close upload">Close</button></div><label class="upload-zone upload-zone--sheet"><input type="file" multiple data-file-upload /><span>Choose syllabus, notes, PDFs, DOCX, TXT, or images</span><small>Parsed results stay in review until you confirm them.</small></label><div class="upload-sheet__stats"><article><div class="panel-label">recent files</div>${uploadRows || `<p class="row-subtitle">No files uploaded yet.</p>`}</article><article><div class="panel-label">review queue</div>${reviewRows || `<p class="row-subtitle">No review cards yet.</p>`}</article></div><div class="footer-note">Tip: confirming a syllabus now creates an Academy course and extracted assignment or exam tasks when the parser finds them.</div></div>`;
+}
+
+function closeUploadSheet() {
+  state.uploadSheetOpen = false;
+  renderUploadSheet();
 }
 
 function heroBand(intel) {
@@ -2200,17 +2340,18 @@ function renderCommand(intel) {
   const topCourse = intel.courseInsights.slice().sort((a, b) => b.riskScore - a.riskScore)[0];
   const priorities = intel.topPriorities.map((task, index) => `<div class="row is-hot" style="--accent:${colorFor(task.domain)};"><div class="row-badge">${index + 1}</div><div class="row-copy"><div class="row-title">${escapeHtml(task.title)}</div><div class="row-subtitle">Due ${escapeHtml(task.due)} &middot; ${escapeHtml(task.reason)}</div></div>${pill(task.domain, colorFor(task.domain))}</div>`).join("");
   const domainLoads = intel.domainLoads.map((item) => `<div><div class="label-row"><span>${escapeHtml(item.label)}</span><span>${item.pct}%</span></div>${meter(item.pct, colorFor(item.domain))}</div>`).join("");
-  const courses = intel.courseInsights.map((course) => `<div class="meta-row"><span>${escapeHtml(course.name)}</span><strong style="color:${course.status === "at-risk" ? TOKENS.danger : course.status === "watch" ? TOKENS.warn : TOKENS.ok};">${course.grade}%</strong></div>`).join("");
+  const courses = intel.courseInsights.map((course) => `<div class="meta-row"><span>${escapeHtml(course.name)}</span><strong style="color:${course.status === "at-risk" ? TOKENS.danger : course.status === "watch" ? TOKENS.warn : TOKENS.ok};">${escapeHtml(course.gradeLabel || `${course.grade}%`)}</strong></div>`).join("");
   const conflicts = intel.conflicts.map((conflict) => `<div class="row" style="--accent:${conflict.severity === "crit" ? TOKENS.danger : conflict.severity === "warn" ? TOKENS.warn : TOKENS.command}; align-items:flex-start;"><div class="row-badge">${conflict.severity === "crit" ? "!" : conflict.severity === "warn" ? "~" : "i"}</div><div class="row-copy"><div class="row-title">${escapeHtml(conflict.title)}</div><div class="row-subtitle">${escapeHtml(conflict.text)}</div></div><button class="small-action">${escapeHtml(conflict.action)}</button></div>`).join("");
   const recommendations = intel.recommendations.map((item) => `<article class="note-card"><h4>${escapeHtml(item.title)}</h4><p class="row-subtitle" style="margin-top:0.7rem;">${escapeHtml(item.text)}</p><div style="margin-top:0.8rem;">${pill(DOMAINS.find((domain) => domain.id === item.accent)?.label || item.accent, colorFor(item.accent))}</div></article>`).join("");
   const scheduleBlocks = intel.schedulePlan.map((item) => `<div class="schedule-block" style="--accent:${colorFor(item.domain)};"><div class="schedule-time">${escapeHtml(item.time)}</div><strong>${escapeHtml(item.label)}</strong><div class="row-subtitle" style="margin-top:0.45rem;">${escapeHtml(item.note)}</div><div style="margin-top:0.65rem;">${pill(item.status || item.kind, item.status === "locked" ? TOKENS.notebook : item.status === "assigned" ? colorFor(item.domain) : TOKENS.warn)}</div><div class="assignment-list">${item.assignments?.length ? item.assignments.map((assignment) => `<div class="assignment-pill assignment-pill--explain"><span>${escapeHtml(assignment.title)}</span><strong>${assignment.minutes}m</strong><small>${escapeHtml(assignment.why || assignment.placement || "Placed by solver score.")}</small></div>`).join("") : `<div class="empty-assignment">${item.status === "locked" ? "Reserved" : "No task assigned"}</div>`}</div><div class="row-subtitle">Remaining: ${item.remainingMinutes ?? 0}m</div></div>`).join("");
+  const hasAnyGrade = state.courses.some((course) => course.grade !== null && course.grade !== undefined && course.grade !== "" && Number.isFinite(Number(course.grade)));
   const widgetPanels = {
     setup: renderSetupChecklist(),
     personalization: renderPersonalizationPanel(),
-    briefing: `<article class="panel span-8" style="--accent:${TOKENS.command};"><div class="panel-label">intelligence briefing</div><div class="list-rows">${listOrEmpty(priorities, { domain: "command", title: "Not enough data for a briefing yet.", body: "Add tasks, classes, bills, or a calendar source so APEX can rank what matters first.", primaryLabel: "Review setup", primaryDomain: "command", secondaryLabel: "Upload files", secondaryDomain: "notebook" })}</div><div class="system-note" style="margin-top:1rem;">This stack is driven by live task scoring plus the current constraint profile. Change the rules, and these priorities recompute.</div></article>`,
+    briefing: `<article class="panel span-8" style="--accent:${TOKENS.command};"><div class="panel-label">intelligence briefing</div><div class="list-rows">${listOrEmpty(priorities, { domain: "command", title: "Not enough data for a briefing yet.", body: "Add tasks, classes, bills, or a calendar source so APEX can rank what matters first.", primaryLabel: "Review setup", primaryDomain: "command", secondaryLabel: "Upload files", secondaryDomain: "upload" })}</div><div class="system-note" style="margin-top:1rem;">This stack is driven by live task scoring plus the current constraint profile. Change the rules, and these priorities recompute.</div></article>`,
     solver: `<article class="panel span-4" style="--accent:${intel.solverSummary.unscheduledUrgentCount ? TOKENS.danger : TOKENS.ok};"><div class="panel-label">solver summary</div><div class="solver-grid"><div class="metric-stack"><span>Scheduled</span><strong>${intel.solverSummary.scheduledMinutes}m</strong></div><div class="metric-stack"><span>Capacity</span><strong>${intel.solverSummary.flexibleCapacityMinutes}m</strong></div><div class="metric-stack"><span>Urgent unscheduled</span><strong>${intel.solverSummary.unscheduledUrgentCount}</strong></div><div class="metric-stack"><span>Search score</span><strong>${intel.solverSummary.score}</strong></div></div><div class="footer-note">${intel.solverSummary.unscheduledMinutes ? `${intel.solverSummary.unscheduledMinutes} minutes remain unscheduled under the current rules.` : "Every active chunk currently fits inside the remaining day."}</div></article>`,
     capacity: `<article class="panel span-4" style="--accent:${TOKENS.command};"><div class="panel-label">capacity gauge</div>${gauge(intel.loadScore, TOKENS.command, "load index", intel.loadLabel === "stabilize" ? "stabilize plan active" : intel.loadLabel, intel.loadDisplay || `${intel.loadScore}%`)}<div class="footer-note" style="margin-top:0.9rem;">${intel.loadExplanation}</div><div class="mini-breakdown">${listOrEmpty(domainLoads, { domain: "command", title: "Setup mode is active.", body: "APEX will show real domain load once you add source data.", primaryLabel: "Review setup", primaryDomain: "command" })}</div></article>`,
-    gpa: `<article class="panel span-4" style="--accent:${TOKENS.academy};"><div class="panel-label">gpa tracker</div>${state.courses.length ? `<div class="kpi"><div class="kpi-value accent-text">3.47</div><div class="kpi-copy"><div>Current GPA</div><div class="${topCourse?.status === "at-risk" ? "trend-down" : "trend-up"}">${topCourse?.status === "at-risk" ? "Watch " : "Stable "}${escapeHtml(topCourse?.name || "semester profile")}</div></div></div>${sparkBars(state.courses.map((course) => course.grade / 10), TOKENS.academy)}<div class="section-list" style="margin-top:0.95rem;">${listOrEmpty(courses, { domain: "academy", title: "No classes imported yet.", body: "Upload a syllabus or connect school tools so grades and deadlines can show here.", primaryLabel: "Upload syllabus", primaryDomain: "notebook" })}</div>` : emptyState({ domain: "academy", title: "No classes imported yet.", body: "Upload a syllabus or connect Canvas when ready. APEX will not invent grade data.", primaryLabel: "Upload syllabus", primaryDomain: "notebook", secondaryLabel: "Open connectors", secondaryDomain: "command", compact: true })}</article>`,
+    gpa: `<article class="panel span-4" style="--accent:${TOKENS.academy};"><div class="panel-label">gpa tracker</div>${state.courses.length ? `<div class="kpi"><div class="kpi-value accent-text">${hasAnyGrade ? "3.47" : "--"}</div><div class="kpi-copy"><div>${hasAnyGrade ? "Current GPA" : "Grade sync pending"}</div><div class="${topCourse?.status === "at-risk" ? "trend-down" : "trend-up"}">${topCourse?.status === "at-risk" ? "Watch " : "Stable "}${escapeHtml(topCourse?.name || "semester profile")}</div></div></div>${sparkBars(state.courses.map((course) => Number(course.grade) ? Number(course.grade) / 10 : 1), TOKENS.academy)}<div class="section-list" style="margin-top:0.95rem;">${listOrEmpty(courses, { domain: "academy", title: "No classes imported yet.", body: "Upload a syllabus or connect school tools so grades and deadlines can show here.", primaryLabel: "Upload syllabus", primaryDomain: "upload" })}</div>` : emptyState({ domain: "academy", title: "No classes imported yet.", body: "Upload a syllabus or connect Canvas when ready. APEX will not invent grade data.", primaryLabel: "Upload syllabus", primaryDomain: "upload", secondaryLabel: "Open connectors", secondaryDomain: "command", compact: true })}</article>`,
     conflicts: `<article class="panel span-4" style="--accent:${TOKENS.danger};"><div class="panel-label">conflict engine</div><div class="stack-list">${listOrEmpty(conflicts, { domain: "command", title: "No conflicts detected yet.", body: "That can mean you are clear, or that APEX needs more real sources before it can compare commitments.", primaryLabel: "Add sources", primaryDomain: "command" })}</div></article>`,
     week: `<article class="panel span-4" style="--accent:${TOKENS.notebook};"><div class="panel-label">this week</div><div class="calendar-grid">${dayLabels.map((label, index) => { const day = intel.weeklyOutlook[index]; const level = day.level === "high" ? TOKENS.danger : day.level === "medium" ? TOKENS.warn : TOKENS.ok; return `<div class="day-card ${index === dayIndex ? "is-today" : ""}" style="--accent:${level};"><small class="muted">${label}</small><strong>${day.date.getDate()}</strong><div class="dot-stack"><span style="background:${level};"></span><span style="background:${level}; opacity:.65;"></span><span style="background:${level}; opacity:.35;"></span></div></div>`; }).join("")}</div><div class="footer-note" style="margin-top:0.95rem;">Peak pressure day: ${intel.hottestDay.date.toLocaleDateString("en-US", { weekday: "long", month: "short", day: "numeric" })}. The weekly view is driven by deadlines, exams, and bills.</div></article>`,
     recommendations: `<article class="panel span-12" style="--accent:${TOKENS.future};"><div class="panel-label">next best moves</div><div class="courses-grid">${listOrEmpty(recommendations, { domain: "future", title: "No recommendations yet.", body: "APEX needs source data before it can safely recommend next moves.", primaryLabel: "Review setup", primaryDomain: "command" })}</div></article>`,
@@ -2220,7 +2361,7 @@ function renderCommand(intel) {
     sources: renderSourcePanel(),
     connectors: renderConnectorPanel(),
     activity: renderActivityPanel(),
-    schedule: `<article class="panel span-12" style="--accent:${TOKENS.command};"><div class="panel-label">optimized schedule</div><div class="schedule-strip schedule-strip--solver">${scheduleBlocks || emptyState({ domain: "command", title: "No schedule blocks yet.", body: "Connect your calendar or add tasks to let the solver build a real day plan.", primaryLabel: "Open connectors", primaryDomain: "command", secondaryLabel: "Upload files", secondaryDomain: "notebook" })}</div></article>`,
+    schedule: `<article class="panel span-12" style="--accent:${TOKENS.command};"><div class="panel-label">optimized schedule</div><div class="schedule-strip schedule-strip--solver">${scheduleBlocks || emptyState({ domain: "command", title: "No schedule blocks yet.", body: "Connect your calendar or add tasks to let the solver build a real day plan.", primaryLabel: "Open connectors", primaryDomain: "command", secondaryLabel: "Upload files", secondaryDomain: "upload" })}</div></article>`,
   };
   return `<section class="section-shell">${heroBand(intel)}<div class="dashboard-grid">${renderWidgetManager()}${renderVisibleCommandWidgets(widgetPanels)}</div></section>`;
 }
@@ -2232,10 +2373,13 @@ function simpleListPanel(title, accent, rows, emptyConfig = null) {
 
 function renderAcademy(intel) {
   const tab = state.subTabs.academy;
-  const grades = state.courses.map((course) => `<div class="row" style="--accent:${course.color || TOKENS.academy};"><div class="row-copy"><div class="row-title">${course.name}</div><div class="row-subtitle">${course.code} &middot; ${course.platform || course.plat || ""}</div></div><strong style="color:${course.grade >= course.target ? TOKENS.ok : TOKENS.warn};">${course.grade}%</strong></div>`).join("");
+  const grades = state.courses.map((course) => {
+    const hasGrade = course.grade !== null && course.grade !== undefined && course.grade !== "" && course.target !== null && course.target !== undefined && course.target !== "" && Number.isFinite(Number(course.grade)) && Number.isFinite(Number(course.target));
+    return `<div class="row" style="--accent:${course.color || TOKENS.academy};"><div class="row-copy"><div class="row-title">${escapeHtml(course.name)}</div><div class="row-subtitle">${escapeHtml(course.code)} &middot; ${escapeHtml(course.platform || course.plat || "")}</div></div><strong style="color:${hasGrade && course.grade < course.target ? TOKENS.warn : TOKENS.ok};">${hasGrade ? `${course.grade}%` : "No grade yet"}</strong></div>`;
+  }).join("");
   const planner = intel.schedulePlan.filter((item) => item.domain === "academy").map((item) => `<div class="row" style="--accent:${TOKENS.academy};"><div class="row-badge mono">${item.time}</div><div class="row-copy"><div class="row-title">${item.label}</div><div class="row-subtitle">${item.note}</div></div></div>`).join("");
   const courses = state.tasks.filter((task) => task.domain === "academy").map((task) => taskMarkup(task)).join("");
-  return `<section class="section-shell">${heroBand(intel)}<div class="tab-strip" style="--accent:${TOKENS.academy};">${tabButton("academy", "grades", tab, TOKENS.academy)}${tabButton("academy", "planner", tab, TOKENS.academy)}${tabButton("academy", "courses", tab, TOKENS.academy)}</div>${tab === "grades" ? simpleListPanel("grades", TOKENS.academy, grades, { domain: "academy", title: "No classes imported yet.", body: "Upload a syllabus or connect Canvas so grades can be grounded in real school data.", primaryLabel: "Upload syllabus", primaryDomain: "notebook", secondaryLabel: "Open connectors", secondaryDomain: "command" }) : ""}${tab === "planner" ? simpleListPanel("study plan", TOKENS.academy, planner, { domain: "academy", title: "No study plan yet.", body: "APEX needs academic tasks or class times before it can schedule study blocks.", primaryLabel: "Upload syllabus", primaryDomain: "notebook" }) : ""}${tab === "courses" ? simpleListPanel("deadlines", TOKENS.warn, courses, { domain: "academy", title: "No academic deadlines yet.", body: "Deadlines will appear after a syllabus review, LMS sync, or manual source payload.", primaryLabel: "Upload syllabus", primaryDomain: "notebook", secondaryLabel: "Open live sources", secondaryDomain: "command" }) : ""}</section>`;
+  return `<section class="section-shell">${heroBand(intel)}<div class="tab-strip" style="--accent:${TOKENS.academy};">${tabButton("academy", "grades", tab, TOKENS.academy)}${tabButton("academy", "planner", tab, TOKENS.academy)}${tabButton("academy", "courses", tab, TOKENS.academy)}</div>${tab === "grades" ? simpleListPanel("grades", TOKENS.academy, grades, { domain: "academy", title: "No classes imported yet.", body: "Upload a syllabus or connect Canvas so grades can be grounded in real school data.", primaryLabel: "Upload syllabus", primaryDomain: "upload", secondaryLabel: "Open connectors", secondaryDomain: "command" }) : ""}${tab === "planner" ? simpleListPanel("study plan", TOKENS.academy, planner, { domain: "academy", title: "No study plan yet.", body: "APEX needs academic tasks or class times before it can schedule study blocks.", primaryLabel: "Upload syllabus", primaryDomain: "upload" }) : ""}${tab === "courses" ? simpleListPanel("deadlines", TOKENS.warn, courses, { domain: "academy", title: "No academic deadlines yet.", body: "Deadlines will appear after a syllabus review, LMS sync, or manual source payload.", primaryLabel: "Upload syllabus", primaryDomain: "upload", secondaryLabel: "Open live sources", secondaryDomain: "command" }) : ""}</section>`;
 }
 
 function renderWorks(intel) {
@@ -2258,7 +2402,7 @@ function renderFuture(intel) {
   const hasFutureContext = state.tasks.some((task) => task.domain === "future") || state.notes.some((note) => normalizeNote(note).domain === "future");
   const goals = hasFutureContext ? GOALS.map((goal) => `<div class="row" style="--accent:${colorFor(goal.domain)};"><div class="row-copy"><div class="row-title">${goal.title}</div><div class="row-subtitle">${goal.done}/${goal.tasks} complete</div></div><strong>${goal.pct}%</strong></div>`).join("") : "";
   const milestones = hasFutureContext ? MILESTONES.map((milestone) => `<div class="row ${milestone.hot ? "is-hot" : ""}" style="--accent:${milestone.hot ? TOKENS.future : TOKENS.notebook};"><div class="row-copy"><div class="row-title">${milestone.label}</div><div class="row-subtitle">${milestone.hot ? "High urgency" : "Forward-looking checkpoint"}</div></div><strong>${milestone.date}</strong></div>`).join("") : "";
-  return `<section class="section-shell">${heroBand(intel)}<div class="dashboard-grid">${simpleListPanel("goals", TOKENS.future, goals, { domain: "future", title: "No goals linked yet.", body: "Create a future note or add a career task so APEX can turn a goal into scheduled action.", primaryLabel: "Create note", primaryDomain: "notebook", secondaryLabel: "Open setup", secondaryDomain: "command" })}${simpleListPanel("milestones", TOKENS.future, milestones, { domain: "future", title: "No milestones yet.", body: "Milestones should come from your real goals, school path, or career sources before they drive the plan.", primaryLabel: "Upload sources", primaryDomain: "notebook" })}</div></section>`;
+  return `<section class="section-shell">${heroBand(intel)}<div class="dashboard-grid">${simpleListPanel("goals", TOKENS.future, goals, { domain: "future", title: "No goals linked yet.", body: "Create a future note or add a career task so APEX can turn a goal into scheduled action.", primaryLabel: "Create note", primaryDomain: "notebook", secondaryLabel: "Open setup", secondaryDomain: "command" })}${simpleListPanel("milestones", TOKENS.future, milestones, { domain: "future", title: "No milestones yet.", body: "Milestones should come from your real goals, school path, or career sources before they drive the plan.", primaryLabel: "Upload sources", primaryDomain: "upload" })}</div></section>`;
 }
 
 function renderMind(intel) {
@@ -2288,26 +2432,26 @@ function renderNotebook(intel) {
   const reviewRows = reviews.map((review) => {
     const summary = review.parsedSummary || {};
     const items = Array.isArray(summary.extractedItems) ? summary.extractedItems : [];
-    return `<div class="review-card" style="--accent:${review.parseStatus === "confirmed" ? TOKENS.ok : TOKENS.academy};"><div class="review-card__head"><div><div class="panel-label">${review.parseStatus === "confirmed" ? "confirmed syllabus" : "needs review"}</div><h4>${escapeHtml(review.title)}</h4></div>${pill(`${Math.round((review.confidence || 0) * 100)}% confidence`, review.parseStatus === "confirmed" ? TOKENS.ok : TOKENS.warn)}</div><div class="review-grid"><span>Course</span><strong>${escapeHtml(summary.courseName || "Needs review")}</strong><span>Code</span><strong>${escapeHtml(summary.courseCode || "Needs review")}</strong><span>Parser</span><strong>${escapeHtml(summary.parser || summary.extractionMethod || "heuristic")}</strong><span>Text</span><strong>${escapeHtml(summary.textStatus || "review")}</strong></div><div class="extraction-list">${items.map((item) => `<div><span>${escapeHtml(item.type)}</span><strong>${escapeHtml(item.title)}${item.dateText ? ` (${escapeHtml(item.dateText)})` : ""}</strong></div>`).join("") || `<div><span>review</span><strong>No structured dates found yet</strong></div>`}</div><p class="footer-note">${escapeHtml(summary.warning || "Review before scheduling assignments.")}</p><button class="primary-action" data-syllabus-confirm="${escapeHtml(review.id)}" ${review.parseStatus === "confirmed" ? "disabled" : ""}>${review.parseStatus === "confirmed" ? "Confirmed" : "Confirm review"}</button></div>`;
+    return `<div class="review-card" style="--accent:${review.parseStatus === "confirmed" ? TOKENS.ok : TOKENS.academy};"><div class="review-card__head"><div><div class="panel-label">${review.parseStatus === "confirmed" ? "confirmed syllabus" : "needs review"}</div><h4>${escapeHtml(review.title)}</h4></div>${pill(`${Math.round((review.confidence || 0) * 100)}% confidence`, review.parseStatus === "confirmed" ? TOKENS.ok : TOKENS.warn)}</div><div class="review-grid"><span>Course</span><strong>${escapeHtml(summary.courseName || "Needs review")}</strong><span>Code</span><strong>${escapeHtml(summary.courseCode || "Needs review")}</strong><span>Parser</span><strong>${escapeHtml(summary.parser || summary.extractionMethod || "heuristic")}</strong><span>Text</span><strong>${escapeHtml(summary.textStatus || "review")}</strong></div><div class="extraction-list">${items.map((item) => `<div><span>${escapeHtml(item.type)}</span><strong>${escapeHtml(item.title)}${item.dateText ? ` (${escapeHtml(item.dateText)})` : ""}</strong></div>`).join("") || `<div><span>review</span><strong>No structured dates found yet</strong></div>`}</div><p class="footer-note">${review.parseStatus === "confirmed" ? "Added to Academy where parsed course/task data was available." : escapeHtml(summary.warning || "Review before scheduling assignments.")}</p><button class="primary-action" data-syllabus-confirm="${escapeHtml(review.id)}" ${review.parseStatus === "confirmed" ? "disabled" : ""}>${review.parseStatus === "confirmed" ? "Added to Academy" : "Confirm and add to Academy"}</button></div>`;
   }).join("");
   const noteButtons = filtered.map((note) => `<button class="note-button ${String(note.id) === String(state.activeNoteId) ? "is-active" : ""}" data-note-id="${escapeHtml(note.id)}" style="--accent:${colorFor(note.domain)};"><strong>${escapeHtml(note.title)}</strong><small>${escapeHtml(note.updated)} &middot; ${escapeHtml(note.domain)}</small></button>`).join("");
   const editor = activeNote
     ? `<div class="note-editor"><div class="panel-label">${iconSvg(activeNote.domain)} editable note</div><input class="note-title-input" value="${escapeHtml(activeNote.title)}" placeholder="Note title" data-note-title /><div class="note-meta-grid"><label><span>Domain</span><select data-note-domain>${DOMAINS.filter((domain) => domain.id !== "command").map((domain) => `<option value="${domain.id}" ${activeNote.domain === domain.id ? "selected" : ""}>${domain.label}</option>`).join("")}</select></label><label><span>Tags</span><input value="${escapeHtml(activeNote.tags.join(", "))}" placeholder="exam-prep, ideas" data-note-tags /></label></div><textarea class="note-body-input" placeholder="Write notes, links, questions, or source-grounded context here..." data-note-body>${escapeHtml(activeNote.body || activeNote.summary || "")}</textarea><p class="footer-note">Autosaves locally. Cloud sync updates on field change when apex_notes is available.</p></div>`
     : `<div class="empty-note-state">${emptyState({ domain: "notebook", title: "No notes yet.", body: "Create a note to capture source-grounded context before the AI/RAG layer lands.", primaryLabel: "", compact: true })}<button class="primary-action" data-note-create type="button">Create first note</button></div>`;
   const uploadEmpty = emptyState({ domain: "notebook", title: "No source files attached yet.", body: "Start with a syllabus, lecture note, or assignment sheet. APEX will extract text, run AI-style parsing, and keep everything in review until you confirm it.", primaryLabel: "", compact: true });
-  const reviewEmpty = emptyState({ domain: "academy", title: "No syllabus reviews yet.", body: "Upload a syllabus and APEX will create a parsed review card automatically. Nothing gets scheduled until you confirm it.", primaryLabel: "Upload syllabus", primaryDomain: "notebook", compact: true });
+  const reviewEmpty = emptyState({ domain: "academy", title: "No syllabus reviews yet.", body: "Upload a syllabus and APEX will create a parsed review card automatically. Nothing gets scheduled until you confirm it.", primaryLabel: "Upload syllabus", primaryDomain: "upload", compact: true });
   return `<section class="section-shell">${heroBand(intel)}<div class="notebook-layout"><aside class="panel panel--quiet" style="--accent:${TOKENS.notebook};"><div class="panel-label">search notes</div><input class="search-input" type="search" placeholder="Search all notes..." value="${escapeHtml(state.noteSearch)}" data-note-search /><button class="primary-action note-create-action" data-note-create type="button">New note</button><div class="note-list" style="margin-top:1rem;">${noteButtons || stateNotice("loading", "No notes yet", "Create your first note to make Notebook useful.", "notebook")}</div></aside><div class="section-shell"><article class="panel" style="--accent:${activeNote ? colorFor(activeNote.domain) : TOKENS.notebook};">${editor}</article><article class="panel" data-upload-panel style="--accent:${TOKENS.notebook};"><div class="panel-label">source uploads</div><h3 class="empty-title">Upload syllabi, notes, and assignment sheets.</h3><p class="row-subtitle">APEX now extracts text, runs AI-style syllabus parsing, and falls back to Tesseract OCR for image uploads when available.</p><label class="upload-zone"><input type="file" multiple data-file-upload /><span>Choose files to attach</span><small>${uploads.length ? `${uploads.length} source file(s) tracked` : "No source files attached yet"}</small></label><div class="section-list" style="margin-top:1rem;">${uploadRows || uploadEmpty}</div></article><article class="panel" data-syllabus-review-panel style="--accent:${TOKENS.academy};"><div class="panel-label">syllabus review queue</div><h3 class="empty-title">Confirm before APEX schedules anything.</h3><p class="row-subtitle">Parsed dates, assignments, grading weights, and policies stay in review until you confirm the card.</p><div class="review-list">${reviewRows || reviewEmpty}</div></article><article class="panel" style="--accent:${TOKENS.command};"><div class="panel-label">brain dump</div>${!state.processedDump ? `<textarea class="brain-dump" placeholder="Type anything: study thermo, email professor, pay rent, prep Friday quiz..." data-brain-dump>${escapeHtml(state.brainDump)}</textarea><div class="hero-actions"><button class="primary-action" data-process-dump>Process + sort</button></div>` : `<div class="processing-result"><div class="row is-hot" style="--accent:${TOKENS.ok};"><div class="row-badge">${iconSvg("command", "Processed")}</div><div class="row-copy"><div class="row-title">Dump routed into ${state.processedDump.domains.length} dashboards</div><div class="row-subtitle">${escapeHtml(state.processedDump.summary)}</div></div></div><div class="inline-chips">${state.processedDump.domains.map((domain) => pill(domain, colorFor(domain.toLowerCase()))).join("")}</div><button class="surface-action" data-clear-dump>New dump</button></div>`}</article></div></div></section>`;
 }
 
 function renderFreshDomainState(intel) {
   const domain = activeDomain();
   const guidance = {
-    academy: ["Connect your school context.", "Upload a syllabus in Notebook or use Live Data Sources in Command Center to bring in LMS assignments and grade signals.", "Upload Syllabus", "notebook", "Open Live Sources", "command"],
-    works: ["Connect work before it collides with school.", "Use Live Data Sources to add calendar events, shifts, or webhook-fed project tasks. APEX will block them as hard context.", "Open Live Sources", "command", "Upload Work Files", "notebook"],
+    academy: ["Connect your school context.", "Upload a syllabus or use Live Data Sources in Command Center to bring in LMS assignments and grade signals.", "Upload Syllabus", "upload", "Open Live Sources", "command"],
+    works: ["Connect work before it collides with school.", "Use Live Data Sources to add calendar events, shifts, or webhook-fed project tasks. APEX will block them as hard context.", "Open Live Sources", "command", "Upload Work Files", "upload"],
     life: ["Add life admin only when you are ready.", "Bills and finance are sensitive, opt-in data. Start by adding bill payloads in Live Data Sources or keep this area empty.", "Open Live Sources", "command", "Review Setup", "command"],
-    future: ["Turn one goal into a scheduled action.", "Start from Command Center, then connect portfolio, course, or career resources as sources when you want APEX to reason over them.", "Review Setup", "command", "Upload Sources", "notebook"],
-    mind: ["Start with one check-in.", "Mind signals are scheduler inputs, not a clinical record. Add energy, focus, and mood when you want the plan to soften intelligently.", "Review Setup", "command", "Upload Context", "notebook"],
-  }[domain.id] || ["Start by adding your real sources.", "Use the Command Center setup checklist to upload syllabi, connect school/work sources, and tune the scheduler in a clear order.", "Review Setup", "command", "Upload Files", "notebook"];
+    future: ["Turn one goal into a scheduled action.", "Start from Command Center, then connect portfolio, course, or career resources as sources when you want APEX to reason over them.", "Review Setup", "command", "Upload Sources", "upload"],
+    mind: ["Start with one check-in.", "Mind signals are scheduler inputs, not a clinical record. Add energy, focus, and mood when you want the plan to soften intelligently.", "Review Setup", "command", "Upload Context", "upload"],
+  }[domain.id] || ["Start by adding your real sources.", "Use the Command Center setup checklist to upload syllabi, connect school/work sources, and tune the scheduler in a clear order.", "Review Setup", "command", "Upload Files", "upload"];
   return `<section class="section-shell">${heroBand(intel)}<article class="panel panel--empty span-12" style="--accent:${colorFor(domain.id)};"><div class="panel-label">fresh workspace</div>${emptyState({ domain: domain.id, title: guidance[0], body: guidance[1], primaryLabel: guidance[2], primaryDomain: guidance[3], secondaryLabel: guidance[4], secondaryDomain: guidance[5] })}</article></section>`;
 }
 
@@ -2338,6 +2482,9 @@ function renderApp() {
     renderAuthShell();
     renderToast();
     renderNotificationCenter();
+    renderCommandPalette();
+    renderMobileNavSheet();
+    renderUploadSheet();
     return;
   }
   const domain = activeDomain();
@@ -2355,6 +2502,7 @@ function renderApp() {
   renderNotificationCenter();
   renderCommandPalette();
   renderMobileNavSheet();
+  renderUploadSheet();
 }
 
 function processBrainDump(text) {
@@ -2550,6 +2698,8 @@ doc?.addEventListener("click", async (event) => {
   const shouldCloseMobileNav = Boolean(target.closest("[data-mobile-nav-close]"));
   if (target.closest("[data-mobile-nav-open]")) { state.mobileNavOpen = true; renderMobileNavSheet(); return; }
   if (target.matches("[data-mobile-nav-close]") || target.closest(".mobile-nav-sheet__scrim")) { closeMobileNavSheet(); return; }
+  if (target.closest("[data-upload-sheet-open]")) { state.uploadSheetOpen = true; renderUploadSheet(); return; }
+  if (target.matches("[data-upload-sheet-close]") || target.closest(".upload-sheet__scrim")) { closeUploadSheet(); return; }
   if (target.closest("[data-command-open]")) { if (shouldCloseMobileNav) state.mobileNavOpen = false; openCommandPalette(); renderMobileNavSheet(); return; }
   if (target.closest("[data-command-close]")) { closeCommandPalette(); return; }
   const commandAction = target.closest("[data-command-action]");
@@ -2742,6 +2892,11 @@ doc?.addEventListener("keydown", (event) => {
   if (state.mobileNavOpen && event.key === "Escape") {
     event.preventDefault();
     closeMobileNavSheet();
+    return;
+  }
+  if (state.uploadSheetOpen && event.key === "Escape") {
+    event.preventDefault();
+    closeUploadSheet();
     return;
   }
   if (!state.commandPaletteOpen) return;
