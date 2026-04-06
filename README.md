@@ -67,6 +67,7 @@ You can still open `index.html` directly for a static-only pass, but the local s
 - Design-system primitives for icon sizing, spacing, typography, cards, form states, inline notices, loading placeholders, and empty states
 - Empty states across Command Center, Academy, Works, Life, Future, Mind, and Notebook so missing data feels intentional
 - Personalization controls for theme, density, font scale, accent profile, and layout profile
+- Command Center widget controls for pinning, hiding, restoring, manual ordering, and resetting the dashboard layout
 - Interactive tasks across Academy, Works, and Life
 - Academy and Works sub-tabs
 - Mind daily check-in with burnout recalculation

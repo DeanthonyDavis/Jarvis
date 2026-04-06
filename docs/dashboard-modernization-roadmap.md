@@ -2,19 +2,21 @@
 
 This roadmap turns the UI recommendations into implementation phases for APEX.
 
-## Shipped In This Slice
+## Shipped
 
 - Workspace personalization state with theme, density, font scale, accent profile, and layout profile.
 - Command Center personalization controls that persist with the workspace.
 - CSS class hooks for `theme-*`, `density-*`, `text-*`, and `layout-*` profiles.
 - Skip link, primary navigation label, `aria-current` on active navigation, and reduced-motion handling.
+- Command Center widget records with `id`, `type`, `title`, `visible`, `pinned`, `order`, `size`, and `profile`.
+- Widget controls for pinning, hiding, restoring, manual ordering, and resetting the Command Center layout.
 
 ## Next: Modular Widgets
 
-- Define widget records: `id`, `type`, `title`, `visible`, `pinned`, `order`, `size`, and `profile`.
-- Persist widget layout in workspace state first, then normalized Supabase tables later.
-- Add controls for pinning, hiding, manual ordering, and profile-specific visibility.
-- Keep defaults sensible so new users never land on an empty dashboard unless they choose it.
+- Promote widget state into normalized Supabase tables after the workspace-state fallback proves stable.
+- Add profile-specific visibility so Guided, Operator, and Focus can each have independent widget layouts.
+- Add drag-and-drop once the component shell is split enough to avoid full-app rerenders.
+- Extend the widget model to Academy, Works, Life, Future, Mind, and Notebook.
 
 ## Later: Framework Migration
 

@@ -190,6 +190,24 @@ const PREFERENCE_OPTIONS = {
   ],
 };
 
+const DEFAULT_COMMAND_WIDGETS = [
+  { id: "setup", type: "system", title: "Setup States", visible: true, pinned: true, order: 10, size: "full", profile: "guided" },
+  { id: "personalization", type: "system", title: "Personalization", visible: true, pinned: false, order: 20, size: "full", profile: "guided" },
+  { id: "briefing", type: "intelligence", title: "Intelligence Briefing", visible: true, pinned: true, order: 30, size: "wide", profile: "all" },
+  { id: "solver", type: "intelligence", title: "Solver Summary", visible: true, pinned: false, order: 40, size: "compact", profile: "operator" },
+  { id: "capacity", type: "intelligence", title: "Capacity Gauge", visible: true, pinned: true, order: 50, size: "compact", profile: "all" },
+  { id: "gpa", type: "academy", title: "GPA Tracker", visible: true, pinned: false, order: 60, size: "compact", profile: "all" },
+  { id: "conflicts", type: "intelligence", title: "Conflict Engine", visible: true, pinned: true, order: 70, size: "compact", profile: "all" },
+  { id: "week", type: "calendar", title: "This Week", visible: true, pinned: false, order: 80, size: "compact", profile: "all" },
+  { id: "recommendations", type: "intelligence", title: "Next Best Moves", visible: true, pinned: false, order: 90, size: "full", profile: "all" },
+  { id: "why", type: "explainability", title: "Why This Plan", visible: true, pinned: false, order: 100, size: "full", profile: "all" },
+  { id: "modes", type: "scheduler", title: "Schedule Modes", visible: true, pinned: false, order: 110, size: "full", profile: "all" },
+  { id: "constraints", type: "scheduler", title: "Constraint Studio", visible: true, pinned: false, order: 120, size: "full", profile: "all" },
+  { id: "sources", type: "integrations", title: "Live Data Sources", visible: true, pinned: false, order: 130, size: "half", profile: "operator" },
+  { id: "connectors", type: "integrations", title: "Connector Framework", visible: true, pinned: false, order: 140, size: "half", profile: "operator" },
+  { id: "schedule", type: "scheduler", title: "Optimized Schedule", visible: true, pinned: true, order: 150, size: "full", profile: "all" },
+];
+
 function defaultSnapshot() {
   return {
     activeDomain: "command",
@@ -241,6 +259,7 @@ function defaultSnapshot() {
     lastPlanSnapshot: null,
     lastPlanChanges: null,
     preferences: clone(DEFAULT_PREFERENCES),
+    widgets: { command: clone(DEFAULT_COMMAND_WIDGETS) },
   };
 }
 
@@ -306,6 +325,7 @@ function loadState() {
       lastPlanSnapshot: saved.lastPlanSnapshot || null,
       lastPlanChanges: saved.lastPlanChanges || null,
       preferences: normalizePreferences(saved.preferences),
+      widgets: normalizeWidgets(saved.widgets),
       onboarding: {
         tutorialOpen: Boolean(saved.onboarding?.tutorialOpen),
         tutorialSkipped: Boolean(saved.onboarding?.tutorialSkipped),
@@ -406,6 +426,37 @@ function normalizePreferences(preferences = {}) {
   };
 }
 
+function normalizeWidgetList(list = []) {
+  const incoming = new Map(Array.isArray(list) ? list.map((item) => [item?.id, item]) : []);
+  return DEFAULT_COMMAND_WIDGETS.map((defaults) => {
+    const saved = incoming.get(defaults.id) || {};
+    return {
+      ...defaults,
+      visible: typeof saved.visible === "boolean" ? saved.visible : defaults.visible,
+      pinned: typeof saved.pinned === "boolean" ? saved.pinned : defaults.pinned,
+      order: Number.isFinite(Number(saved.order)) ? Number(saved.order) : defaults.order,
+      size: ["compact", "half", "wide", "full"].includes(saved.size) ? saved.size : defaults.size,
+      profile: typeof saved.profile === "string" ? saved.profile : defaults.profile,
+    };
+  });
+}
+
+function normalizeWidgets(widgets = {}) {
+  return {
+    command: normalizeWidgetList(widgets.command),
+  };
+}
+
+function commandWidgets() {
+  return normalizeWidgetList(state.widgets?.command);
+}
+
+function orderedCommandWidgets({ includeHidden = false } = {}) {
+  return commandWidgets()
+    .filter((widget) => includeHidden || widget.visible)
+    .sort((a, b) => Number(b.pinned) - Number(a.pinned) || a.order - b.order || a.title.localeCompare(b.title));
+}
+
 function selectedAccent(domainId = activeDomain()?.id || "command") {
   const profile = state.preferences?.accentProfile || "domain";
   return profile === "domain" ? colorFor(domainId) : colorFor(profile);
@@ -444,6 +495,7 @@ function saveState() {
       lastPlanChanges: state.lastPlanChanges,
       onboarding: state.onboarding,
       preferences: state.preferences,
+      widgets: state.widgets,
     }),
   );
 }
@@ -476,6 +528,7 @@ function userWorkspaceState() {
     lastPlanChanges: state.lastPlanChanges,
     onboarding: state.onboarding,
     preferences: state.preferences,
+    widgets: state.widgets,
   };
 }
 
@@ -507,6 +560,7 @@ function applyWorkspaceState(workspace) {
   state.lastPlanSnapshot = workspace?.lastPlanSnapshot || null;
   state.lastPlanChanges = workspace?.lastPlanChanges || null;
   state.preferences = normalizePreferences(workspace?.preferences || base.preferences);
+  state.widgets = normalizeWidgets(workspace?.widgets || base.widgets);
   state.onboarding = {
     ...base.onboarding,
     ...(workspace?.onboarding || {}),
@@ -1635,6 +1689,32 @@ function renderPersonalizationPanel() {
   return `<article class="panel span-12 personalization-panel" data-personalization-panel style="--accent:${selectedAccent()};"><div class="setup-head"><div><div class="panel-label">personalization</div><h3 class="empty-title">Tune the workspace before the full layout builder lands.</h3><p class="row-subtitle">These preferences persist now and become the compatibility layer for saved layouts, profiles, and drag-reordered widgets later.</p></div>${pill(`${prefs.theme} / ${prefs.density}`, selectedAccent())}</div><div class="preference-grid"><div><div class="subtle-label">Theme</div>${preferenceButtons("theme")}</div><div><div class="subtle-label">Density</div>${preferenceButtons("density")}</div><div><div class="subtle-label">Type Scale</div>${preferenceButtons("fontScale")}</div><div><div class="subtle-label">Accent</div>${preferenceButtons("accentProfile")}</div><div><div class="subtle-label">Layout Profile</div>${preferenceButtons("layoutProfile")}</div><div class="state-notice" style="--accent:${selectedAccent()};"><div class="row-badge">${iconSvg("command", "Layout profile")}</div><div><strong>${escapeHtml(PREFERENCE_OPTIONS.layoutProfile.find(([value]) => value === prefs.layoutProfile)?.[1] || "Guided")}</strong><div>${escapeHtml(layoutCopy)}</div></div></div></div><div class="source-actions" style="margin-top:1rem;"><button class="surface-action" data-preference-reset>Reset Preferences</button>${pill("Saved to workspace", TOKENS.ok)}</div></article>`;
 }
 
+function widgetManagerRow(widget, widgets) {
+  const group = widgets.filter((item) => item.pinned === widget.pinned);
+  const groupIndex = group.findIndex((item) => item.id === widget.id);
+  return `<div class="widget-manager-row ${widget.visible ? "" : "is-hidden"}" style="--accent:${selectedAccent()};"><div><strong>${escapeHtml(widget.title)}</strong><small>${escapeHtml(widget.type)} &middot; ${escapeHtml(widget.size)} &middot; ${widget.pinned ? "pinned" : "standard"}</small></div><div class="widget-manager-actions"><button class="surface-action surface-action--small" data-widget-pin="${escapeHtml(widget.id)}" aria-pressed="${widget.pinned}" aria-label="${widget.pinned ? "Unpin" : "Pin"} ${escapeHtml(widget.title)}">${widget.pinned ? "Pinned" : "Pin"}</button><button class="surface-action surface-action--small" data-widget-move="${escapeHtml(widget.id)}" data-widget-direction="up" ${groupIndex <= 0 ? "disabled" : ""} aria-label="Move ${escapeHtml(widget.title)} up">Up</button><button class="surface-action surface-action--small" data-widget-move="${escapeHtml(widget.id)}" data-widget-direction="down" ${groupIndex === group.length - 1 ? "disabled" : ""} aria-label="Move ${escapeHtml(widget.title)} down">Down</button><button class="surface-action surface-action--small" data-widget-toggle="${escapeHtml(widget.id)}" aria-pressed="${widget.visible}" aria-label="${widget.visible ? "Hide" : "Show"} ${escapeHtml(widget.title)}">${widget.visible ? "Hide" : "Show"}</button></div></div>`;
+}
+
+function renderWidgetManager() {
+  const widgets = orderedCommandWidgets({ includeHidden: true });
+  const visible = widgets.filter((widget) => widget.visible).length;
+  const pinned = widgets.filter((widget) => widget.pinned).length;
+  return `<article class="panel span-12 widget-manager-panel" style="--accent:${selectedAccent()};"><div class="setup-head"><div><div class="panel-label">widget layout</div><h3 class="empty-title">Choose what the Command Center shows first.</h3><p class="row-subtitle">This is the first modular widget layer: pin what matters, hide noise, and manually order panels before drag-and-drop lands.</p></div><div class="inline-chips">${pill(`${visible}/${widgets.length} visible`, selectedAccent())}${pill(`${pinned} pinned`, TOKENS.warn)}</div></div><div class="widget-manager-list">${widgets.map((widget) => widgetManagerRow(widget, widgets)).join("")}</div><div class="source-actions" style="margin-top:1rem;"><button class="surface-action" data-widget-reset>Reset Widgets</button>${pill("Saved to workspace", TOKENS.ok)}</div></article>`;
+}
+
+function renderVisibleCommandWidgets(widgetPanels) {
+  const rendered = orderedCommandWidgets()
+    .map((widget) => widgetPanels[widget.id] || "")
+    .filter(Boolean)
+    .join("");
+  return rendered || emptyState({
+    domain: "command",
+    title: "All widgets are hidden.",
+    body: "Use Widget Layout to show at least one Command Center panel again.",
+    primaryLabel: "",
+  });
+}
+
 function renderSetupChecklist() {
   const items = buildSetupGuideItems();
   const completed = items.filter((item) => item.done).length;
@@ -1651,7 +1731,24 @@ function renderCommand(intel) {
   const conflicts = intel.conflicts.map((conflict) => `<div class="row" style="--accent:${conflict.severity === "crit" ? TOKENS.danger : conflict.severity === "warn" ? TOKENS.warn : TOKENS.command}; align-items:flex-start;"><div class="row-badge">${conflict.severity === "crit" ? "!" : conflict.severity === "warn" ? "~" : "i"}</div><div class="row-copy"><div class="row-title">${escapeHtml(conflict.title)}</div><div class="row-subtitle">${escapeHtml(conflict.text)}</div></div><button class="small-action">${escapeHtml(conflict.action)}</button></div>`).join("");
   const recommendations = intel.recommendations.map((item) => `<article class="note-card"><h4>${escapeHtml(item.title)}</h4><p class="row-subtitle" style="margin-top:0.7rem;">${escapeHtml(item.text)}</p><div style="margin-top:0.8rem;">${pill(DOMAINS.find((domain) => domain.id === item.accent)?.label || item.accent, colorFor(item.accent))}</div></article>`).join("");
   const scheduleBlocks = intel.schedulePlan.map((item) => `<div class="schedule-block" style="--accent:${colorFor(item.domain)};"><div class="schedule-time">${escapeHtml(item.time)}</div><strong>${escapeHtml(item.label)}</strong><div class="row-subtitle" style="margin-top:0.45rem;">${escapeHtml(item.note)}</div><div style="margin-top:0.65rem;">${pill(item.status || item.kind, item.status === "locked" ? TOKENS.notebook : item.status === "assigned" ? colorFor(item.domain) : TOKENS.warn)}</div><div class="assignment-list">${item.assignments?.length ? item.assignments.map((assignment) => `<div class="assignment-pill assignment-pill--explain"><span>${escapeHtml(assignment.title)}</span><strong>${assignment.minutes}m</strong><small>${escapeHtml(assignment.why || assignment.placement || "Placed by solver score.")}</small></div>`).join("") : `<div class="empty-assignment">${item.status === "locked" ? "Reserved" : "No task assigned"}</div>`}</div><div class="row-subtitle">Remaining: ${item.remainingMinutes ?? 0}m</div></div>`).join("");
-  return `<section class="section-shell">${heroBand(intel)}<div class="dashboard-grid">${renderSetupChecklist()}${renderPersonalizationPanel()}<article class="panel span-8" style="--accent:${TOKENS.command};"><div class="panel-label">intelligence briefing</div><div class="list-rows">${listOrEmpty(priorities, { domain: "command", title: "Not enough data for a briefing yet.", body: "Add tasks, classes, bills, or a calendar source so APEX can rank what matters first.", primaryLabel: "Review setup", primaryDomain: "command", secondaryLabel: "Upload files", secondaryDomain: "notebook" })}</div><div class="system-note" style="margin-top:1rem;">This stack is driven by live task scoring plus the current constraint profile. Change the rules, and these priorities recompute.</div></article><article class="panel span-4" style="--accent:${intel.solverSummary.unscheduledUrgentCount ? TOKENS.danger : TOKENS.ok};"><div class="panel-label">solver summary</div><div class="solver-grid"><div class="metric-stack"><span>Scheduled</span><strong>${intel.solverSummary.scheduledMinutes}m</strong></div><div class="metric-stack"><span>Capacity</span><strong>${intel.solverSummary.flexibleCapacityMinutes}m</strong></div><div class="metric-stack"><span>Urgent unscheduled</span><strong>${intel.solverSummary.unscheduledUrgentCount}</strong></div><div class="metric-stack"><span>Search score</span><strong>${intel.solverSummary.score}</strong></div></div><div class="footer-note">${intel.solverSummary.unscheduledMinutes ? `${intel.solverSummary.unscheduledMinutes} minutes remain unscheduled under the current rules.` : "Every active chunk currently fits inside the remaining day."}</div></article><article class="panel span-4" style="--accent:${TOKENS.command};"><div class="panel-label">capacity gauge</div>${gauge(intel.loadScore, TOKENS.command, "load index", intel.loadLabel === "stabilize" ? "stabilize plan active" : intel.loadLabel, intel.loadDisplay || `${intel.loadScore}%`)}<div class="footer-note" style="margin-top:0.9rem;">${intel.loadExplanation}</div><div class="mini-breakdown">${listOrEmpty(domainLoads, { domain: "command", title: "Setup mode is active.", body: "APEX will show real domain load once you add source data.", primaryLabel: "Review setup", primaryDomain: "command" })}</div></article><article class="panel span-4" style="--accent:${TOKENS.academy};"><div class="panel-label">gpa tracker</div>${state.courses.length ? `<div class="kpi"><div class="kpi-value accent-text">3.47</div><div class="kpi-copy"><div>Current GPA</div><div class="${topCourse?.status === "at-risk" ? "trend-down" : "trend-up"}">${topCourse?.status === "at-risk" ? "Watch " : "Stable "}${escapeHtml(topCourse?.name || "semester profile")}</div></div></div>${sparkBars(state.courses.map((course) => course.grade / 10), TOKENS.academy)}<div class="section-list" style="margin-top:0.95rem;">${listOrEmpty(courses, { domain: "academy", title: "No classes imported yet.", body: "Upload a syllabus or connect school tools so grades and deadlines can show here.", primaryLabel: "Upload syllabus", primaryDomain: "notebook" })}</div>` : emptyState({ domain: "academy", title: "No classes imported yet.", body: "Upload a syllabus or connect Canvas when ready. APEX will not invent grade data.", primaryLabel: "Upload syllabus", primaryDomain: "notebook", secondaryLabel: "Open connectors", secondaryDomain: "command", compact: true })}</article><article class="panel span-4" style="--accent:${TOKENS.danger};"><div class="panel-label">conflict engine</div><div class="stack-list">${listOrEmpty(conflicts, { domain: "command", title: "No conflicts detected yet.", body: "That can mean you are clear, or that APEX needs more real sources before it can compare commitments.", primaryLabel: "Add sources", primaryDomain: "command" })}</div></article><article class="panel span-4" style="--accent:${TOKENS.notebook};"><div class="panel-label">this week</div><div class="calendar-grid">${dayLabels.map((label, index) => { const day = intel.weeklyOutlook[index]; const level = day.level === "high" ? TOKENS.danger : day.level === "medium" ? TOKENS.warn : TOKENS.ok; return `<div class="day-card ${index === dayIndex ? "is-today" : ""}" style="--accent:${level};"><small class="muted">${label}</small><strong>${day.date.getDate()}</strong><div class="dot-stack"><span style="background:${level};"></span><span style="background:${level}; opacity:.65;"></span><span style="background:${level}; opacity:.35;"></span></div></div>`; }).join("")}</div><div class="footer-note" style="margin-top:0.95rem;">Peak pressure day: ${intel.hottestDay.date.toLocaleDateString("en-US", { weekday: "long", month: "short", day: "numeric" })}. The weekly view is driven by deadlines, exams, and bills.</div></article><article class="panel span-12" style="--accent:${TOKENS.future};"><div class="panel-label">next best moves</div><div class="courses-grid">${listOrEmpty(recommendations, { domain: "future", title: "No recommendations yet.", body: "APEX needs source data before it can safely recommend next moves.", primaryLabel: "Review setup", primaryDomain: "command" })}</div></article>${renderWhyPlanPanel(intel)}${renderScheduleModePanel(intel)}${renderConstraintPanel(intel)}${renderSourcePanel()}${renderConnectorPanel()}<article class="panel span-12" style="--accent:${TOKENS.command};"><div class="panel-label">optimized schedule</div><div class="schedule-strip schedule-strip--solver">${scheduleBlocks || emptyState({ domain: "command", title: "No schedule blocks yet.", body: "Connect your calendar or add tasks to let the solver build a real day plan.", primaryLabel: "Open connectors", primaryDomain: "command", secondaryLabel: "Upload files", secondaryDomain: "notebook" })}</div></article></div></section>`;
+  const widgetPanels = {
+    setup: renderSetupChecklist(),
+    personalization: renderPersonalizationPanel(),
+    briefing: `<article class="panel span-8" style="--accent:${TOKENS.command};"><div class="panel-label">intelligence briefing</div><div class="list-rows">${listOrEmpty(priorities, { domain: "command", title: "Not enough data for a briefing yet.", body: "Add tasks, classes, bills, or a calendar source so APEX can rank what matters first.", primaryLabel: "Review setup", primaryDomain: "command", secondaryLabel: "Upload files", secondaryDomain: "notebook" })}</div><div class="system-note" style="margin-top:1rem;">This stack is driven by live task scoring plus the current constraint profile. Change the rules, and these priorities recompute.</div></article>`,
+    solver: `<article class="panel span-4" style="--accent:${intel.solverSummary.unscheduledUrgentCount ? TOKENS.danger : TOKENS.ok};"><div class="panel-label">solver summary</div><div class="solver-grid"><div class="metric-stack"><span>Scheduled</span><strong>${intel.solverSummary.scheduledMinutes}m</strong></div><div class="metric-stack"><span>Capacity</span><strong>${intel.solverSummary.flexibleCapacityMinutes}m</strong></div><div class="metric-stack"><span>Urgent unscheduled</span><strong>${intel.solverSummary.unscheduledUrgentCount}</strong></div><div class="metric-stack"><span>Search score</span><strong>${intel.solverSummary.score}</strong></div></div><div class="footer-note">${intel.solverSummary.unscheduledMinutes ? `${intel.solverSummary.unscheduledMinutes} minutes remain unscheduled under the current rules.` : "Every active chunk currently fits inside the remaining day."}</div></article>`,
+    capacity: `<article class="panel span-4" style="--accent:${TOKENS.command};"><div class="panel-label">capacity gauge</div>${gauge(intel.loadScore, TOKENS.command, "load index", intel.loadLabel === "stabilize" ? "stabilize plan active" : intel.loadLabel, intel.loadDisplay || `${intel.loadScore}%`)}<div class="footer-note" style="margin-top:0.9rem;">${intel.loadExplanation}</div><div class="mini-breakdown">${listOrEmpty(domainLoads, { domain: "command", title: "Setup mode is active.", body: "APEX will show real domain load once you add source data.", primaryLabel: "Review setup", primaryDomain: "command" })}</div></article>`,
+    gpa: `<article class="panel span-4" style="--accent:${TOKENS.academy};"><div class="panel-label">gpa tracker</div>${state.courses.length ? `<div class="kpi"><div class="kpi-value accent-text">3.47</div><div class="kpi-copy"><div>Current GPA</div><div class="${topCourse?.status === "at-risk" ? "trend-down" : "trend-up"}">${topCourse?.status === "at-risk" ? "Watch " : "Stable "}${escapeHtml(topCourse?.name || "semester profile")}</div></div></div>${sparkBars(state.courses.map((course) => course.grade / 10), TOKENS.academy)}<div class="section-list" style="margin-top:0.95rem;">${listOrEmpty(courses, { domain: "academy", title: "No classes imported yet.", body: "Upload a syllabus or connect school tools so grades and deadlines can show here.", primaryLabel: "Upload syllabus", primaryDomain: "notebook" })}</div>` : emptyState({ domain: "academy", title: "No classes imported yet.", body: "Upload a syllabus or connect Canvas when ready. APEX will not invent grade data.", primaryLabel: "Upload syllabus", primaryDomain: "notebook", secondaryLabel: "Open connectors", secondaryDomain: "command", compact: true })}</article>`,
+    conflicts: `<article class="panel span-4" style="--accent:${TOKENS.danger};"><div class="panel-label">conflict engine</div><div class="stack-list">${listOrEmpty(conflicts, { domain: "command", title: "No conflicts detected yet.", body: "That can mean you are clear, or that APEX needs more real sources before it can compare commitments.", primaryLabel: "Add sources", primaryDomain: "command" })}</div></article>`,
+    week: `<article class="panel span-4" style="--accent:${TOKENS.notebook};"><div class="panel-label">this week</div><div class="calendar-grid">${dayLabels.map((label, index) => { const day = intel.weeklyOutlook[index]; const level = day.level === "high" ? TOKENS.danger : day.level === "medium" ? TOKENS.warn : TOKENS.ok; return `<div class="day-card ${index === dayIndex ? "is-today" : ""}" style="--accent:${level};"><small class="muted">${label}</small><strong>${day.date.getDate()}</strong><div class="dot-stack"><span style="background:${level};"></span><span style="background:${level}; opacity:.65;"></span><span style="background:${level}; opacity:.35;"></span></div></div>`; }).join("")}</div><div class="footer-note" style="margin-top:0.95rem;">Peak pressure day: ${intel.hottestDay.date.toLocaleDateString("en-US", { weekday: "long", month: "short", day: "numeric" })}. The weekly view is driven by deadlines, exams, and bills.</div></article>`,
+    recommendations: `<article class="panel span-12" style="--accent:${TOKENS.future};"><div class="panel-label">next best moves</div><div class="courses-grid">${listOrEmpty(recommendations, { domain: "future", title: "No recommendations yet.", body: "APEX needs source data before it can safely recommend next moves.", primaryLabel: "Review setup", primaryDomain: "command" })}</div></article>`,
+    why: renderWhyPlanPanel(intel),
+    modes: renderScheduleModePanel(intel),
+    constraints: renderConstraintPanel(intel),
+    sources: renderSourcePanel(),
+    connectors: renderConnectorPanel(),
+    schedule: `<article class="panel span-12" style="--accent:${TOKENS.command};"><div class="panel-label">optimized schedule</div><div class="schedule-strip schedule-strip--solver">${scheduleBlocks || emptyState({ domain: "command", title: "No schedule blocks yet.", body: "Connect your calendar or add tasks to let the solver build a real day plan.", primaryLabel: "Open connectors", primaryDomain: "command", secondaryLabel: "Upload files", secondaryDomain: "notebook" })}</div></article>`,
+  };
+  return `<section class="section-shell">${heroBand(intel)}<div class="dashboard-grid">${renderWidgetManager()}${renderVisibleCommandWidgets(widgetPanels)}</div></section>`;
 }
 
 function simpleListPanel(title, accent, rows, emptyConfig = null) {
@@ -1814,6 +1911,39 @@ function updatePreference(key, value) {
   rerender();
 }
 
+function updateCommandWidget(widgetId, patch) {
+  state.widgets = normalizeWidgets(state.widgets);
+  state.widgets.command = commandWidgets().map((widget) => (widget.id === widgetId ? { ...widget, ...patch } : widget));
+  rerender();
+}
+
+function moveCommandWidget(widgetId, direction) {
+  state.widgets = normalizeWidgets(state.widgets);
+  const widgets = orderedCommandWidgets({ includeHidden: true });
+  const current = widgets.find((widget) => widget.id === widgetId);
+  if (!current) return;
+  const group = widgets.filter((widget) => widget.pinned === current.pinned);
+  const index = group.findIndex((widget) => widget.id === widgetId);
+  const targetIndex = direction === "up" ? index - 1 : index + 1;
+  if (index < 0 || targetIndex < 0 || targetIndex >= group.length) return;
+  const target = group[targetIndex];
+  const next = widgets.map((widget) => {
+    if (widget.id === current.id) return { ...widget, order: target.order };
+    if (widget.id === target.id) return { ...widget, order: current.order };
+    return widget;
+  });
+  state.widgets.command = next;
+  rerender();
+}
+
+function resetCommandWidgets() {
+  state.widgets = {
+    ...(state.widgets || {}),
+    command: clone(DEFAULT_COMMAND_WIDGETS),
+  };
+  rerender();
+}
+
 function applySourcePayload(rawPayload, origin = "manual payload") {
   const parsed = typeof rawPayload === "string" ? JSON.parse(rawPayload) : rawPayload;
   const payload = parsed?.data && typeof parsed.data === "object" ? parsed.data : parsed;
@@ -1934,6 +2064,21 @@ doc?.addEventListener("click", async (event) => {
   const preferenceButton = target.closest("[data-preference-key]");
   if (preferenceButton) { updatePreference(preferenceButton.dataset.preferenceKey, preferenceButton.dataset.preferenceValue); return; }
   if (target.closest("[data-preference-reset]")) { state.preferences = clone(DEFAULT_PREFERENCES); rerender(); return; }
+  const widgetToggle = target.closest("[data-widget-toggle]");
+  if (widgetToggle) {
+    const widget = commandWidgets().find((item) => item.id === widgetToggle.dataset.widgetToggle);
+    if (widget) updateCommandWidget(widget.id, { visible: !widget.visible });
+    return;
+  }
+  const widgetPin = target.closest("[data-widget-pin]");
+  if (widgetPin) {
+    const widget = commandWidgets().find((item) => item.id === widgetPin.dataset.widgetPin);
+    if (widget) updateCommandWidget(widget.id, { pinned: !widget.pinned });
+    return;
+  }
+  const widgetMove = target.closest("[data-widget-move]");
+  if (widgetMove) { moveCommandWidget(widgetMove.dataset.widgetMove, widgetMove.dataset.widgetDirection); return; }
+  if (target.closest("[data-widget-reset]")) { resetCommandWidgets(); return; }
   const tab = target.closest("[data-tab-group]");
   if (tab) { state.subTabs[tab.dataset.tabGroup] = tab.dataset.tabValue; rerender(); return; }
   const task = target.closest("[data-task-id]");

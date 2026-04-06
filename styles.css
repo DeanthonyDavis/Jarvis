@@ -241,6 +241,7 @@ textarea:focus-visible {
 
 .app-shell.layout-focus .setup-panel,
 .app-shell.layout-focus .personalization-panel,
+.app-shell.layout-focus .widget-manager-panel,
 .app-shell.layout-focus .section-help {
   opacity: 0.82;
 }
@@ -1443,6 +1444,55 @@ textarea:focus-visible {
   color: var(--text);
 }
 
+.widget-manager-panel {
+  scroll-margin-top: 1rem;
+}
+
+.widget-manager-list {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: var(--space-3);
+  margin-top: var(--space-4);
+}
+
+.widget-manager-row {
+  display: grid;
+  gap: var(--space-3);
+  align-content: space-between;
+  min-height: 8.4rem;
+  padding: var(--space-3);
+  border-radius: var(--radius-md);
+  border: 1px solid color-mix(in srgb, var(--accent) 18%, var(--border));
+  background:
+    radial-gradient(circle at 0% 0%, color-mix(in srgb, var(--accent) 8%, transparent), transparent 34%),
+    rgba(255, 255, 255, 0.026);
+}
+
+.widget-manager-row.is-hidden {
+  opacity: 0.58;
+  border-style: dashed;
+}
+
+.widget-manager-row strong {
+  display: block;
+  font-size: var(--type-sm);
+  line-height: 1.35;
+}
+
+.widget-manager-row small {
+  display: block;
+  margin-top: 0.35rem;
+  color: var(--text-soft);
+  font-size: var(--type-xs);
+  line-height: 1.45;
+}
+
+.widget-manager-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+}
+
 .connector-error {
   padding: 0.65rem 0.75rem;
   border-radius: 14px;
@@ -2515,6 +2565,7 @@ textarea:focus-visible {
   .insight-grid,
   .control-grid,
   .connector-grid,
+  .widget-manager-list,
   .mode-grid,
   .mode-preview-grid,
   .toggle-grid--wide,
@@ -2598,6 +2649,7 @@ textarea:focus-visible {
   .solver-grid,
   .meta-grid,
   .preference-grid,
+  .widget-manager-list,
   .setup-list {
     grid-template-columns: 1fr;
   }
