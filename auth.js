@@ -2,6 +2,7 @@ const SUPABASE_CDN = "https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/+esm"
 const STATE_TABLE = "apex_user_state";
 const WORKSPACE_TABLE = "apex_workspaces";
 const NOTIFICATION_TABLE = "apex_notifications";
+const UPLOAD_TABLE = "apex_uploads";
 
 export async function loadRuntimeConfig() {
   if (typeof fetch === "undefined") return { supabaseUrl: "", supabaseAnonKey: "" };
@@ -163,6 +164,36 @@ export async function dismissNotificationRecord(client, notificationId, userId) 
     .eq("id", notificationId)
     .eq("user_id", userId)
     .select("id, dismissed_at")
+    .single();
+  if (error) throw error;
+  return data;
+}
+
+export async function loadUploadRecords(client, workspaceId) {
+  const { data, error } = await client
+    .from(UPLOAD_TABLE)
+    .select("id, original_filename, mime_type, file_size_bytes, upload_status, extracted_text_status, storage_path, created_at, updated_at")
+    .eq("workspace_id", workspaceId)
+    .order("created_at", { ascending: false })
+    .limit(100);
+  if (error) throw error;
+  return data || [];
+}
+
+export async function createUploadRecord(client, workspaceId, file) {
+  const storagePath = `pending/${workspaceId}/${Date.now()}-${file.name.replace(/[^a-z0-9._-]/gi, "_")}`;
+  const { data, error } = await client
+    .from(UPLOAD_TABLE)
+    .insert({
+      workspace_id: workspaceId,
+      storage_path: storagePath,
+      original_filename: file.name,
+      mime_type: file.type || null,
+      file_size_bytes: file.size || 0,
+      upload_status: "uploaded",
+      extracted_text_status: "pending",
+    })
+    .select("id, original_filename, mime_type, file_size_bytes, upload_status, extracted_text_status, storage_path, created_at, updated_at")
     .single();
   if (error) throw error;
   return data;

@@ -1,10 +1,12 @@
 import { buildCommandCenterIntelligence, normalizeConstraints } from "./intelligence.js";
 import {
   createNotificationRecord,
+  createUploadRecord,
   dismissNotificationRecord,
   ensureUserWorkspace,
   initAuthClient,
   loadNotificationRecords,
+  loadUploadRecords,
   loadUserWorkspace,
   markNotificationRecordRead,
   saveUserWorkspace,
@@ -390,6 +392,20 @@ function normalizeNotification(record) {
   };
 }
 
+function normalizeUpload(record) {
+  return {
+    id: record.id || localId("upload"),
+    name: record.name || record.original_filename || "Untitled upload",
+    size: Number(record.size ?? record.file_size_bytes ?? 0),
+    type: record.type || record.mime_type || "unknown type",
+    addedAt: record.addedAt || record.created_at || new Date().toISOString(),
+    uploadStatus: record.uploadStatus || record.upload_status || "uploaded",
+    textStatus: record.textStatus || record.extracted_text_status || "pending",
+    storagePath: record.storagePath || record.storage_path || "",
+    local: Boolean(record.local),
+  };
+}
+
 async function notifyUser(notification, { toast = true } = {}) {
   const localNotification = normalizeNotification({ ...notification, local: true });
   state.notifications = [localNotification, ...state.notifications].slice(0, 30);
@@ -413,6 +429,56 @@ async function notifyUser(notification, { toast = true } = {}) {
       error: error instanceof Error ? error.message : "Notification sync unavailable.",
     };
     saveState();
+  }
+}
+
+async function attachSourceFiles(files) {
+  const fileList = [...files];
+  if (!fileList.length) return;
+  const localUploads = fileList.map((file) => normalizeUpload({
+    id: localId("upload"),
+    name: file.name,
+    size: file.size,
+    type: file.type,
+    addedAt: new Date().toISOString(),
+    uploadStatus: "uploaded",
+    textStatus: "pending",
+    storagePath: "",
+    local: true,
+  }));
+  state.uploadedFiles = [...localUploads, ...state.uploadedFiles].slice(0, 100);
+  rerender();
+  notifyUser({
+    type: "upload",
+    title: `${fileList.length} file${fileList.length === 1 ? "" : "s"} attached`,
+    body: "Your files were added as source records. Text extraction and review are the next pipeline step.",
+    severity: "success",
+  });
+
+  if (!state.workspace.phase2Enabled || !state.workspace.id || !state.auth.client) return;
+  try {
+    const created = [];
+    for (const file of fileList) {
+      created.push(normalizeUpload(await createUploadRecord(state.auth.client, state.workspace.id, file)));
+    }
+    const localIds = new Set(localUploads.map((item) => item.id));
+    state.uploadedFiles = [
+      ...created,
+      ...state.uploadedFiles.filter((item) => !localIds.has(item.id)),
+    ].slice(0, 100);
+    saveState();
+    renderApp();
+  } catch (error) {
+    state.workspace = {
+      ...state.workspace,
+      error: error instanceof Error ? error.message : "Upload metadata sync unavailable.",
+    };
+    notifyUser({
+      type: "upload_sync_error",
+      title: "Upload saved locally",
+      body: "APEX could not write upload metadata to Supabase, so this file remains in local fallback state.",
+      severity: "warning",
+    });
   }
 }
 
@@ -651,7 +717,9 @@ function renderMind(intel) {
 function renderNotebook(intel) {
   const filtered = NOTES.filter((note) => { const search = state.noteSearch.trim().toLowerCase(); return !search || note.title.toLowerCase().includes(search) || note.domain.toLowerCase().includes(search) || note.tags.some((tag) => tag.toLowerCase().includes(search)); });
   const activeNote = NOTES.find((note) => note.id === state.activeNoteId) || filtered[0] || null;
-  return `<section class="section-shell">${heroBand(intel)}<div class="notebook-layout"><aside class="panel panel--quiet" style="--accent:${TOKENS.notebook};"><div class="panel-label">search notes</div><input class="search-input" type="search" placeholder="Search all notes..." value="${escapeHtml(state.noteSearch)}" data-note-search /><div class="note-list" style="margin-top:1rem;">${filtered.map((note) => `<button class="note-button ${note.id === state.activeNoteId ? "is-active" : ""}" data-note-id="${note.id}" style="--accent:${colorFor(note.domain)};"><strong>${note.title}</strong><small>${note.updated} &middot; ${note.domain}</small></button>`).join("")}</div></aside><div class="section-shell"><article class="panel" style="--accent:${activeNote ? colorFor(activeNote.domain) : TOKENS.notebook};">${activeNote ? `<div class="section-list"><div><div class="panel-label">${iconSvg(activeNote.domain)} ${activeNote.domain}</div><h3 style="margin:0; font-family:Syne,system-ui,sans-serif; font-size:1.9rem;">${activeNote.title}</h3><div class="inline-chips" style="margin-top:0.9rem;">${activeNote.tags.map((tag) => pill(`#${tag}`, TOKENS.notebook)).join("")}</div></div><div class="note-content">${activeNote.summary}</div></div>` : `<div class="footer-note">No notes match that search yet.</div>`}</article><article class="panel" style="--accent:${TOKENS.command};"><div class="panel-label">brain dump</div>${!state.processedDump ? `<textarea class="brain-dump" placeholder="Type anything: study thermo, email professor, pay rent, prep Friday quiz..." data-brain-dump>${escapeHtml(state.brainDump)}</textarea><div class="hero-actions"><button class="primary-action" data-process-dump>Process + sort</button></div>` : `<div class="processing-result"><div class="row is-hot" style="--accent:${TOKENS.ok};"><div class="row-badge">${iconSvg("command", "Processed")}</div><div class="row-copy"><div class="row-title">Dump routed into ${state.processedDump.domains.length} dashboards</div><div class="row-subtitle">${state.processedDump.summary}</div></div></div><div class="inline-chips">${state.processedDump.domains.map((domain) => pill(domain, colorFor(domain.toLowerCase()))).join("")}</div><button class="surface-action" data-clear-dump>New dump</button></div>`}</article></div></div></section>`;
+  const uploads = state.uploadedFiles.map(normalizeUpload);
+  const uploadRows = uploads.map((file) => `<div class="row" style="--accent:${TOKENS.notebook};"><div class="row-badge">${iconSvg("notebook", "Source file")}</div><div class="row-copy"><div class="row-title">${escapeHtml(file.name)}</div><div class="row-subtitle">${escapeHtml(file.type)} &middot; ${Math.max(1, Math.round(file.size / 1024))} KB &middot; ${escapeHtml(file.uploadStatus)} / ${escapeHtml(file.textStatus)}</div></div>${pill(file.local ? "local" : "cloud", file.local ? TOKENS.warn : TOKENS.ok)}</div>`).join("");
+  return `<section class="section-shell">${heroBand(intel)}<div class="notebook-layout"><aside class="panel panel--quiet" style="--accent:${TOKENS.notebook};"><div class="panel-label">search notes</div><input class="search-input" type="search" placeholder="Search all notes..." value="${escapeHtml(state.noteSearch)}" data-note-search /><div class="note-list" style="margin-top:1rem;">${filtered.map((note) => `<button class="note-button ${note.id === state.activeNoteId ? "is-active" : ""}" data-note-id="${note.id}" style="--accent:${colorFor(note.domain)};"><strong>${note.title}</strong><small>${note.updated} &middot; ${note.domain}</small></button>`).join("")}</div></aside><div class="section-shell"><article class="panel" style="--accent:${activeNote ? colorFor(activeNote.domain) : TOKENS.notebook};">${activeNote ? `<div class="section-list"><div><div class="panel-label">${iconSvg(activeNote.domain)} ${activeNote.domain}</div><h3 style="margin:0; font-family:Syne,system-ui,sans-serif; font-size:1.9rem;">${activeNote.title}</h3><div class="inline-chips" style="margin-top:0.9rem;">${activeNote.tags.map((tag) => pill(`#${tag}`, TOKENS.notebook)).join("")}</div></div><div class="note-content">${activeNote.summary}</div></div>` : `<div class="footer-note">No notes match that search yet.</div>`}</article><article class="panel" style="--accent:${TOKENS.notebook};"><div class="panel-label">source uploads</div><h3 class="empty-title">Upload syllabi, notes, and assignment sheets.</h3><p class="row-subtitle">APEX stores metadata now; text extraction, parsing, and review are the next pipeline step.</p><label class="upload-zone"><input type="file" multiple data-file-upload /><span>Choose files to attach</span><small>${uploads.length ? `${uploads.length} source file(s) tracked` : "No source files attached yet"}</small></label><div class="section-list" style="margin-top:1rem;">${uploadRows || `<div class="footer-note">No uploads yet. Start with a syllabus so Academy can eventually extract dates and assignments.</div>`}</div></article><article class="panel" style="--accent:${TOKENS.command};"><div class="panel-label">brain dump</div>${!state.processedDump ? `<textarea class="brain-dump" placeholder="Type anything: study thermo, email professor, pay rent, prep Friday quiz..." data-brain-dump>${escapeHtml(state.brainDump)}</textarea><div class="hero-actions"><button class="primary-action" data-process-dump>Process + sort</button></div>` : `<div class="processing-result"><div class="row is-hot" style="--accent:${TOKENS.ok};"><div class="row-badge">${iconSvg("command", "Processed")}</div><div class="row-copy"><div class="row-title">Dump routed into ${state.processedDump.domains.length} dashboards</div><div class="row-subtitle">${state.processedDump.summary}</div></div></div><div class="inline-chips">${state.processedDump.domains.map((domain) => pill(domain, colorFor(domain.toLowerCase()))).join("")}</div><button class="surface-action" data-clear-dump>New dump</button></div>`}</article></div></div></section>`;
 }
 
 function renderFreshDomainState(intel) {
@@ -672,7 +740,7 @@ function renderContent(intel) {
       return renderCommand(intel);
     }
     if (state.activeDomain === "notebook") {
-      return `<section class="section-shell">${heroBand(intel)}<article class="panel span-12" style="--accent:${TOKENS.notebook};"><div class="panel-label">upload source files</div><h3 class="empty-title">Start your Notebook with your own materials.</h3><p class="row-subtitle">Upload syllabi, notes, PDFs, or assignment sheets. For this build, APEX stores the file metadata as source stubs; the next layer will parse and index the contents.</p><label class="upload-zone"><input type="file" multiple data-file-upload /><span>Choose files to attach</span><small>${state.uploadedFiles.length ? `${state.uploadedFiles.length} file(s) attached` : "No files attached yet"}</small></label><div class="section-list">${state.uploadedFiles.map((file) => `<div class="row" style="--accent:${TOKENS.notebook};"><div class="row-copy"><div class="row-title">${escapeHtml(file.name)}</div><div class="row-subtitle">${escapeHtml(file.type || "unknown type")} &middot; ${Math.round(file.size / 1024)} KB</div></div>${pill("source", TOKENS.notebook)}</div>`).join("")}</div></article></section>`;
+      return renderNotebook(intel);
     }
     return renderFreshDomainState(intel);
   }
@@ -878,7 +946,7 @@ doc?.addEventListener("submit", async (event) => {
   await handleAuthSubmit();
 });
 
-doc?.addEventListener("input", (event) => {
+doc?.addEventListener("input", async (event) => {
   const target = event.target instanceof Element ? event.target : null;
   if (!target) return;
   const search = target.closest("[data-note-search]");
@@ -903,22 +971,7 @@ doc?.addEventListener("input", (event) => {
   if (sourceDraft) { state.sourceConfig = { ...state.sourceConfig, draftPayload: sourceDraft.value }; saveState(); }
   const fileInput = target.closest("[data-file-upload]");
   if (fileInput) {
-    state.uploadedFiles = [
-      ...state.uploadedFiles,
-      ...[...fileInput.files].map((file) => ({
-        name: file.name,
-        size: file.size,
-        type: file.type,
-        addedAt: new Date().toISOString(),
-      })),
-    ];
-    rerender();
-    notifyUser({
-      type: "upload",
-      title: "Files attached",
-      body: "Your files were added as source stubs. Parsing and review comes next.",
-      severity: "success",
-    });
+    await attachSourceFiles(fileInput.files);
     return;
   }
   const email = target.closest("[data-auth-email]");
@@ -974,6 +1027,8 @@ async function loadRelationalWorkspaceForUser(user) {
     state.notificationStatus = "cloud";
     const notifications = await loadNotificationRecords(state.auth.client, workspace.id, user.id);
     state.notifications = notifications.map(normalizeNotification);
+    const uploads = await loadUploadRecords(state.auth.client, workspace.id);
+    if (uploads.length) state.uploadedFiles = uploads.map(normalizeUpload);
   } catch (error) {
     state.workspace = {
       id: null,
