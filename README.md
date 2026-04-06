@@ -15,6 +15,7 @@ This workspace contains a self-contained front-end prototype for the APEX Life O
 - `supabase/phase2_schema.sql`: additive normalized schema foundation for the production data model
 - `docs/phase-5-intelligence-map.md`: full Phase 5 intelligence definition of done and build order
 - `docs/design-system.md`: UI system rules for icons, spacing, typography, states, cards, and empty-state behavior
+- `docs/dashboard-modernization-roadmap.md`: phased plan for personalization, widgets, navigation, accessibility, and framework migration
 - `api/config.js`: Vercel runtime config endpoint for public Supabase keys
 
 ## Dashboards
@@ -65,6 +66,7 @@ You can still open `index.html` directly for a static-only pass, but the local s
 - Outcome-focused onboarding with setup-state progress, completion feedback, unlocked value, and missing next steps
 - Design-system primitives for icon sizing, spacing, typography, cards, form states, inline notices, loading placeholders, and empty states
 - Empty states across Command Center, Academy, Works, Life, Future, Mind, and Notebook so missing data feels intentional
+- Personalization controls for theme, density, font scale, accent profile, and layout profile
 - Interactive tasks across Academy, Works, and Life
 - Academy and Works sub-tabs
 - Mind daily check-in with burnout recalculation

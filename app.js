@@ -150,6 +150,46 @@ const DOMAIN_ICONS = {
   notebook: "M5 3.5h9.5c.8 0 1.5.7 1.5 1.5v11.5H6.5c-.8 0-1.5-.7-1.5-1.5V3.5Zm3 0v13",
 };
 
+const DEFAULT_PREFERENCES = {
+  theme: "nebula",
+  density: "comfortable",
+  fontScale: "standard",
+  accentProfile: "domain",
+  layoutProfile: "guided",
+};
+
+const PREFERENCE_OPTIONS = {
+  theme: [
+    ["nebula", "Nebula"],
+    ["contrast", "High Contrast"],
+    ["daylight", "Daylight"],
+  ],
+  density: [
+    ["compact", "Compact"],
+    ["comfortable", "Comfortable"],
+    ["spacious", "Spacious"],
+  ],
+  fontScale: [
+    ["standard", "Standard"],
+    ["large", "Large"],
+    ["xl", "Extra Large"],
+  ],
+  accentProfile: [
+    ["domain", "Domain"],
+    ["command", "Command"],
+    ["academy", "Academy"],
+    ["works", "Works"],
+    ["life", "Life"],
+    ["future", "Future"],
+    ["mind", "Mind"],
+  ],
+  layoutProfile: [
+    ["guided", "Guided"],
+    ["operator", "Operator"],
+    ["focus", "Focus"],
+  ],
+};
+
 function defaultSnapshot() {
   return {
     activeDomain: "command",
@@ -200,6 +240,7 @@ function defaultSnapshot() {
     checkin: { energy: 0, focus: 0, mood: 0, submitted: false },
     lastPlanSnapshot: null,
     lastPlanChanges: null,
+    preferences: clone(DEFAULT_PREFERENCES),
   };
 }
 
@@ -264,6 +305,7 @@ function loadState() {
       checkin: { ...defaults.checkin, ...(saved.checkin || {}) },
       lastPlanSnapshot: saved.lastPlanSnapshot || null,
       lastPlanChanges: saved.lastPlanChanges || null,
+      preferences: normalizePreferences(saved.preferences),
       onboarding: {
         tutorialOpen: Boolean(saved.onboarding?.tutorialOpen),
         tutorialSkipped: Boolean(saved.onboarding?.tutorialSkipped),
@@ -353,6 +395,22 @@ function listOrEmpty(rows, emptyConfig) {
   return rows || emptyState({ compact: true, ...emptyConfig });
 }
 
+function normalizePreferences(preferences = {}) {
+  const isValid = (key, value) => PREFERENCE_OPTIONS[key]?.some(([option]) => option === value);
+  return {
+    theme: isValid("theme", preferences.theme) ? preferences.theme : DEFAULT_PREFERENCES.theme,
+    density: isValid("density", preferences.density) ? preferences.density : DEFAULT_PREFERENCES.density,
+    fontScale: isValid("fontScale", preferences.fontScale) ? preferences.fontScale : DEFAULT_PREFERENCES.fontScale,
+    accentProfile: isValid("accentProfile", preferences.accentProfile) ? preferences.accentProfile : DEFAULT_PREFERENCES.accentProfile,
+    layoutProfile: isValid("layoutProfile", preferences.layoutProfile) ? preferences.layoutProfile : DEFAULT_PREFERENCES.layoutProfile,
+  };
+}
+
+function selectedAccent(domainId = activeDomain()?.id || "command") {
+  const profile = state.preferences?.accentProfile || "domain";
+  return profile === "domain" ? colorFor(domainId) : colorFor(profile);
+}
+
 function saveState() {
   storage.setItem(
     STORAGE_KEY,
@@ -385,6 +443,7 @@ function saveState() {
       lastPlanSnapshot: state.lastPlanSnapshot,
       lastPlanChanges: state.lastPlanChanges,
       onboarding: state.onboarding,
+      preferences: state.preferences,
     }),
   );
 }
@@ -416,6 +475,7 @@ function userWorkspaceState() {
     lastPlanSnapshot: state.lastPlanSnapshot,
     lastPlanChanges: state.lastPlanChanges,
     onboarding: state.onboarding,
+    preferences: state.preferences,
   };
 }
 
@@ -446,6 +506,7 @@ function applyWorkspaceState(workspace) {
   state.checkin = { ...base.checkin, ...(workspace?.checkin || {}) };
   state.lastPlanSnapshot = workspace?.lastPlanSnapshot || null;
   state.lastPlanChanges = workspace?.lastPlanChanges || null;
+  state.preferences = normalizePreferences(workspace?.preferences || base.preferences);
   state.onboarding = {
     ...base.onboarding,
     ...(workspace?.onboarding || {}),
@@ -1559,6 +1620,21 @@ function renderConnectorPanel() {
   }).join("")}</div><div class="footer-note">Canvas, Google Calendar, and APEX webhook can call local endpoints now. Plaid, Deputy, and Health now have lifecycle records and logs so the real provider flows can plug in cleanly.</div></article>`;
 }
 
+function preferenceButtons(key) {
+  const current = state.preferences?.[key] || DEFAULT_PREFERENCES[key];
+  return `<div class="preference-button-row">${PREFERENCE_OPTIONS[key].map(([value, label]) => `<button class="preference-chip ${current === value ? "is-active" : ""}" data-preference-key="${key}" data-preference-value="${value}" aria-pressed="${current === value}" style="--accent:${selectedAccent()};">${escapeHtml(label)}</button>`).join("")}</div>`;
+}
+
+function renderPersonalizationPanel() {
+  const prefs = state.preferences || DEFAULT_PREFERENCES;
+  const layoutCopy = {
+    guided: "Setup and help stay prominent while you are still wiring sources.",
+    operator: "More widgets stay visible at once for daily command-center use.",
+    focus: "Lower-priority chrome is visually quieter so the current plan stands out.",
+  }[prefs.layoutProfile] || "Guided defaults are active.";
+  return `<article class="panel span-12 personalization-panel" data-personalization-panel style="--accent:${selectedAccent()};"><div class="setup-head"><div><div class="panel-label">personalization</div><h3 class="empty-title">Tune the workspace before the full layout builder lands.</h3><p class="row-subtitle">These preferences persist now and become the compatibility layer for saved layouts, profiles, and drag-reordered widgets later.</p></div>${pill(`${prefs.theme} / ${prefs.density}`, selectedAccent())}</div><div class="preference-grid"><div><div class="subtle-label">Theme</div>${preferenceButtons("theme")}</div><div><div class="subtle-label">Density</div>${preferenceButtons("density")}</div><div><div class="subtle-label">Type Scale</div>${preferenceButtons("fontScale")}</div><div><div class="subtle-label">Accent</div>${preferenceButtons("accentProfile")}</div><div><div class="subtle-label">Layout Profile</div>${preferenceButtons("layoutProfile")}</div><div class="state-notice" style="--accent:${selectedAccent()};"><div class="row-badge">${iconSvg("command", "Layout profile")}</div><div><strong>${escapeHtml(PREFERENCE_OPTIONS.layoutProfile.find(([value]) => value === prefs.layoutProfile)?.[1] || "Guided")}</strong><div>${escapeHtml(layoutCopy)}</div></div></div></div><div class="source-actions" style="margin-top:1rem;"><button class="surface-action" data-preference-reset>Reset Preferences</button>${pill("Saved to workspace", TOKENS.ok)}</div></article>`;
+}
+
 function renderSetupChecklist() {
   const items = buildSetupGuideItems();
   const completed = items.filter((item) => item.done).length;
@@ -1575,7 +1651,7 @@ function renderCommand(intel) {
   const conflicts = intel.conflicts.map((conflict) => `<div class="row" style="--accent:${conflict.severity === "crit" ? TOKENS.danger : conflict.severity === "warn" ? TOKENS.warn : TOKENS.command}; align-items:flex-start;"><div class="row-badge">${conflict.severity === "crit" ? "!" : conflict.severity === "warn" ? "~" : "i"}</div><div class="row-copy"><div class="row-title">${escapeHtml(conflict.title)}</div><div class="row-subtitle">${escapeHtml(conflict.text)}</div></div><button class="small-action">${escapeHtml(conflict.action)}</button></div>`).join("");
   const recommendations = intel.recommendations.map((item) => `<article class="note-card"><h4>${escapeHtml(item.title)}</h4><p class="row-subtitle" style="margin-top:0.7rem;">${escapeHtml(item.text)}</p><div style="margin-top:0.8rem;">${pill(DOMAINS.find((domain) => domain.id === item.accent)?.label || item.accent, colorFor(item.accent))}</div></article>`).join("");
   const scheduleBlocks = intel.schedulePlan.map((item) => `<div class="schedule-block" style="--accent:${colorFor(item.domain)};"><div class="schedule-time">${escapeHtml(item.time)}</div><strong>${escapeHtml(item.label)}</strong><div class="row-subtitle" style="margin-top:0.45rem;">${escapeHtml(item.note)}</div><div style="margin-top:0.65rem;">${pill(item.status || item.kind, item.status === "locked" ? TOKENS.notebook : item.status === "assigned" ? colorFor(item.domain) : TOKENS.warn)}</div><div class="assignment-list">${item.assignments?.length ? item.assignments.map((assignment) => `<div class="assignment-pill assignment-pill--explain"><span>${escapeHtml(assignment.title)}</span><strong>${assignment.minutes}m</strong><small>${escapeHtml(assignment.why || assignment.placement || "Placed by solver score.")}</small></div>`).join("") : `<div class="empty-assignment">${item.status === "locked" ? "Reserved" : "No task assigned"}</div>`}</div><div class="row-subtitle">Remaining: ${item.remainingMinutes ?? 0}m</div></div>`).join("");
-  return `<section class="section-shell">${heroBand(intel)}<div class="dashboard-grid">${renderSetupChecklist()}<article class="panel span-8" style="--accent:${TOKENS.command};"><div class="panel-label">intelligence briefing</div><div class="list-rows">${listOrEmpty(priorities, { domain: "command", title: "Not enough data for a briefing yet.", body: "Add tasks, classes, bills, or a calendar source so APEX can rank what matters first.", primaryLabel: "Review setup", primaryDomain: "command", secondaryLabel: "Upload files", secondaryDomain: "notebook" })}</div><div class="system-note" style="margin-top:1rem;">This stack is driven by live task scoring plus the current constraint profile. Change the rules, and these priorities recompute.</div></article><article class="panel span-4" style="--accent:${intel.solverSummary.unscheduledUrgentCount ? TOKENS.danger : TOKENS.ok};"><div class="panel-label">solver summary</div><div class="solver-grid"><div class="metric-stack"><span>Scheduled</span><strong>${intel.solverSummary.scheduledMinutes}m</strong></div><div class="metric-stack"><span>Capacity</span><strong>${intel.solverSummary.flexibleCapacityMinutes}m</strong></div><div class="metric-stack"><span>Urgent unscheduled</span><strong>${intel.solverSummary.unscheduledUrgentCount}</strong></div><div class="metric-stack"><span>Search score</span><strong>${intel.solverSummary.score}</strong></div></div><div class="footer-note">${intel.solverSummary.unscheduledMinutes ? `${intel.solverSummary.unscheduledMinutes} minutes remain unscheduled under the current rules.` : "Every active chunk currently fits inside the remaining day."}</div></article><article class="panel span-4" style="--accent:${TOKENS.command};"><div class="panel-label">capacity gauge</div>${gauge(intel.loadScore, TOKENS.command, "load index", intel.loadLabel === "stabilize" ? "stabilize plan active" : intel.loadLabel, intel.loadDisplay || `${intel.loadScore}%`)}<div class="footer-note" style="margin-top:0.9rem;">${intel.loadExplanation}</div><div class="mini-breakdown">${listOrEmpty(domainLoads, { domain: "command", title: "Setup mode is active.", body: "APEX will show real domain load once you add source data.", primaryLabel: "Review setup", primaryDomain: "command" })}</div></article><article class="panel span-4" style="--accent:${TOKENS.academy};"><div class="panel-label">gpa tracker</div>${state.courses.length ? `<div class="kpi"><div class="kpi-value accent-text">3.47</div><div class="kpi-copy"><div>Current GPA</div><div class="${topCourse?.status === "at-risk" ? "trend-down" : "trend-up"}">${topCourse?.status === "at-risk" ? "Watch " : "Stable "}${escapeHtml(topCourse?.name || "semester profile")}</div></div></div>${sparkBars(state.courses.map((course) => course.grade / 10), TOKENS.academy)}<div class="section-list" style="margin-top:0.95rem;">${listOrEmpty(courses, { domain: "academy", title: "No classes imported yet.", body: "Upload a syllabus or connect school tools so grades and deadlines can show here.", primaryLabel: "Upload syllabus", primaryDomain: "notebook" })}</div>` : emptyState({ domain: "academy", title: "No classes imported yet.", body: "Upload a syllabus or connect Canvas when ready. APEX will not invent grade data.", primaryLabel: "Upload syllabus", primaryDomain: "notebook", secondaryLabel: "Open connectors", secondaryDomain: "command", compact: true })}</article><article class="panel span-4" style="--accent:${TOKENS.danger};"><div class="panel-label">conflict engine</div><div class="stack-list">${listOrEmpty(conflicts, { domain: "command", title: "No conflicts detected yet.", body: "That can mean you are clear, or that APEX needs more real sources before it can compare commitments.", primaryLabel: "Add sources", primaryDomain: "command" })}</div></article><article class="panel span-4" style="--accent:${TOKENS.notebook};"><div class="panel-label">this week</div><div class="calendar-grid">${dayLabels.map((label, index) => { const day = intel.weeklyOutlook[index]; const level = day.level === "high" ? TOKENS.danger : day.level === "medium" ? TOKENS.warn : TOKENS.ok; return `<div class="day-card ${index === dayIndex ? "is-today" : ""}" style="--accent:${level};"><small class="muted">${label}</small><strong>${day.date.getDate()}</strong><div class="dot-stack"><span style="background:${level};"></span><span style="background:${level}; opacity:.65;"></span><span style="background:${level}; opacity:.35;"></span></div></div>`; }).join("")}</div><div class="footer-note" style="margin-top:0.95rem;">Peak pressure day: ${intel.hottestDay.date.toLocaleDateString("en-US", { weekday: "long", month: "short", day: "numeric" })}. The weekly view is driven by deadlines, exams, and bills.</div></article><article class="panel span-12" style="--accent:${TOKENS.future};"><div class="panel-label">next best moves</div><div class="courses-grid">${listOrEmpty(recommendations, { domain: "future", title: "No recommendations yet.", body: "APEX needs source data before it can safely recommend next moves.", primaryLabel: "Review setup", primaryDomain: "command" })}</div></article>${renderWhyPlanPanel(intel)}${renderScheduleModePanel(intel)}${renderConstraintPanel(intel)}${renderSourcePanel()}${renderConnectorPanel()}<article class="panel span-12" style="--accent:${TOKENS.command};"><div class="panel-label">optimized schedule</div><div class="schedule-strip schedule-strip--solver">${scheduleBlocks || emptyState({ domain: "command", title: "No schedule blocks yet.", body: "Connect your calendar or add tasks to let the solver build a real day plan.", primaryLabel: "Open connectors", primaryDomain: "command", secondaryLabel: "Upload files", secondaryDomain: "notebook" })}</div></article></div></section>`;
+  return `<section class="section-shell">${heroBand(intel)}<div class="dashboard-grid">${renderSetupChecklist()}${renderPersonalizationPanel()}<article class="panel span-8" style="--accent:${TOKENS.command};"><div class="panel-label">intelligence briefing</div><div class="list-rows">${listOrEmpty(priorities, { domain: "command", title: "Not enough data for a briefing yet.", body: "Add tasks, classes, bills, or a calendar source so APEX can rank what matters first.", primaryLabel: "Review setup", primaryDomain: "command", secondaryLabel: "Upload files", secondaryDomain: "notebook" })}</div><div class="system-note" style="margin-top:1rem;">This stack is driven by live task scoring plus the current constraint profile. Change the rules, and these priorities recompute.</div></article><article class="panel span-4" style="--accent:${intel.solverSummary.unscheduledUrgentCount ? TOKENS.danger : TOKENS.ok};"><div class="panel-label">solver summary</div><div class="solver-grid"><div class="metric-stack"><span>Scheduled</span><strong>${intel.solverSummary.scheduledMinutes}m</strong></div><div class="metric-stack"><span>Capacity</span><strong>${intel.solverSummary.flexibleCapacityMinutes}m</strong></div><div class="metric-stack"><span>Urgent unscheduled</span><strong>${intel.solverSummary.unscheduledUrgentCount}</strong></div><div class="metric-stack"><span>Search score</span><strong>${intel.solverSummary.score}</strong></div></div><div class="footer-note">${intel.solverSummary.unscheduledMinutes ? `${intel.solverSummary.unscheduledMinutes} minutes remain unscheduled under the current rules.` : "Every active chunk currently fits inside the remaining day."}</div></article><article class="panel span-4" style="--accent:${TOKENS.command};"><div class="panel-label">capacity gauge</div>${gauge(intel.loadScore, TOKENS.command, "load index", intel.loadLabel === "stabilize" ? "stabilize plan active" : intel.loadLabel, intel.loadDisplay || `${intel.loadScore}%`)}<div class="footer-note" style="margin-top:0.9rem;">${intel.loadExplanation}</div><div class="mini-breakdown">${listOrEmpty(domainLoads, { domain: "command", title: "Setup mode is active.", body: "APEX will show real domain load once you add source data.", primaryLabel: "Review setup", primaryDomain: "command" })}</div></article><article class="panel span-4" style="--accent:${TOKENS.academy};"><div class="panel-label">gpa tracker</div>${state.courses.length ? `<div class="kpi"><div class="kpi-value accent-text">3.47</div><div class="kpi-copy"><div>Current GPA</div><div class="${topCourse?.status === "at-risk" ? "trend-down" : "trend-up"}">${topCourse?.status === "at-risk" ? "Watch " : "Stable "}${escapeHtml(topCourse?.name || "semester profile")}</div></div></div>${sparkBars(state.courses.map((course) => course.grade / 10), TOKENS.academy)}<div class="section-list" style="margin-top:0.95rem;">${listOrEmpty(courses, { domain: "academy", title: "No classes imported yet.", body: "Upload a syllabus or connect school tools so grades and deadlines can show here.", primaryLabel: "Upload syllabus", primaryDomain: "notebook" })}</div>` : emptyState({ domain: "academy", title: "No classes imported yet.", body: "Upload a syllabus or connect Canvas when ready. APEX will not invent grade data.", primaryLabel: "Upload syllabus", primaryDomain: "notebook", secondaryLabel: "Open connectors", secondaryDomain: "command", compact: true })}</article><article class="panel span-4" style="--accent:${TOKENS.danger};"><div class="panel-label">conflict engine</div><div class="stack-list">${listOrEmpty(conflicts, { domain: "command", title: "No conflicts detected yet.", body: "That can mean you are clear, or that APEX needs more real sources before it can compare commitments.", primaryLabel: "Add sources", primaryDomain: "command" })}</div></article><article class="panel span-4" style="--accent:${TOKENS.notebook};"><div class="panel-label">this week</div><div class="calendar-grid">${dayLabels.map((label, index) => { const day = intel.weeklyOutlook[index]; const level = day.level === "high" ? TOKENS.danger : day.level === "medium" ? TOKENS.warn : TOKENS.ok; return `<div class="day-card ${index === dayIndex ? "is-today" : ""}" style="--accent:${level};"><small class="muted">${label}</small><strong>${day.date.getDate()}</strong><div class="dot-stack"><span style="background:${level};"></span><span style="background:${level}; opacity:.65;"></span><span style="background:${level}; opacity:.35;"></span></div></div>`; }).join("")}</div><div class="footer-note" style="margin-top:0.95rem;">Peak pressure day: ${intel.hottestDay.date.toLocaleDateString("en-US", { weekday: "long", month: "short", day: "numeric" })}. The weekly view is driven by deadlines, exams, and bills.</div></article><article class="panel span-12" style="--accent:${TOKENS.future};"><div class="panel-label">next best moves</div><div class="courses-grid">${listOrEmpty(recommendations, { domain: "future", title: "No recommendations yet.", body: "APEX needs source data before it can safely recommend next moves.", primaryLabel: "Review setup", primaryDomain: "command" })}</div></article>${renderWhyPlanPanel(intel)}${renderScheduleModePanel(intel)}${renderConstraintPanel(intel)}${renderSourcePanel()}${renderConnectorPanel()}<article class="panel span-12" style="--accent:${TOKENS.command};"><div class="panel-label">optimized schedule</div><div class="schedule-strip schedule-strip--solver">${scheduleBlocks || emptyState({ domain: "command", title: "No schedule blocks yet.", body: "Connect your calendar or add tasks to let the solver build a real day plan.", primaryLabel: "Open connectors", primaryDomain: "command", secondaryLabel: "Upload files", secondaryDomain: "notebook" })}</div></article></div></section>`;
 }
 
 function simpleListPanel(title, accent, rows, emptyConfig = null) {
@@ -1698,7 +1774,9 @@ function renderApp() {
   const latestPlanChanges = compareScheduleRunSnapshots(state.lastPlanSnapshot, nextPlanSnapshot);
   if (latestPlanChanges.status !== "stable") state.lastPlanChanges = latestPlanChanges;
   intel.planChanges = state.lastPlanChanges || latestPlanChanges;
-  app.innerHTML = `<div class="app-shell" style="--accent:${colorFor(domain.id)};"><div class="ambient"><div class="orb orb--one"></div><div class="orb orb--two"></div><div class="orb orb--three"></div></div><aside class="sidebar ${state.sidebarCollapsed ? "is-collapsed" : ""}"><div class="brand"><div class="brand-mark">${iconSvg("command")}</div><div class="brand-copy"><h1>APEX</h1><p>Universal 2.0</p></div></div><nav class="sidebar-nav">${DOMAINS.map((item) => `<button class="nav-button ${state.activeDomain === item.id ? "is-active" : ""}" data-domain="${item.id}" style="--accent:${colorFor(item.id)};"><span class="nav-icon">${iconSvg(item.id, item.label)}</span><span class="nav-copy"><strong>${item.label}</strong><span>${item.blurb}</span></span></button>`).join("")}</nav><div class="sidebar-footer"><button class="collapse-button" data-collapse-sidebar aria-label="${state.sidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"}"><span>${state.sidebarCollapsed ? "&#9654;" : "&#9664;"}</span><span>${state.sidebarCollapsed ? "Expand" : "Collapse"}</span></button></div></aside><main class="main"><header class="topbar"><div class="topbar-title"><div class="topbar-icon">${iconSvg(domain.id, domain.label)}</div><div class="topbar-copy"><h2>APEX ${domain.label}</h2><p>${formatToday()} &middot; ${state.auth.user.email}</p></div></div><div class="topbar-metrics"><div class="metric-pill"><span class="metric-dot"></span><span>Load</span><strong data-shell-load>${intel.loadDisplay || `${intel.loadScore}%`}</strong></div><div class="metric-pill"><span class="metric-dot" style="background:${TOKENS.command};"></span><span>Cloud</span><strong data-shell-cloud>${state.cloudSaveStatus}</strong></div><div class="metric-pill"><span class="metric-dot" data-shell-source-dot style="background:${statusTone(state.sourceConfig.lastSyncStatus)};"></span><span>Source</span><strong data-shell-source>${state.sourceConfig.lastSyncStatus}</strong></div><button class="metric-pill metric-button ${unreadNotifications().length ? "has-unread" : ""}" data-notification-toggle type="button"><span class="metric-dot" data-shell-notification-dot style="background:${unreadNotifications().length ? TOKENS.warn : TOKENS.ok};"></span><span>Alerts</span><strong data-shell-notifications>${unreadNotifications().length}</strong></button><button class="surface-action" data-auth-signout>Sign Out</button><div class="mini-domain-rail">${DOMAINS.filter((item) => item.id !== "command").map((item) => `<button class="stat-dot-button ${item.id === state.activeDomain ? "is-active" : ""}" data-domain="${item.id}" style="--dot:${colorFor(item.id)};" title="${item.label}" aria-label="Open ${item.label}"></button>`).join("")}</div></div></header><div class="content">${renderContent(intel)}</div></main>${renderOnboarding()}${renderSectionHelp()}</div>`;
+  const prefs = normalizePreferences(state.preferences);
+  const shellClass = `theme-${prefs.theme} density-${prefs.density} text-${prefs.fontScale} layout-${prefs.layoutProfile}`;
+  app.innerHTML = `<div class="app-shell ${shellClass}" style="--accent:${selectedAccent(domain.id)};"><a class="skip-link" href="#main-content">Skip to content</a><div class="ambient"><div class="orb orb--one"></div><div class="orb orb--two"></div><div class="orb orb--three"></div></div><aside class="sidebar ${state.sidebarCollapsed ? "is-collapsed" : ""}"><div class="brand"><div class="brand-mark">${iconSvg("command")}</div><div class="brand-copy"><h1>APEX</h1><p>Universal 2.0</p></div></div><nav class="sidebar-nav" aria-label="Primary sections">${DOMAINS.map((item) => `<button class="nav-button ${state.activeDomain === item.id ? "is-active" : ""}" data-domain="${item.id}" style="--accent:${colorFor(item.id)};" aria-current="${state.activeDomain === item.id ? "page" : "false"}"><span class="nav-icon">${iconSvg(item.id, item.label)}</span><span class="nav-copy"><strong>${item.label}</strong><span>${item.blurb}</span></span></button>`).join("")}</nav><div class="sidebar-footer"><button class="collapse-button" data-collapse-sidebar aria-label="${state.sidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"}"><span>${state.sidebarCollapsed ? "&#9654;" : "&#9664;"}</span><span>${state.sidebarCollapsed ? "Expand" : "Collapse"}</span></button></div></aside><main class="main" id="main-content"><header class="topbar"><div class="topbar-title"><div class="topbar-icon">${iconSvg(domain.id, domain.label)}</div><div class="topbar-copy"><h2>APEX ${domain.label}</h2><p>${formatToday()} &middot; ${state.auth.user.email}</p></div></div><div class="topbar-metrics"><div class="metric-pill"><span class="metric-dot"></span><span>Load</span><strong data-shell-load>${intel.loadDisplay || `${intel.loadScore}%`}</strong></div><div class="metric-pill"><span class="metric-dot" style="background:${TOKENS.command};"></span><span>Cloud</span><strong data-shell-cloud>${state.cloudSaveStatus}</strong></div><div class="metric-pill"><span class="metric-dot" data-shell-source-dot style="background:${statusTone(state.sourceConfig.lastSyncStatus)};"></span><span>Source</span><strong data-shell-source>${state.sourceConfig.lastSyncStatus}</strong></div><button class="metric-pill metric-button ${unreadNotifications().length ? "has-unread" : ""}" data-notification-toggle type="button" aria-label="Open notification center"><span class="metric-dot" data-shell-notification-dot style="background:${unreadNotifications().length ? TOKENS.warn : TOKENS.ok};"></span><span>Alerts</span><strong data-shell-notifications>${unreadNotifications().length}</strong></button><button class="surface-action" data-domain="command" data-scroll-personalization>Personalize</button><button class="surface-action" data-auth-signout>Sign Out</button><div class="mini-domain-rail" aria-label="Quick sections">${DOMAINS.filter((item) => item.id !== "command").map((item) => `<button class="stat-dot-button ${item.id === state.activeDomain ? "is-active" : ""}" data-domain="${item.id}" style="--dot:${colorFor(item.id)};" title="${item.label}" aria-label="Open ${item.label}"></button>`).join("")}</div></div></header><div class="content">${renderContent(intel)}</div></main>${renderOnboarding()}${renderSectionHelp()}</div>`;
   state.lastPlanSnapshot = nextPlanSnapshot;
   persistPlanSnapshotOnly();
   renderToast();
@@ -1724,6 +1802,14 @@ function updateConstraint(group, key, value) {
       ...state.constraints[group],
       [key]: value,
     },
+  });
+  rerender();
+}
+
+function updatePreference(key, value) {
+  state.preferences = normalizePreferences({
+    ...(state.preferences || DEFAULT_PREFERENCES),
+    [key]: value,
   });
   rerender();
 }
@@ -1836,8 +1922,18 @@ doc?.addEventListener("click", async (event) => {
   const target = event.target instanceof Element ? event.target : null;
   if (!target) return;
   const domainButton = target.closest("[data-domain]");
-  if (domainButton) { state.activeDomain = domainButton.dataset.domain; rerender(); return; }
+  if (domainButton) {
+    state.activeDomain = domainButton.dataset.domain;
+    rerender();
+    if (domainButton.matches("[data-scroll-personalization]")) {
+      requestAnimationFrame(() => doc?.querySelector("[data-personalization-panel]")?.scrollIntoView({ block: "start", behavior: "smooth" }));
+    }
+    return;
+  }
   if (target.closest("[data-collapse-sidebar]")) { state.sidebarCollapsed = !state.sidebarCollapsed; rerender(); return; }
+  const preferenceButton = target.closest("[data-preference-key]");
+  if (preferenceButton) { updatePreference(preferenceButton.dataset.preferenceKey, preferenceButton.dataset.preferenceValue); return; }
+  if (target.closest("[data-preference-reset]")) { state.preferences = clone(DEFAULT_PREFERENCES); rerender(); return; }
   const tab = target.closest("[data-tab-group]");
   if (tab) { state.subTabs[tab.dataset.tabGroup] = tab.dataset.tabValue; rerender(); return; }
   const task = target.closest("[data-task-id]");

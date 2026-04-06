@@ -66,6 +66,7 @@ textarea {
 
 button {
   color: inherit;
+  touch-action: manipulation;
 }
 
 button:disabled {
@@ -173,6 +174,96 @@ textarea:focus-visible {
   min-height: 100vh;
   display: flex;
   overflow: hidden;
+  background: transparent;
+  font-size: 1rem;
+}
+
+.app-shell.theme-contrast {
+  --bg: #000;
+  --panel: rgba(255, 255, 255, 0.07);
+  --border: rgba(255, 255, 255, 0.24);
+  --text: #ffffff;
+  --text-muted: #d7d7e5;
+  --text-soft: #b5b5c7;
+  --shadow: 0 20px 60px rgba(0, 0, 0, 0.7);
+  background: #020204;
+}
+
+.app-shell.theme-daylight {
+  --bg: #f5f2ea;
+  --panel: rgba(255, 255, 255, 0.76);
+  --panel-strong: rgba(255, 255, 255, 0.92);
+  --border: rgba(29, 25, 43, 0.16);
+  --text: #171520;
+  --text-muted: #4d465f;
+  --text-soft: #746d84;
+  --shadow: 0 22px 70px rgba(67, 51, 32, 0.16);
+  background:
+    radial-gradient(circle at 12% 8%, rgba(124, 109, 250, 0.16), transparent 28%),
+    linear-gradient(180deg, #f7f2e8, #efe8dc);
+  color-scheme: light;
+}
+
+.app-shell.theme-daylight .sidebar,
+.app-shell.theme-daylight .topbar {
+  background: rgba(255, 252, 245, 0.72);
+}
+
+.app-shell.theme-daylight .panel,
+.app-shell.theme-daylight .row,
+.app-shell.theme-daylight .metric-pill,
+.app-shell.theme-daylight .surface-action,
+.app-shell.theme-daylight .small-action {
+  background-color: rgba(255, 255, 255, 0.58);
+}
+
+.app-shell.density-compact {
+  --space-3: 0.7rem;
+  --space-4: 0.9rem;
+  --space-5: 1.15rem;
+}
+
+.app-shell.density-spacious {
+  --space-3: 1.05rem;
+  --space-4: 1.45rem;
+  --space-5: 2rem;
+}
+
+.app-shell.text-large { font-size: 1.06rem; }
+.app-shell.text-xl { font-size: 1.14rem; }
+
+.app-shell.layout-operator .hero-band {
+  display: grid;
+  grid-template-columns: minmax(0, 1.5fr) minmax(18rem, 0.9fr);
+  align-items: end;
+  gap: var(--space-5);
+}
+
+.app-shell.layout-focus .setup-panel,
+.app-shell.layout-focus .personalization-panel,
+.app-shell.layout-focus .section-help {
+  opacity: 0.82;
+}
+
+.app-shell.layout-focus .hero-band {
+  box-shadow: 0 20px 90px color-mix(in srgb, var(--accent) 16%, transparent);
+}
+
+.skip-link {
+  position: fixed;
+  top: 0.75rem;
+  left: 0.75rem;
+  z-index: 10000;
+  transform: translateY(-150%);
+  padding: 0.7rem 1rem;
+  border-radius: 999px;
+  background: var(--text);
+  color: var(--bg);
+  font-weight: 800;
+}
+
+.skip-link:focus-visible {
+  transform: translateY(0);
 }
 
 .ambient {
@@ -1316,6 +1407,42 @@ textarea:focus-visible {
   background: rgba(255, 255, 255, 0.025);
 }
 
+.personalization-panel {
+  scroll-margin-top: 1rem;
+}
+
+.preference-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: var(--space-4);
+  margin-top: var(--space-4);
+}
+
+.preference-button-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+.preference-chip {
+  min-height: 2.35rem;
+  padding: 0.58rem 0.85rem;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: rgba(255, 255, 255, 0.035);
+  color: var(--text-muted);
+  cursor: pointer;
+  font-size: var(--type-sm);
+  font-weight: 700;
+}
+
+.preference-chip:hover,
+.preference-chip.is-active {
+  border-color: color-mix(in srgb, var(--accent) 38%, var(--border));
+  background: color-mix(in srgb, var(--accent) 13%, rgba(255, 255, 255, 0.035));
+  color: var(--text);
+}
+
 .connector-error {
   padding: 0.65rem 0.75rem;
   border-radius: 14px;
@@ -2019,13 +2146,15 @@ textarea:focus-visible {
   background: rgba(255, 255, 255, 0.03);
   color: var(--text);
   padding: 0.85rem 0.95rem;
-  outline: none;
+  outline: 2px solid transparent;
+  outline-offset: 3px;
 }
 
-.search-input:focus,
-.brain-dump:focus {
+.search-input:focus-visible,
+.brain-dump:focus-visible {
   border-color: color-mix(in srgb, var(--accent) 28%, transparent);
   box-shadow: 0 0 0 4px color-mix(in srgb, var(--accent) 12%, transparent);
+  outline-color: color-mix(in srgb, var(--accent) 68%, white 12%);
 }
 
 .brain-dump {
@@ -2365,6 +2494,17 @@ textarea:focus-visible {
   to { opacity: 1; transform: translateY(0); }
 }
 
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 1ms !important;
+    animation-iteration-count: 1 !important;
+    scroll-behavior: auto !important;
+    transition-duration: 1ms !important;
+  }
+}
+
 @media (max-width: 1200px) {
   .hero-stats,
   .budget-grid,
@@ -2383,6 +2523,10 @@ textarea:focus-visible {
   .solver-grid,
   .meta-grid,
   .setup-list {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .preference-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
@@ -2453,6 +2597,7 @@ textarea:focus-visible {
   .plan-change-card,
   .solver-grid,
   .meta-grid,
+  .preference-grid,
   .setup-list {
     grid-template-columns: 1fr;
   }
