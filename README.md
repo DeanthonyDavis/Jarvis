@@ -9,6 +9,10 @@ This workspace contains a self-contained front-end prototype for the APEX Life O
 - `apex-data.js`: seeded product data for tasks, courses, schedule, bills, and notes
 - `intelligence.js`: command-center scoring, conflict detection, weekly heat, and a constraint-aware schedule solver
 - `app.js`: dashboard rendering, persistent local state, live-source syncing, and UI wiring
+- `auth.js`: Supabase Auth and private per-user workspace persistence
+- `server.js`: local connector server and runtime config endpoint
+- `supabase/schema.sql`: Supabase table plus row-level security policies
+- `api/config.js`: Vercel runtime config endpoint for public Supabase keys
 
 ## Dashboards
 
@@ -36,6 +40,10 @@ You can still open `index.html` directly for a static-only pass, but the local s
 
 ## Current interaction layer
 
+- Supabase login/signup gate for beta testing
+- Fresh first-run workspace with no preset demo data after signup
+- Optional onboarding tutorial with skip
+- Contextual help boxes when opening each app section
 - Domain switching with a collapsible sidebar
 - Command Center driven by computed priorities, conflicts, load, weekly heat, and a real slot-assignment solver pass
 - Interactive tasks across Academy, Works, and Life
@@ -61,6 +69,18 @@ You can still open `index.html` directly for a static-only pass, but the local s
 - The server reads a local `.env` file automatically.
 - Without external credentials, the webhook endpoints are the easiest way to feed live events and assignments into the app.
 - If you set `APEX_WEBHOOK_SECRET`, send the same value in the `x-apex-secret` header for webhook requests.
+
+## Supabase Login Setup
+
+1. Create a Supabase project.
+2. In Supabase SQL Editor, run `supabase/schema.sql`.
+3. In Vercel Project Settings -> Environment Variables, set:
+   - `SUPABASE_URL`
+   - `SUPABASE_ANON_KEY`
+4. Redeploy the Vercel project.
+5. Open the app, create an account, and you should land in a clean APEX workspace with no demo tasks or classes.
+
+For local testing, copy `.env.example` to `.env` and fill in the same Supabase values, then run `node server.js`.
 
 ## First User Testing
 

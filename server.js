@@ -375,6 +375,14 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
+  if (pathname === "/api/config" && req.method === "GET") {
+    sendJson(res, 200, {
+      supabaseUrl: process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL || "",
+      supabaseAnonKey: process.env.SUPABASE_ANON_KEY || process.env.VITE_SUPABASE_ANON_KEY || "",
+    });
+    return;
+  }
+
   if (pathname === "/api/source/live" && req.method === "GET") {
     if (url.searchParams.get("refresh") === "1") await refreshConnectors(store);
     sendJson(res, 200, buildLivePayload(store));

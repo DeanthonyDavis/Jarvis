@@ -1,5 +1,13 @@
 import { buildCommandCenterIntelligence, normalizeConstraints } from "./intelligence.js";
 import {
+  initAuthClient,
+  loadUserWorkspace,
+  saveUserWorkspace,
+  signInWithPassword,
+  signOut,
+  signUpWithPassword,
+} from "./auth.js";
+import {
   TOKENS,
   DOMAINS,
   COURSES,
@@ -33,7 +41,18 @@ const storage =
 
 const STORAGE_KEY = "apex-universal-state";
 const AUTO_SYNC_MS = 60 * 1000;
+const CLOUD_SAVE_MS = 900;
 const clone = (value) => JSON.parse(JSON.stringify(value));
+
+const HELP_COPY = {
+  command: ["Command Center", "This is your operating view. Tune constraints, sync sources, and let APEX decide what fits first."],
+  academy: ["Academy", "Add courses, upload syllabi or LMS exports, and let deadlines flow into the solver."],
+  works: ["Works", "Connect shifts, projects, and applications so work pressure is blocked before it collides with school."],
+  life: ["Life", "Track bills and routines. Later this can connect to finance and health sources with explicit consent."],
+  future: ["Future", "Turn goals into scheduled work. Start with one career target, then connect portfolio and learning sources."],
+  mind: ["Mind", "Use check-ins as scheduler signals. Low energy should change the plan, not become another failure point."],
+  notebook: ["Notebook", "Upload files, notes, syllabi, and PDFs here once storage is connected. For now, use Brain Dump to route context."],
+};
 
 function defaultSnapshot() {
   return {
@@ -55,9 +74,35 @@ function defaultSnapshot() {
     toastIndex: 0,
     noteSearch: "",
     activeNoteId: NOTES[0]?.id || null,
+    uploadedFiles: [],
     brainDump: "",
     processedDump: null,
     checkin: { energy: 0, focus: 0, mood: 0, submitted: false },
+  };
+}
+
+function emptyUserSnapshot() {
+  const snapshot = defaultSnapshot();
+  return {
+    ...snapshot,
+    tasks: [],
+    courses: [],
+    schedule: [],
+    bills: [],
+    budget: { income: 0, spent: 0, saved: 0, left: 0 },
+    paychecks: [],
+    noteSearch: "",
+    activeNoteId: null,
+    brainDump: "",
+    processedDump: null,
+    checkin: { energy: 0, focus: 0, mood: 0, submitted: false },
+    onboarding: {
+      tutorialOpen: true,
+      tutorialSkipped: false,
+      tutorialCompleted: false,
+      activeStep: 0,
+      sectionHelpSeen: {},
+    },
   };
 }
 
@@ -83,9 +128,17 @@ function loadState() {
       toastIndex: Number(saved.toastIndex) || 0,
       noteSearch: saved.noteSearch || "",
       activeNoteId: saved.activeNoteId ?? defaults.activeNoteId,
+      uploadedFiles: Array.isArray(saved.uploadedFiles) ? saved.uploadedFiles : defaults.uploadedFiles,
       brainDump: saved.brainDump || "",
       processedDump: saved.processedDump || null,
       checkin: { ...defaults.checkin, ...(saved.checkin || {}) },
+      onboarding: {
+        tutorialOpen: Boolean(saved.onboarding?.tutorialOpen),
+        tutorialSkipped: Boolean(saved.onboarding?.tutorialSkipped),
+        tutorialCompleted: Boolean(saved.onboarding?.tutorialCompleted),
+        activeStep: Number(saved.onboarding?.activeStep || 0),
+        sectionHelpSeen: saved.onboarding?.sectionHelpSeen || {},
+      },
     };
   } catch {
     return defaults;
@@ -94,8 +147,22 @@ function loadState() {
 
 const state = {
   ...loadState(),
+  auth: {
+    ready: false,
+    enabled: false,
+    client: null,
+    session: null,
+    user: null,
+    mode: "sign-in",
+    email: "",
+    password: "",
+    error: "",
+    message: "",
+  },
   toastTimer: null,
   syncTimer: null,
+  cloudSaveTimer: null,
+  cloudSaveStatus: "idle",
 };
 
 const app = doc?.querySelector("#app") || null;
@@ -145,15 +212,80 @@ function saveState() {
       toastIndex: state.toastIndex,
       noteSearch: state.noteSearch,
       activeNoteId: state.activeNoteId,
+      uploadedFiles: state.uploadedFiles,
       brainDump: state.brainDump,
       processedDump: state.processedDump,
       checkin: state.checkin,
+      onboarding: state.onboarding,
     }),
   );
 }
 
+function userWorkspaceState() {
+  return {
+    tasks: state.tasks,
+    courses: state.courses,
+    schedule: state.schedule,
+    bills: state.bills,
+    budget: state.budget,
+    paychecks: state.paychecks,
+    constraints: state.constraints,
+    sourceConfig: state.sourceConfig,
+    subTabs: state.subTabs,
+    noteSearch: state.noteSearch,
+    activeNoteId: state.activeNoteId,
+    uploadedFiles: state.uploadedFiles,
+    brainDump: state.brainDump,
+    processedDump: state.processedDump,
+    checkin: state.checkin,
+    onboarding: state.onboarding,
+  };
+}
+
+function applyWorkspaceState(workspace) {
+  const base = emptyUserSnapshot();
+  state.tasks = Array.isArray(workspace?.tasks) ? workspace.tasks : base.tasks;
+  state.courses = Array.isArray(workspace?.courses) ? workspace.courses : base.courses;
+  state.schedule = Array.isArray(workspace?.schedule) ? workspace.schedule : base.schedule;
+  state.bills = Array.isArray(workspace?.bills) ? workspace.bills : base.bills;
+  state.budget = { ...base.budget, ...(workspace?.budget || {}) };
+  state.paychecks = Array.isArray(workspace?.paychecks) ? workspace.paychecks : base.paychecks;
+  state.constraints = normalizeConstraints(workspace?.constraints || base.constraints);
+  state.sourceConfig = { ...base.sourceConfig, ...(workspace?.sourceConfig || {}) };
+  state.subTabs = { ...base.subTabs, ...(workspace?.subTabs || {}) };
+  state.noteSearch = workspace?.noteSearch || "";
+  state.activeNoteId = workspace?.activeNoteId ?? null;
+  state.uploadedFiles = Array.isArray(workspace?.uploadedFiles) ? workspace.uploadedFiles : [];
+  state.brainDump = workspace?.brainDump || "";
+  state.processedDump = workspace?.processedDump || null;
+  state.checkin = { ...base.checkin, ...(workspace?.checkin || {}) };
+  state.onboarding = {
+    ...base.onboarding,
+    ...(workspace?.onboarding || {}),
+    sectionHelpSeen: workspace?.onboarding?.sectionHelpSeen || {},
+  };
+}
+
+function scheduleCloudSave() {
+  if (!state.auth.client || !state.auth.user) return;
+  clearTimeout(state.cloudSaveTimer);
+  state.cloudSaveStatus = "saving";
+  state.cloudSaveTimer = setTimeout(async () => {
+    try {
+      await saveUserWorkspace(state.auth.client, state.auth.user.id, userWorkspaceState());
+      state.cloudSaveStatus = "saved";
+      renderApp();
+    } catch (error) {
+      state.cloudSaveStatus = "error";
+      state.auth.error = error instanceof Error ? error.message : "Unable to save workspace.";
+      renderApp();
+    }
+  }, CLOUD_SAVE_MS);
+}
+
 function rerender() {
   saveState();
+  scheduleCloudSave();
   renderApp();
 }
 
@@ -208,6 +340,37 @@ function burnoutRisk(intel) {
 
 function taskMarkup(task) {
   return `<button class="task-item ${task.done ? "is-done" : ""} ${task.urgent && !task.done ? "is-urgent" : ""}" data-task-id="${task.id}" style="--accent:${colorFor(task.domain)};"><span class="check">${task.done ? "&#10003;" : ""}</span><span class="task-copy"><span class="task-title">${task.title}</span><span class="task-due">${task.due}${task.course ? ` &middot; ${task.course}` : ""}</span></span>${task.urgent && !task.done ? pill("urgent", TOKENS.danger) : ""}</button>`;
+}
+
+function renderAuthShell() {
+  const modeLabel = state.auth.mode === "sign-up" ? "Create account" : "Sign in";
+  const altLabel = state.auth.mode === "sign-up" ? "Already have an account? Sign in" : "New here? Create your first account";
+  const body = !state.auth.ready
+    ? `<div class="auth-card"><div class="panel-label">starting apex</div><h1>Loading your workspace...</h1><p>Checking Supabase Auth and preparing your private APEX state.</p></div>`
+    : !state.auth.enabled
+      ? `<div class="auth-card"><div class="panel-label">supabase setup required</div><h1>Connect Supabase to unlock first-user testing.</h1><p>${escapeHtml(state.auth.error || "Add SUPABASE_URL and SUPABASE_ANON_KEY in Vercel and your local .env file, then run the Supabase schema.")}</p><div class="auth-hint"><strong>Next:</strong> run <code>supabase/schema.sql</code> in Supabase SQL Editor, then redeploy or restart the local server.</div></div>`
+      : `<form class="auth-card" data-auth-form><div class="panel-label">private beta login</div><h1>${modeLabel} to APEX Universal</h1><p>New accounts start with a clean workspace: no demo classes, no preset tasks, and no inherited connector state.</p><label class="field-shell"><div class="field-row"><span>Email</span></div><input class="search-input" type="email" autocomplete="email" value="${escapeHtml(state.auth.email)}" data-auth-email /></label><label class="field-shell"><div class="field-row"><span>Password</span></div><input class="search-input" type="password" autocomplete="${state.auth.mode === "sign-up" ? "new-password" : "current-password"}" value="${escapeHtml(state.auth.password)}" data-auth-password /></label>${state.auth.error ? `<div class="auth-error">${escapeHtml(state.auth.error)}</div>` : ""}${state.auth.message ? `<div class="auth-hint">${escapeHtml(state.auth.message)}</div>` : ""}<div class="hero-actions"><button class="primary-action" type="submit">${modeLabel}</button><button class="surface-action" type="button" data-auth-toggle>${altLabel}</button></div></form>`;
+  app.innerHTML = `<div class="auth-shell"><div class="ambient"><div class="orb orb--one"></div><div class="orb orb--two"></div><div class="orb orb--three"></div></div><div class="auth-poster"><div class="eyebrow"><span>&#9889;</span><span>APEX Universal 2.0</span></div><h2>Your Life OS starts empty, then learns from your actual sources.</h2><p>Log in, take the guided first run, and connect files, LMS, calendar, and webhook data only when you're ready.</p></div>${body}</div>`;
+}
+
+function renderOnboarding() {
+  if (!state.onboarding?.tutorialOpen) return "";
+  const steps = [
+    ["Start with zero clutter", "Your new account begins fresh. Add only the courses, tasks, files, and sources you actually want APEX to reason over."],
+    ["Tune the scheduler", "Use hard constraints for immovable commitments and soft preferences for how you like to work."],
+    ["Bring in real sources", "Use Live Data Sources for webhook payloads now; file uploads, LMS, and calendar connectors are staged into the product path."],
+  ];
+  const index = Math.min(state.onboarding.activeStep || 0, steps.length - 1);
+  const [title, text] = steps[index];
+  return `<div class="onboarding-card"><div class="panel-label">quick setup ${index + 1}/${steps.length}</div><h3>${title}</h3><p>${text}</p><div class="source-actions"><button class="primary-action" data-onboarding-next>${index === steps.length - 1 ? "Finish" : "Next"}</button><button class="surface-action" data-onboarding-skip>Skip tutorial</button></div></div>`;
+}
+
+function renderSectionHelp() {
+  const domain = activeDomain();
+  if (state.onboarding?.sectionHelpSeen?.[domain.id]) return "";
+  const help = HELP_COPY[domain.id];
+  if (!help) return "";
+  return `<aside class="section-help" style="--accent:${colorFor(domain.id)};"><div><div class="panel-label">new here</div><h4>${help[0]}</h4><p>${help[1]}</p></div><button aria-label="Dismiss help" data-help-dismiss>&times;</button></aside>`;
 }
 
 function heroBand(intel) {
@@ -304,6 +467,12 @@ function renderNotebook(intel) {
 }
 
 function renderContent(intel) {
+  if (!state.tasks.length && !state.courses.length && !state.schedule.length && !state.bills.length) {
+    if (state.activeDomain === "notebook") {
+      return `<section class="section-shell">${heroBand(intel)}<article class="panel span-12" style="--accent:${TOKENS.notebook};"><div class="panel-label">upload source files</div><h3 class="empty-title">Start your Notebook with your own materials.</h3><p class="row-subtitle">Upload syllabi, notes, PDFs, or assignment sheets. For this build, APEX stores the file metadata as source stubs; the next layer will parse and index the contents.</p><label class="upload-zone"><input type="file" multiple data-file-upload /><span>Choose files to attach</span><small>${state.uploadedFiles.length ? `${state.uploadedFiles.length} file(s) attached` : "No files attached yet"}</small></label><div class="section-list">${state.uploadedFiles.map((file) => `<div class="row" style="--accent:${TOKENS.notebook};"><div class="row-copy"><div class="row-title">${escapeHtml(file.name)}</div><div class="row-subtitle">${escapeHtml(file.type || "unknown type")} &middot; ${Math.round(file.size / 1024)} KB</div></div>${pill("source", TOKENS.notebook)}</div>`).join("")}</div></article></section>`;
+    }
+    return `<section class="section-shell">${heroBand(intel)}<article class="panel span-12" style="--accent:${colorFor(state.activeDomain)};"><div class="panel-label">fresh workspace</div><h3 class="empty-title">Start by adding your real sources.</h3><p class="row-subtitle">This account has no preset data. Use Live Data Sources, Brain Dump, or the upcoming upload flow to bring in tasks, syllabi, notes, and calendar events.</p><div class="hero-actions"><button class="primary-action" data-domain="notebook">Open Notebook</button><button class="surface-action" data-domain="command">Set constraints</button></div></article></section>`;
+  }
   switch (state.activeDomain) {
     case "academy": return renderAcademy(intel);
     case "works": return renderWorks(intel);
@@ -317,9 +486,14 @@ function renderContent(intel) {
 
 function renderApp() {
   if (!app) return;
+  if (!state.auth.ready || !state.auth.user) {
+    renderAuthShell();
+    renderToast();
+    return;
+  }
   const domain = activeDomain();
   const intel = getIntel();
-  app.innerHTML = `<div class="app-shell" style="--accent:${colorFor(domain.id)};"><div class="ambient"><div class="orb orb--one"></div><div class="orb orb--two"></div><div class="orb orb--three"></div></div><aside class="sidebar ${state.sidebarCollapsed ? "is-collapsed" : ""}"><div class="brand"><div class="brand-mark">&#9889;</div><div class="brand-copy"><h1>APEX</h1><p>Universal 2.0</p></div></div><nav class="sidebar-nav">${DOMAINS.map((item) => `<button class="nav-button ${state.activeDomain === item.id ? "is-active" : ""}" data-domain="${item.id}" style="--accent:${colorFor(item.id)};"><span class="nav-icon">${item.icon}</span><span class="nav-copy"><strong>${item.label}</strong><span>${item.blurb}</span></span></button>`).join("")}</nav><div class="sidebar-footer"><button class="collapse-button" data-collapse-sidebar><span>${state.sidebarCollapsed ? "&#9654;" : "&#9664;"}</span><span>${state.sidebarCollapsed ? "Expand" : "Collapse"}</span></button></div></aside><main class="main"><header class="topbar"><div class="topbar-title"><div class="topbar-icon">${domain.icon}</div><div class="topbar-copy"><h2>APEX ${domain.label}</h2><p>${formatToday()} &middot; Life OS command deck</p></div></div><div class="topbar-metrics"><div class="metric-pill"><span class="metric-dot"></span><span>Load</span><strong>${intel.loadScore}%</strong></div><div class="metric-pill"><span class="metric-dot" style="background:${TOKENS.command};"></span><span>Solver</span><strong>${intel.solverSummary.scheduledMinutes}m</strong></div><div class="metric-pill"><span class="metric-dot" style="background:${statusTone(state.sourceConfig.lastSyncStatus)};"></span><span>Source</span><strong>${state.sourceConfig.lastSyncStatus}</strong></div><div class="mini-domain-rail">${DOMAINS.filter((item) => item.id !== "command").map((item) => `<button class="stat-dot-button ${item.id === state.activeDomain ? "is-active" : ""}" data-domain="${item.id}" style="--dot:${colorFor(item.id)};" title="${item.label}" aria-label="Open ${item.label}"></button>`).join("")}</div></div></header><div class="content">${renderContent(intel)}</div></main></div>`;
+  app.innerHTML = `<div class="app-shell" style="--accent:${colorFor(domain.id)};"><div class="ambient"><div class="orb orb--one"></div><div class="orb orb--two"></div><div class="orb orb--three"></div></div><aside class="sidebar ${state.sidebarCollapsed ? "is-collapsed" : ""}"><div class="brand"><div class="brand-mark">&#9889;</div><div class="brand-copy"><h1>APEX</h1><p>Universal 2.0</p></div></div><nav class="sidebar-nav">${DOMAINS.map((item) => `<button class="nav-button ${state.activeDomain === item.id ? "is-active" : ""}" data-domain="${item.id}" style="--accent:${colorFor(item.id)};"><span class="nav-icon">${item.icon}</span><span class="nav-copy"><strong>${item.label}</strong><span>${item.blurb}</span></span></button>`).join("")}</nav><div class="sidebar-footer"><button class="collapse-button" data-collapse-sidebar><span>${state.sidebarCollapsed ? "&#9654;" : "&#9664;"}</span><span>${state.sidebarCollapsed ? "Expand" : "Collapse"}</span></button></div></aside><main class="main"><header class="topbar"><div class="topbar-title"><div class="topbar-icon">${domain.icon}</div><div class="topbar-copy"><h2>APEX ${domain.label}</h2><p>${formatToday()} &middot; ${state.auth.user.email}</p></div></div><div class="topbar-metrics"><div class="metric-pill"><span class="metric-dot"></span><span>Load</span><strong>${intel.loadScore}%</strong></div><div class="metric-pill"><span class="metric-dot" style="background:${TOKENS.command};"></span><span>Cloud</span><strong>${state.cloudSaveStatus}</strong></div><div class="metric-pill"><span class="metric-dot" style="background:${statusTone(state.sourceConfig.lastSyncStatus)};"></span><span>Source</span><strong>${state.sourceConfig.lastSyncStatus}</strong></div><button class="surface-action" data-auth-signout>Sign out</button><div class="mini-domain-rail">${DOMAINS.filter((item) => item.id !== "command").map((item) => `<button class="stat-dot-button ${item.id === state.activeDomain ? "is-active" : ""}" data-domain="${item.id}" style="--dot:${colorFor(item.id)};" title="${item.label}" aria-label="Open ${item.label}"></button>`).join("")}</div></div></header><div class="content">${renderContent(intel)}</div></main>${renderOnboarding()}${renderSectionHelp()}</div>`;
   renderToast();
 }
 
@@ -462,7 +636,19 @@ doc?.addEventListener("click", async (event) => {
   if (target.closest("[data-process-dump]")) { if (state.brainDump.trim()) { state.processedDump = processBrainDump(state.brainDump); rerender(); } return; }
   if (target.closest("[data-clear-dump]")) { state.brainDump = ""; state.processedDump = null; rerender(); return; }
   if (target.closest("[data-focus-top]")) { const intel = getIntel(); if (intel.topPriorities[0]) pushToast(`Focus target: ${intel.topPriorities[0].title}.`); return; }
+  if (target.closest("[data-auth-toggle]")) { state.auth.mode = state.auth.mode === "sign-up" ? "sign-in" : "sign-up"; state.auth.error = ""; renderApp(); return; }
+  if (target.closest("[data-auth-signout]")) { await handleSignOut(); return; }
+  if (target.closest("[data-onboarding-skip]")) { state.onboarding = { ...state.onboarding, tutorialOpen: false, tutorialSkipped: true }; rerender(); return; }
+  if (target.closest("[data-onboarding-next]")) { advanceOnboarding(); return; }
+  if (target.closest("[data-help-dismiss]")) { state.onboarding = { ...state.onboarding, sectionHelpSeen: { ...(state.onboarding?.sectionHelpSeen || {}), [state.activeDomain]: true } }; rerender(); return; }
   if (target.closest("[data-dismiss-toast]")) { state.toast = null; renderToast(); }
+});
+
+doc?.addEventListener("submit", async (event) => {
+  const target = event.target instanceof Element ? event.target : null;
+  if (!target?.matches("[data-auth-form]")) return;
+  event.preventDefault();
+  await handleAuthSubmit();
 });
 
 doc?.addEventListener("input", (event) => {
@@ -488,6 +674,25 @@ doc?.addEventListener("input", (event) => {
   if (sourceUrl) { state.sourceConfig = { ...state.sourceConfig, remoteUrl: sourceUrl.value }; saveState(); scheduleAutoSync(); return; }
   const sourceDraft = target.closest("[data-source-draft]");
   if (sourceDraft) { state.sourceConfig = { ...state.sourceConfig, draftPayload: sourceDraft.value }; saveState(); }
+  const fileInput = target.closest("[data-file-upload]");
+  if (fileInput) {
+    state.uploadedFiles = [
+      ...state.uploadedFiles,
+      ...[...fileInput.files].map((file) => ({
+        name: file.name,
+        size: file.size,
+        type: file.type,
+        addedAt: new Date().toISOString(),
+      })),
+    ];
+    rerender();
+    pushToast("Files attached as source stubs. Parsing comes next.");
+    return;
+  }
+  const email = target.closest("[data-auth-email]");
+  if (email) { state.auth.email = email.value; return; }
+  const password = target.closest("[data-auth-password]");
+  if (password) { state.auth.password = password.value; }
 });
 
 function startToastLoop() {
@@ -506,6 +711,102 @@ function scheduleAutoSync() {
   state.syncTimer = win.setInterval(() => {
     syncRemoteSource();
   }, AUTO_SYNC_MS);
+}
+
+function advanceOnboarding() {
+  const nextStep = (state.onboarding?.activeStep || 0) + 1;
+  if (nextStep >= 3) {
+    state.onboarding = {
+      ...state.onboarding,
+      activeStep: 2,
+      tutorialOpen: false,
+      tutorialCompleted: true,
+    };
+  } else {
+    state.onboarding = {
+      ...state.onboarding,
+      activeStep: nextStep,
+    };
+  }
+  rerender();
+}
+
+async function loadWorkspaceForUser(user) {
+  try {
+    const workspace = await loadUserWorkspace(state.auth.client, user.id);
+    if (workspace) {
+      applyWorkspaceState(workspace);
+      state.cloudSaveStatus = "loaded";
+    } else {
+      applyWorkspaceState(emptyUserSnapshot());
+      state.cloudSaveStatus = "new";
+      await saveUserWorkspace(state.auth.client, user.id, userWorkspaceState());
+    }
+    saveState();
+  } catch (error) {
+    state.auth.error = error instanceof Error ? error.message : "Unable to load your workspace.";
+    applyWorkspaceState(emptyUserSnapshot());
+  }
+}
+
+async function bootstrapAuth() {
+  const auth = await initAuthClient();
+  state.auth = {
+    ...state.auth,
+    ready: true,
+    enabled: auth.enabled,
+    client: auth.client,
+    session: auth.session,
+    user: auth.user,
+    error: auth.error || "",
+  };
+  if (state.auth.client) {
+    state.auth.client.auth.onAuthStateChange(async (_event, session) => {
+      state.auth.session = session;
+      state.auth.user = session?.user || null;
+      if (state.auth.user) await loadWorkspaceForUser(state.auth.user);
+      renderApp();
+    });
+  }
+  if (state.auth.user) await loadWorkspaceForUser(state.auth.user);
+  renderApp();
+  startToastLoop();
+  scheduleAutoSync();
+}
+
+async function handleAuthSubmit() {
+  if (!state.auth.client) return;
+  state.auth.error = "";
+  state.auth.message = "";
+  renderApp();
+  try {
+    const action = state.auth.mode === "sign-up" ? signUpWithPassword : signInWithPassword;
+    const data = await action(state.auth.client, state.auth.email.trim(), state.auth.password);
+    state.auth.session = data.session;
+    state.auth.user = data.user || data.session?.user || null;
+    if (state.auth.user) {
+      await loadWorkspaceForUser(state.auth.user);
+      pushToast("Welcome to your fresh APEX workspace.");
+    } else {
+      state.auth.message = "Check your email to confirm the account, then sign in.";
+    }
+  } catch (error) {
+    state.auth.error = error instanceof Error ? error.message : "Authentication failed.";
+  } finally {
+    renderApp();
+  }
+}
+
+async function handleSignOut() {
+  try {
+    if (state.auth.client) await signOut(state.auth.client);
+  } finally {
+    state.auth.session = null;
+    state.auth.user = null;
+    state.auth.password = "";
+    state.cloudSaveStatus = "idle";
+    renderApp();
+  }
 }
 
 win?.addEventListener("storage", (event) => {
@@ -527,6 +828,7 @@ win?.addEventListener("storage", (event) => {
   state.activeNoteId = next.activeNoteId;
   state.brainDump = next.brainDump;
   state.processedDump = next.processedDump;
+  state.uploadedFiles = next.uploadedFiles;
   state.checkin = next.checkin;
   renderApp();
   scheduleAutoSync();
@@ -534,6 +836,5 @@ win?.addEventListener("storage", (event) => {
 
 if (app) {
   renderApp();
-  startToastLoop();
-  scheduleAutoSync();
+  bootstrapAuth();
 }
