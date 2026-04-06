@@ -12,6 +12,7 @@ This workspace contains a self-contained front-end prototype for the APEX Life O
 - `auth.js`: Supabase Auth and private per-user workspace persistence
 - `server.js`: local connector server and runtime config endpoint
 - `supabase/schema.sql`: Supabase table plus row-level security policies
+- `supabase/phase2_schema.sql`: additive normalized schema foundation for the production data model
 - `api/config.js`: Vercel runtime config endpoint for public Supabase keys
 
 ## Dashboards
@@ -83,6 +84,12 @@ You can still open `index.html` directly for a static-only pass, but the local s
 5. Open the app, create an account, and you should land in a clean APEX workspace with no demo tasks or classes.
 
 For local testing, copy `.env.example` to `.env` and fill in the same Supabase values, then run `node server.js`.
+
+### Phase 2 Schema
+
+`supabase/phase2_schema.sql` adds the normalized production-model foundation without removing the current workspace blob. It creates workspace membership, classes, assignments, syllabi, tasks, calendar events, finance records, notebooks, uploads, integrations, notifications, activity logs, scheduler preferences, and constraint rules with RLS policies and supporting indexes.
+
+Run it only after `supabase/schema.sql`. The app still uses `apex_user_state` as its compatibility layer until the UI and API are migrated table-by-table.
 
 ## First User Testing
 
