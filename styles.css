@@ -1448,6 +1448,10 @@ textarea:focus-visible {
   scroll-margin-top: 1rem;
 }
 
+.widget-profile-notice {
+  margin-top: var(--space-4);
+}
+
 .widget-manager-list {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));

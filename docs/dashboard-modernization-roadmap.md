@@ -10,13 +10,14 @@ This roadmap turns the UI recommendations into implementation phases for APEX.
 - Skip link, primary navigation label, `aria-current` on active navigation, and reduced-motion handling.
 - Command Center widget records with `id`, `type`, `title`, `visible`, `pinned`, `order`, `size`, and `profile`.
 - Widget controls for pinning, hiding, restoring, manual ordering, and resetting the Command Center layout.
+- Profile-specific Command Center widget layouts for Guided, Operator, and Focus profiles.
 
 ## Next: Modular Widgets
 
 - Promote widget state into normalized Supabase tables after the workspace-state fallback proves stable.
-- Add profile-specific visibility so Guided, Operator, and Focus can each have independent widget layouts.
 - Add drag-and-drop once the component shell is split enough to avoid full-app rerenders.
 - Extend the widget model to Academy, Works, Life, Future, Mind, and Notebook.
+- Add named layout presets and duplicate/save-as flows once users can manage more than the three built-in profiles.
 
 ## Later: Framework Migration
 

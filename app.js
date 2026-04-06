@@ -208,6 +208,27 @@ const DEFAULT_COMMAND_WIDGETS = [
   { id: "schedule", type: "scheduler", title: "Optimized Schedule", visible: true, pinned: true, order: 150, size: "full", profile: "all" },
 ];
 
+const COMMAND_WIDGET_PROFILE_PRESETS = {
+  guided: {
+    label: "Guided",
+    description: "Setup, personalization, priorities, conflicts, source connections, and the schedule stay visible for first-time users.",
+    visible: ["setup", "personalization", "briefing", "capacity", "conflicts", "recommendations", "sources", "connectors", "schedule"],
+    pinned: ["setup", "briefing", "capacity", "conflicts", "schedule"],
+  },
+  operator: {
+    label: "Operator",
+    description: "Daily operating panels stay visible: solver health, conflicts, week view, constraints, sources, connectors, and schedule.",
+    visible: ["briefing", "solver", "capacity", "conflicts", "week", "why", "constraints", "sources", "connectors", "schedule"],
+    pinned: ["briefing", "solver", "capacity", "conflicts", "schedule"],
+  },
+  focus: {
+    label: "Focus",
+    description: "Only the panels needed to understand load, risk, decisions, modes, and the next schedule stay prominent.",
+    visible: ["briefing", "capacity", "conflicts", "why", "modes", "schedule"],
+    pinned: ["capacity", "briefing", "conflicts", "schedule"],
+  },
+};
+
 function defaultSnapshot() {
   return {
     activeDomain: "command",
@@ -259,7 +280,7 @@ function defaultSnapshot() {
     lastPlanSnapshot: null,
     lastPlanChanges: null,
     preferences: clone(DEFAULT_PREFERENCES),
-    widgets: { command: clone(DEFAULT_COMMAND_WIDGETS) },
+    widgets: normalizeWidgets(),
   };
 }
 
@@ -426,9 +447,19 @@ function normalizePreferences(preferences = {}) {
   };
 }
 
-function normalizeWidgetList(list = []) {
+function widgetProfileDefaults(profile = "guided") {
+  const preset = COMMAND_WIDGET_PROFILE_PRESETS[profile] || COMMAND_WIDGET_PROFILE_PRESETS.guided;
+  return DEFAULT_COMMAND_WIDGETS.map((widget) => ({
+    ...widget,
+    visible: preset.visible.includes(widget.id),
+    pinned: preset.pinned.includes(widget.id),
+    profile,
+  }));
+}
+
+function normalizeWidgetList(list = [], profile = "guided") {
   const incoming = new Map(Array.isArray(list) ? list.map((item) => [item?.id, item]) : []);
-  return DEFAULT_COMMAND_WIDGETS.map((defaults) => {
+  return widgetProfileDefaults(profile).map((defaults) => {
     const saved = incoming.get(defaults.id) || {};
     return {
       ...defaults,
@@ -442,19 +473,31 @@ function normalizeWidgetList(list = []) {
 }
 
 function normalizeWidgets(widgets = {}) {
+  const profiles = widgets.commandProfiles || {};
+  const legacy = Array.isArray(widgets.command) ? widgets.command : null;
   return {
-    command: normalizeWidgetList(widgets.command),
+    command: normalizeWidgetList(legacy || profiles.guided, "guided"),
+    commandProfiles: {
+      guided: normalizeWidgetList(profiles.guided || legacy, "guided"),
+      operator: normalizeWidgetList(profiles.operator, "operator"),
+      focus: normalizeWidgetList(profiles.focus, "focus"),
+    },
   };
 }
 
 function commandWidgets() {
-  return normalizeWidgetList(state.widgets?.command);
+  const profile = activeWidgetProfile();
+  return normalizeWidgetList(state.widgets?.commandProfiles?.[profile], profile);
 }
 
 function orderedCommandWidgets({ includeHidden = false } = {}) {
   return commandWidgets()
     .filter((widget) => includeHidden || widget.visible)
     .sort((a, b) => Number(b.pinned) - Number(a.pinned) || a.order - b.order || a.title.localeCompare(b.title));
+}
+
+function activeWidgetProfile() {
+  return state.preferences?.layoutProfile || DEFAULT_PREFERENCES.layoutProfile;
 }
 
 function selectedAccent(domainId = activeDomain()?.id || "command") {
@@ -1696,10 +1739,12 @@ function widgetManagerRow(widget, widgets) {
 }
 
 function renderWidgetManager() {
+  const profile = activeWidgetProfile();
+  const preset = COMMAND_WIDGET_PROFILE_PRESETS[profile] || COMMAND_WIDGET_PROFILE_PRESETS.guided;
   const widgets = orderedCommandWidgets({ includeHidden: true });
   const visible = widgets.filter((widget) => widget.visible).length;
   const pinned = widgets.filter((widget) => widget.pinned).length;
-  return `<article class="panel span-12 widget-manager-panel" style="--accent:${selectedAccent()};"><div class="setup-head"><div><div class="panel-label">widget layout</div><h3 class="empty-title">Choose what the Command Center shows first.</h3><p class="row-subtitle">This is the first modular widget layer: pin what matters, hide noise, and manually order panels before drag-and-drop lands.</p></div><div class="inline-chips">${pill(`${visible}/${widgets.length} visible`, selectedAccent())}${pill(`${pinned} pinned`, TOKENS.warn)}</div></div><div class="widget-manager-list">${widgets.map((widget) => widgetManagerRow(widget, widgets)).join("")}</div><div class="source-actions" style="margin-top:1rem;"><button class="surface-action" data-widget-reset>Reset Widgets</button>${pill("Saved to workspace", TOKENS.ok)}</div></article>`;
+  return `<article class="panel span-12 widget-manager-panel" style="--accent:${selectedAccent()};"><div class="setup-head"><div><div class="panel-label">widget layout</div><h3 class="empty-title">Choose what ${escapeHtml(preset.label)} shows first.</h3><p class="row-subtitle">${escapeHtml(preset.description)}</p></div><div class="inline-chips">${pill(`${visible}/${widgets.length} visible`, selectedAccent())}${pill(`${pinned} pinned`, TOKENS.warn)}${pill(`${preset.label} profile`, selectedAccent())}</div></div><div class="state-notice widget-profile-notice" style="--accent:${selectedAccent()};"><div class="row-badge">${iconSvg("command", "Layout profile")}</div><div><strong>Profile-specific layout is active.</strong><div>Switch Layout Profile in Personalization to edit a different Command Center layout without overwriting this one.</div></div></div><div class="widget-manager-list">${widgets.map((widget) => widgetManagerRow(widget, widgets)).join("")}</div><div class="source-actions" style="margin-top:1rem;"><button class="surface-action" data-widget-reset>Reset ${escapeHtml(preset.label)} Widgets</button>${pill("Saved to workspace", TOKENS.ok)}</div></article>`;
 }
 
 function renderVisibleCommandWidgets(widgetPanels) {
@@ -1913,12 +1958,15 @@ function updatePreference(key, value) {
 
 function updateCommandWidget(widgetId, patch) {
   state.widgets = normalizeWidgets(state.widgets);
-  state.widgets.command = commandWidgets().map((widget) => (widget.id === widgetId ? { ...widget, ...patch } : widget));
+  const profile = activeWidgetProfile();
+  state.widgets.commandProfiles[profile] = commandWidgets().map((widget) => (widget.id === widgetId ? { ...widget, ...patch } : widget));
+  state.widgets.command = state.widgets.commandProfiles.guided;
   rerender();
 }
 
 function moveCommandWidget(widgetId, direction) {
   state.widgets = normalizeWidgets(state.widgets);
+  const profile = activeWidgetProfile();
   const widgets = orderedCommandWidgets({ includeHidden: true });
   const current = widgets.find((widget) => widget.id === widgetId);
   if (!current) return;
@@ -1932,15 +1980,22 @@ function moveCommandWidget(widgetId, direction) {
     if (widget.id === target.id) return { ...widget, order: current.order };
     return widget;
   });
-  state.widgets.command = next;
+  state.widgets.commandProfiles[profile] = next;
+  state.widgets.command = state.widgets.commandProfiles.guided;
   rerender();
 }
 
 function resetCommandWidgets() {
+  const profile = activeWidgetProfile();
+  const widgets = normalizeWidgets(state.widgets);
   state.widgets = {
-    ...(state.widgets || {}),
-    command: clone(DEFAULT_COMMAND_WIDGETS),
+    ...widgets,
+    commandProfiles: {
+      ...widgets.commandProfiles,
+      [profile]: normalizeWidgetList([], profile),
+    },
   };
+  state.widgets.command = state.widgets.commandProfiles.guided;
   rerender();
 }
 
