@@ -1279,11 +1279,26 @@ textarea:focus-visible {
 
 .why-plan-main,
 .why-plan-side,
+.plan-change-card,
 .unscheduled-strip {
   padding: 1rem;
   border-radius: 22px;
   border: 1px solid rgba(255, 255, 255, 0.07);
   background: rgba(255, 255, 255, 0.03);
+}
+
+.plan-change-card {
+  display: grid;
+  grid-template-columns: minmax(260px, 0.75fr) minmax(0, 1.25fr);
+  gap: 1rem;
+  margin-top: 1rem;
+  border-color: color-mix(in srgb, var(--accent) 26%, rgba(255, 255, 255, 0.07));
+}
+
+.plan-change-card h4 {
+  margin: 0.3rem 0 0.35rem;
+  font-family: var(--display);
+  font-size: 1.05rem;
 }
 
 .why-list {
@@ -2066,6 +2081,7 @@ textarea:focus-visible {
   .connector-grid,
   .mode-grid,
   .why-plan-layout,
+  .plan-change-card,
   .solver-grid,
   .meta-grid,
   .setup-list {
@@ -2134,6 +2150,7 @@ textarea:focus-visible {
   .connector-grid,
   .mode-grid,
   .why-plan-layout,
+  .plan-change-card,
   .solver-grid,
   .meta-grid,
   .setup-list {

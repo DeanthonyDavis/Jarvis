@@ -1,4 +1,9 @@
-import { buildCommandCenterIntelligence, normalizeConstraints } from "./intelligence.js";
+import {
+  buildCommandCenterIntelligence,
+  buildScheduleRunSnapshot,
+  compareScheduleRunSnapshots,
+  normalizeConstraints,
+} from "./intelligence.js";
 import {
   createNotificationRecord,
   createNoteRecord,
@@ -157,6 +162,8 @@ function defaultSnapshot() {
     brainDump: "",
     processedDump: null,
     checkin: { energy: 0, focus: 0, mood: 0, submitted: false },
+    lastPlanSnapshot: null,
+    lastPlanChanges: null,
   };
 }
 
@@ -219,6 +226,8 @@ function loadState() {
       brainDump: saved.brainDump || "",
       processedDump: saved.processedDump || null,
       checkin: { ...defaults.checkin, ...(saved.checkin || {}) },
+      lastPlanSnapshot: saved.lastPlanSnapshot || null,
+      lastPlanChanges: saved.lastPlanChanges || null,
       onboarding: {
         tutorialOpen: Boolean(saved.onboarding?.tutorialOpen),
         tutorialSkipped: Boolean(saved.onboarding?.tutorialSkipped),
@@ -323,6 +332,8 @@ function saveState() {
       brainDump: state.brainDump,
       processedDump: state.processedDump,
       checkin: state.checkin,
+      lastPlanSnapshot: state.lastPlanSnapshot,
+      lastPlanChanges: state.lastPlanChanges,
       onboarding: state.onboarding,
     }),
   );
@@ -352,6 +363,8 @@ function userWorkspaceState() {
     brainDump: state.brainDump,
     processedDump: state.processedDump,
     checkin: state.checkin,
+    lastPlanSnapshot: state.lastPlanSnapshot,
+    lastPlanChanges: state.lastPlanChanges,
     onboarding: state.onboarding,
   };
 }
@@ -381,6 +394,8 @@ function applyWorkspaceState(workspace) {
   state.brainDump = workspace?.brainDump || "";
   state.processedDump = workspace?.processedDump || null;
   state.checkin = { ...base.checkin, ...(workspace?.checkin || {}) };
+  state.lastPlanSnapshot = workspace?.lastPlanSnapshot || null;
+  state.lastPlanChanges = workspace?.lastPlanChanges || null;
   state.onboarding = {
     ...base.onboarding,
     ...(workspace?.onboarding || {}),
@@ -411,6 +426,23 @@ function rerender() {
   saveState();
   scheduleCloudSave();
   renderApp();
+}
+
+function persistPlanSnapshotOnly() {
+  try {
+    const raw = storage.getItem(STORAGE_KEY);
+    const saved = raw ? JSON.parse(raw) : {};
+    storage.setItem(
+      STORAGE_KEY,
+      JSON.stringify({
+        ...saved,
+        lastPlanSnapshot: state.lastPlanSnapshot,
+        lastPlanChanges: state.lastPlanChanges,
+      }),
+    );
+  } catch {
+    // Snapshot comparisons are helpful, but should never block the app shell.
+  }
 }
 
 function pushToast(message) {
@@ -1092,7 +1124,12 @@ function renderScheduleModePanel() {
 function renderWhyPlanPanel(intel) {
   const explanation = intel.planExplanation;
   const unscheduled = explanation.unscheduled || [];
-  return `<article class="panel span-12" style="--accent:${TOKENS.command};"><div class="panel-label">why this plan?</div><div class="why-plan-layout"><div class="why-plan-main"><h3 class="empty-title">${escapeHtml(explanation.primaryReason)}</h3><p class="row-subtitle">Confidence ${explanation.confidence}% &middot; ${SCHEDULE_MODES[state.scheduleMode]?.label || "Balanced"} mode</p><div class="why-list">${explanation.supportingReasons.map((reason) => `<div><span>Reason</span><strong>${escapeHtml(reason)}</strong></div>`).join("")}</div></div><div class="why-plan-side"><div class="subtle-label">Constraints applied</div><div class="inline-chips">${explanation.constraintsApplied.map((item) => pill(item, TOKENS.command)).join("")}</div><div class="subtle-label" style="margin-top:1rem;">Tradeoffs</div><div class="why-list why-list--compact">${explanation.tradeoffs.map((item) => `<div><span>Tradeoff</span><strong>${escapeHtml(item)}</strong></div>`).join("")}</div></div></div>${unscheduled.length ? `<div class="unscheduled-strip"><div class="subtle-label">unscheduled carryover</div>${unscheduled.slice(0, 4).map((chunk) => `<div class="row" style="--accent:${colorFor(chunk.domain)};"><div class="row-badge">${chunk.urgent ? "!" : "~"}</div><div class="row-copy"><div class="row-title">${escapeHtml(chunk.title)}</div><div class="row-subtitle">${escapeHtml(chunk.why)}</div></div>${pill(`${chunk.minutes}m`, colorFor(chunk.domain))}</div>`).join("")}</div>` : `<div class="footer-note">No unscheduled carryover under the current guardrails.</div>`}</article>`;
+  const changes = intel.planChanges || {};
+  const changeTone = changes.status === "changed" ? TOKENS.warn : changes.status === "stable" ? TOKENS.ok : TOKENS.command;
+  const changedAt = changes.previousAt
+    ? `Compared with ${formatTimestamp(changes.previousAt)}`
+    : "Baseline captured now";
+  return `<article class="panel span-12" style="--accent:${TOKENS.command};"><div class="panel-label">why this plan?</div><div class="why-plan-layout"><div class="why-plan-main"><h3 class="empty-title">${escapeHtml(explanation.primaryReason)}</h3><p class="row-subtitle">Confidence ${explanation.confidence}% &middot; ${SCHEDULE_MODES[state.scheduleMode]?.label || "Balanced"} mode</p><div class="why-list">${explanation.supportingReasons.map((reason) => `<div><span>Reason</span><strong>${escapeHtml(reason)}</strong></div>`).join("")}</div></div><div class="why-plan-side"><div class="subtle-label">Constraints applied</div><div class="inline-chips">${explanation.constraintsApplied.map((item) => pill(item, TOKENS.command)).join("")}</div><div class="subtle-label" style="margin-top:1rem;">Tradeoffs</div><div class="why-list why-list--compact">${explanation.tradeoffs.map((item) => `<div><span>Tradeoff</span><strong>${escapeHtml(item)}</strong></div>`).join("")}</div></div></div><div class="plan-change-card" style="--accent:${changeTone};"><div><div class="subtle-label">what changed since last plan</div><h4>${escapeHtml(changes.summary || "Plan comparison is warming up.")}</h4><p class="row-subtitle">${escapeHtml(changedAt)}</p></div><div class="why-list why-list--compact">${(changes.items || ["APEX will compare the next schedule recalculation against this baseline."]).map((item) => `<div><span>Delta</span><strong>${escapeHtml(item)}</strong></div>`).join("")}</div></div>${unscheduled.length ? `<div class="unscheduled-strip"><div class="subtle-label">unscheduled carryover</div>${unscheduled.slice(0, 4).map((chunk) => `<div class="row" style="--accent:${colorFor(chunk.domain)};"><div class="row-badge">${chunk.urgent ? "!" : "~"}</div><div class="row-copy"><div class="row-title">${escapeHtml(chunk.title)}</div><div class="row-subtitle">${escapeHtml(chunk.why)}</div></div>${pill(`${chunk.minutes}m`, colorFor(chunk.domain))}</div>`).join("")}</div>` : `<div class="footer-note">No unscheduled carryover under the current guardrails.</div>`}</article>`;
 }
 
 function renderSourcePanel() {
@@ -1227,7 +1264,13 @@ function renderApp() {
   }
   const domain = activeDomain();
   const intel = getIntel();
+  const nextPlanSnapshot = buildScheduleRunSnapshot({ intel, scheduleMode: state.scheduleMode });
+  const latestPlanChanges = compareScheduleRunSnapshots(state.lastPlanSnapshot, nextPlanSnapshot);
+  if (latestPlanChanges.status !== "stable") state.lastPlanChanges = latestPlanChanges;
+  intel.planChanges = state.lastPlanChanges || latestPlanChanges;
   app.innerHTML = `<div class="app-shell" style="--accent:${colorFor(domain.id)};"><div class="ambient"><div class="orb orb--one"></div><div class="orb orb--two"></div><div class="orb orb--three"></div></div><aside class="sidebar ${state.sidebarCollapsed ? "is-collapsed" : ""}"><div class="brand"><div class="brand-mark">${iconSvg("command")}</div><div class="brand-copy"><h1>APEX</h1><p>Universal 2.0</p></div></div><nav class="sidebar-nav">${DOMAINS.map((item) => `<button class="nav-button ${state.activeDomain === item.id ? "is-active" : ""}" data-domain="${item.id}" style="--accent:${colorFor(item.id)};"><span class="nav-icon">${iconSvg(item.id, item.label)}</span><span class="nav-copy"><strong>${item.label}</strong><span>${item.blurb}</span></span></button>`).join("")}</nav><div class="sidebar-footer"><button class="collapse-button" data-collapse-sidebar aria-label="${state.sidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"}"><span>${state.sidebarCollapsed ? "&#9654;" : "&#9664;"}</span><span>${state.sidebarCollapsed ? "Expand" : "Collapse"}</span></button></div></aside><main class="main"><header class="topbar"><div class="topbar-title"><div class="topbar-icon">${iconSvg(domain.id, domain.label)}</div><div class="topbar-copy"><h2>APEX ${domain.label}</h2><p>${formatToday()} &middot; ${state.auth.user.email}</p></div></div><div class="topbar-metrics"><div class="metric-pill"><span class="metric-dot"></span><span>Load</span><strong data-shell-load>${intel.loadDisplay || `${intel.loadScore}%`}</strong></div><div class="metric-pill"><span class="metric-dot" style="background:${TOKENS.command};"></span><span>Cloud</span><strong data-shell-cloud>${state.cloudSaveStatus}</strong></div><div class="metric-pill"><span class="metric-dot" data-shell-source-dot style="background:${statusTone(state.sourceConfig.lastSyncStatus)};"></span><span>Source</span><strong data-shell-source>${state.sourceConfig.lastSyncStatus}</strong></div><button class="metric-pill metric-button ${unreadNotifications().length ? "has-unread" : ""}" data-notification-toggle type="button"><span class="metric-dot" data-shell-notification-dot style="background:${unreadNotifications().length ? TOKENS.warn : TOKENS.ok};"></span><span>Alerts</span><strong data-shell-notifications>${unreadNotifications().length}</strong></button><button class="surface-action" data-auth-signout>Sign Out</button><div class="mini-domain-rail">${DOMAINS.filter((item) => item.id !== "command").map((item) => `<button class="stat-dot-button ${item.id === state.activeDomain ? "is-active" : ""}" data-domain="${item.id}" style="--dot:${colorFor(item.id)};" title="${item.label}" aria-label="Open ${item.label}"></button>`).join("")}</div></div></header><div class="content">${renderContent(intel)}</div></main>${renderOnboarding()}${renderSectionHelp()}</div>`;
+  state.lastPlanSnapshot = nextPlanSnapshot;
+  persistPlanSnapshotOnly();
   renderToast();
   renderNotificationCenter();
 }
@@ -1639,6 +1682,8 @@ async function handleSignOut() {
     state.integrations = mergeIntegrationTemplates([]);
     state.notes = [];
     state.syllabusReviews = [];
+    state.lastPlanSnapshot = null;
+    state.lastPlanChanges = null;
     state.notificationPanelOpen = false;
     state.notificationStatus = "local";
     renderApp();
@@ -1673,6 +1718,8 @@ win?.addEventListener("storage", (event) => {
   state.uploadedFiles = next.uploadedFiles;
   state.syllabusReviews = next.syllabusReviews;
   state.checkin = next.checkin;
+  state.lastPlanSnapshot = next.lastPlanSnapshot;
+  state.lastPlanChanges = next.lastPlanChanges;
   renderApp();
   scheduleAutoSync();
 });

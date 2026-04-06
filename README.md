@@ -58,6 +58,7 @@ You can still open `index.html` directly for a static-only pass, but the local s
 - Phase 5 schedule modes (`Balanced`, `Focus Week`, `Light Recovery`, `Finals Mode`, `Work-Heavy`, `Catch-Up`) that overlay solver weights without deleting custom constraints
 - Scheduler explanation text on assigned blocks so users can see why work landed in a given time window
 - Command Center "Why this plan?" panel with constraints, tradeoffs, confidence, and unscheduled carryover
+- Local "What changed since last plan" schedule-run comparison for plan deltas after recalculation
 - Interactive tasks across Academy, Works, and Life
 - Academy and Works sub-tabs
 - Mind daily check-in with burnout recalculation

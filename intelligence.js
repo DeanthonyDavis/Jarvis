@@ -977,3 +977,130 @@ export function buildCommandCenterIntelligence({
     constraintsUsed: normalizedConstraints,
   };
 }
+
+export function buildScheduleRunSnapshot({ intel, scheduleMode = "balanced", createdAt = new Date() } = {}) {
+  const schedulePlan = intel?.schedulePlan || [];
+  const assignments = schedulePlan.flatMap((block) =>
+    (block.assignments || []).map((assignment) => ({
+      id: String(assignment.id || `${assignment.taskId || assignment.title}:${assignment.minutes}`),
+      taskId: assignment.taskId ?? null,
+      title: assignment.title,
+      domain: assignment.domain,
+      minutes: assignment.minutes,
+      blockKey: `${block.time}|${block.label}`,
+      blockLabel: block.label,
+      time: block.time,
+      confidence: assignment.confidence || assignment.explanation?.confidence || null,
+    })),
+  );
+
+  return {
+    createdAt: createdAt instanceof Date ? createdAt.toISOString() : new Date(createdAt).toISOString(),
+    scheduleMode,
+    loadScore: intel?.loadScore ?? 0,
+    loadDisplay: intel?.loadDisplay || `${intel?.loadScore ?? 0}%`,
+    loadLabel: intel?.loadLabel || "setup",
+    scheduledMinutes: intel?.solverSummary?.scheduledMinutes || 0,
+    unscheduledMinutes: intel?.solverSummary?.unscheduledMinutes || 0,
+    unscheduledUrgentCount: intel?.solverSummary?.unscheduledUrgentCount || 0,
+    searchScore: intel?.solverSummary?.score || 0,
+    assignedBlockCount: schedulePlan.filter((block) => block.status === "assigned").length,
+    lockedBlockCount: schedulePlan.filter((block) => block.status === "locked" && !block.lockedBy?.includes("elapsed")).length,
+    openBlockCount: schedulePlan.filter((block) => block.status === "open").length,
+    constraintsApplied: intel?.planExplanation?.constraintsApplied || [],
+    assignments,
+    assignmentCount: assignments.length,
+    carryover: intel?.planExplanation?.unscheduled?.map((chunk) => ({
+      id: String(chunk.id || `${chunk.title}:${chunk.minutes}`),
+      title: chunk.title,
+      domain: chunk.domain,
+      minutes: chunk.minutes,
+      urgent: Boolean(chunk.urgent),
+      why: chunk.why || "",
+    })) || [],
+  };
+}
+
+export function compareScheduleRunSnapshots(previous, current) {
+  if (!current) {
+    return {
+      status: "empty",
+      summary: "No plan snapshot is available yet.",
+      items: ["APEX will compare schedule changes after the next planning run."],
+      previousAt: null,
+      currentAt: null,
+    };
+  }
+
+  if (!previous) {
+    return {
+      status: "initial",
+      summary: "First captured plan for this workspace.",
+      items: [
+        "APEX is saving this run as the baseline for future comparisons.",
+        `${current.assignedBlockCount} block(s) assigned, ${current.openBlockCount} flexible block(s) open, and ${current.carryover.length} carryover item(s).`,
+      ],
+      previousAt: null,
+      currentAt: current.createdAt,
+    };
+  }
+
+  const items = [];
+  const seenItems = new Set();
+  const addItem = (message) => {
+    if (!message || seenItems.has(message)) return;
+    seenItems.add(message);
+    items.push(message);
+  };
+  if (previous.scheduleMode !== current.scheduleMode) {
+    addItem(`Mode changed from ${previous.scheduleMode} to ${current.scheduleMode}.`);
+  }
+  if (previous.loadDisplay !== current.loadDisplay) {
+    addItem(`Load changed from ${previous.loadDisplay} to ${current.loadDisplay}.`);
+  }
+  if (previous.scheduledMinutes !== current.scheduledMinutes) {
+    const diff = current.scheduledMinutes - previous.scheduledMinutes;
+    addItem(`${Math.abs(diff)} more minute(s) ${diff > 0 ? "scheduled" : "left unscheduled"} than the prior plan.`);
+  }
+  if (previous.unscheduledUrgentCount !== current.unscheduledUrgentCount) {
+    addItem(`Urgent carryover changed from ${previous.unscheduledUrgentCount} to ${current.unscheduledUrgentCount}.`);
+  }
+  if (previous.openBlockCount !== current.openBlockCount) {
+    addItem(`Open flexible blocks changed from ${previous.openBlockCount} to ${current.openBlockCount}.`);
+  }
+
+  const previousAssignments = new Map((previous.assignments || []).map((item) => [item.id, item]));
+  const currentAssignments = new Map((current.assignments || []).map((item) => [item.id, item]));
+
+  for (const assignment of current.assignments || []) {
+    const before = previousAssignments.get(assignment.id);
+    if (!before) {
+      addItem(`Added ${assignment.title} to ${assignment.time} (${assignment.blockLabel}).`);
+    } else if (before.blockKey !== assignment.blockKey) {
+      addItem(`Moved ${assignment.title} from ${before.time} to ${assignment.time}.`);
+    }
+  }
+
+  for (const assignment of previous.assignments || []) {
+    if (!currentAssignments.has(assignment.id)) {
+      addItem(`Removed ${assignment.title} from today's scheduled blocks.`);
+    }
+  }
+
+  const previousConstraints = new Set(previous.constraintsApplied || []);
+  const currentConstraints = new Set(current.constraintsApplied || []);
+  const addedConstraints = [...currentConstraints].filter((item) => !previousConstraints.has(item));
+  const removedConstraints = [...previousConstraints].filter((item) => !currentConstraints.has(item));
+  if (addedConstraints.length) addItem(`New guardrail applied: ${addedConstraints.slice(0, 2).join(", ")}.`);
+  if (removedConstraints.length) addItem(`Guardrail relaxed: ${removedConstraints.slice(0, 2).join(", ")}.`);
+
+  return {
+    status: items.length ? "changed" : "stable",
+    summary: items.length
+      ? `${items.length} plan change(s) since the previous run.`
+      : "No material schedule changes since the previous run.",
+    items: items.length ? items.slice(0, 8) : ["Priorities, guardrails, load, and carryover match the last captured plan."],
+    previousAt: previous.createdAt || null,
+    currentAt: current.createdAt,
+  };
+}

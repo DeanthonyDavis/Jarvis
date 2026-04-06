@@ -10,6 +10,7 @@ Already shipped:
 - Mode overlays that adjust solver weights without deleting user-defined hard and soft constraints.
 - Structured solver explanations on assigned, locked, open, and unscheduled schedule outcomes.
 - A Command Center "Why this plan?" panel with reasons, tradeoffs, constraints, confidence, and carryover.
+- A "What changed since last plan" comparison backed by a local schedule-run snapshot.
 - Load Index setup behavior for empty accounts instead of a fake baseline percentage.
 - Constraint-aware schedule assignment with hard-locked blocks and unscheduled urgent work detection.
 
@@ -35,10 +36,7 @@ Current state:
 - Locked and open blocks include block-level explanations.
 - Unscheduled chunks include carryover explanations.
 - Command Center includes a "Why this plan?" panel.
-
-Remaining work:
-
-- Add a "What changed since last plan" summary after each schedule recalculation.
+- Command Center includes a "What changed since last plan" summary after schedule recalculations.
 
 Definition of done:
 
@@ -198,14 +196,15 @@ Definition of done:
 
 ## Recommended Build Order
 
-1. Expand schedule explanations to cover assigned, locked, open, and unscheduled blocks.
-2. Add the "Why this plan?" Command Center panel.
-3. Add mode preview and mode tradeoff copy.
-4. Add explicit human override rules and store them in `apex_constraint_rules`.
-5. Add Daily Briefing and Weekly Briefing objects to the intelligence engine.
-6. Add confidence levels and source-reference fields.
-7. Add trend-based burnout risk from check-in history and load spikes.
-8. Add persisted schedule run snapshots.
+1. Expand schedule explanations to cover assigned, locked, open, and unscheduled blocks. Done.
+2. Add the "Why this plan?" Command Center panel. Done.
+3. Add "What changed since last plan" comparison. Done locally; promote to `apex_schedule_runs` during Workstream 8.
+4. Add mode preview and mode tradeoff copy.
+5. Add explicit human override rules and store them in `apex_constraint_rules`.
+6. Add Daily Briefing and Weekly Briefing objects to the intelligence engine.
+7. Add confidence levels and source-reference fields.
+8. Add trend-based burnout risk from check-in history and load spikes.
+9. Add persisted schedule run snapshots.
 
 ## Not Phase 5
 
