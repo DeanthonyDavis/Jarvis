@@ -379,6 +379,9 @@ const state = {
   cloudSaveTimer: null,
   cloudSaveStatus: "idle",
   pendingScheduleMode: null,
+  commandPaletteOpen: false,
+  commandPaletteQuery: "",
+  commandPaletteIndex: 0,
 };
 
 const app = doc?.querySelector("#app") || null;
@@ -1633,6 +1636,95 @@ function renderNotificationCenter() {
   panel.innerHTML = `<div class="notification-head"><div><div class="panel-label">notification center</div><h4>Action state</h4><p>${state.workspace.phase2Enabled ? "Backed by Supabase records." : "Local fallback until phase2_schema.sql is active."}</p></div><button aria-label="Close notifications" data-notification-toggle>&times;</button></div><div class="notification-actions"><button class="surface-action" data-notification-read-all>Mark all read</button>${pill(`${unreadNotifications().length} unread`, unreadNotifications().length ? TOKENS.warn : TOKENS.ok)}${pill(state.notificationStatus, state.notificationStatus === "cloud" ? TOKENS.ok : TOKENS.notebook)}</div><div class="notification-list">${activeItems.length ? activeItems.map((item) => `<article class="notification-item ${item.read_at ? "is-read" : "is-unread"}" style="--accent:${item.severity === "critical" ? TOKENS.danger : item.severity === "warning" ? TOKENS.warn : item.severity === "success" ? TOKENS.ok : TOKENS.command};"><div class="notification-dot"></div><div class="notification-copy"><strong>${escapeHtml(item.title)}</strong><p>${escapeHtml(item.body || "No additional detail.")}</p><small>${new Date(item.created_at).toLocaleString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}</small></div><div class="notification-controls"><button class="small-action" data-notification-read="${item.id}">${item.read_at ? "Read" : "Mark Read"}</button><button class="small-action" data-notification-dismiss="${item.id}">Dismiss</button></div></article>`).join("") : `<div class="empty-notifications">No active notifications. When APEX creates a real alert, it will show here first and the toast will only mirror it briefly.</div>`}</div></aside>`;
 }
 
+function commandPaletteItems() {
+  const domainItems = DOMAINS.map((domain) => ({
+    id: `domain-${domain.id}`,
+    title: `Open ${domain.label}`,
+    subtitle: domain.blurb,
+    domain: domain.id,
+    keywords: `${domain.id} ${domain.label} ${domain.blurb}`,
+  }));
+  return [
+    ...domainItems,
+    { id: "personalization", title: "Open Personalization", subtitle: "Theme, density, type scale, accent, and layout profile.", domain: "command", scrollSelector: "[data-personalization-panel]", widgetId: "personalization", keywords: "theme density font scale accent layout profile personalize" },
+    { id: "widgets", title: "Open Widget Layout", subtitle: "Pin, hide, restore, and reorder Command Center widgets.", domain: "command", scrollSelector: "[data-widget-manager-panel]", keywords: "widgets layout pin hide order dashboard customize" },
+    { id: "connectors", title: "Open Connector Framework", subtitle: "Inspect auth, sync, webhooks, and provider lifecycle state.", domain: "command", scrollSelector: "[data-connector-panel]", widgetId: "connectors", keywords: "connect accounts canvas google calendar plaid deputy health webhook integrations" },
+    { id: "sources", title: "Open Live Data Sources", subtitle: "Sync local JSON, manual payloads, and webhook-fed source data.", domain: "command", scrollSelector: "[data-source-panel]", widgetId: "sources", keywords: "live data sources json sync payload webhook" },
+    { id: "constraints", title: "Open Constraint Studio", subtitle: "Tune hard guardrails, soft preferences, and human override rules.", domain: "command", scrollSelector: "[data-constraint-panel]", widgetId: "constraints", keywords: "constraints schedule guardrails overrides solver" },
+    { id: "modes", title: "Open Schedule Modes", subtitle: "Preview Balanced, Focus Week, Recovery, Finals, Work-Heavy, and Catch-Up modes.", domain: "command", scrollSelector: "[data-schedule-mode-panel]", widgetId: "modes", keywords: "schedule modes focus recovery finals work heavy catch up" },
+    { id: "why-plan", title: "Open Why This Plan", subtitle: "Review solver reasoning, tradeoffs, confidence, and schedule deltas.", domain: "command", scrollSelector: "[data-why-plan-panel]", widgetId: "why", keywords: "why this plan reasoning confidence tradeoffs deltas explanations" },
+    { id: "uploads", title: "Upload Files", subtitle: "Go to Notebook source uploads for syllabi, notes, and assignment sheets.", domain: "notebook", scrollSelector: "[data-upload-panel]", keywords: "upload syllabus files notes pdf assignment sheet notebook" },
+    { id: "syllabus-review", title: "Review Syllabus Queue", subtitle: "Confirm parsed syllabus placeholders before anything is scheduled.", domain: "notebook", scrollSelector: "[data-syllabus-review-panel]", keywords: "syllabus review confirm course assignments dates" },
+    { id: "notifications", title: "Open Notifications", subtitle: "View unread, dismissed, and local/cloud notification state.", action: "notifications", domain: "command", keywords: "alerts notifications unread read dismissed" },
+  ];
+}
+
+function filteredCommandPaletteItems() {
+  const query = state.commandPaletteQuery.trim().toLowerCase();
+  const items = commandPaletteItems();
+  if (!query) return items;
+  return items.filter((item) => `${item.title} ${item.subtitle} ${item.keywords || ""}`.toLowerCase().includes(query));
+}
+
+function renderCommandPalette() {
+  let panel = doc?.querySelector("[data-command-palette]");
+  if (!state.commandPaletteOpen) {
+    panel?.remove();
+    return;
+  }
+  if (!panel) {
+    panel = doc.createElement("aside");
+    panel.setAttribute("data-command-palette", "");
+    doc.body.appendChild(panel);
+  }
+  const items = filteredCommandPaletteItems();
+  state.commandPaletteIndex = Math.max(0, Math.min(state.commandPaletteIndex, Math.max(0, items.length - 1)));
+  const prefs = normalizePreferences(state.preferences);
+  panel.className = `command-palette theme-${prefs.theme} text-${prefs.fontScale}`;
+  panel.innerHTML = `<div class="command-palette__scrim" data-command-close></div><div class="command-palette__dialog" role="dialog" aria-modal="true" aria-label="Command palette"><div class="command-palette__head"><div><div class="panel-label">quick switcher</div><h4>Where do you want to go?</h4></div><button class="surface-action surface-action--small" data-command-close aria-label="Close command palette">Close</button></div><label class="command-search"><span>${iconSvg("command", "Search commands")}</span><input value="${escapeHtml(state.commandPaletteQuery)}" placeholder="Search sections, setup, uploads, connectors..." data-command-input autocomplete="off" /></label><div class="command-list" role="listbox" aria-label="Command results">${items.length ? items.map((item, index) => `<button class="command-item ${index === state.commandPaletteIndex ? "is-active" : ""}" role="option" aria-selected="${index === state.commandPaletteIndex}" data-command-action="${escapeHtml(item.id)}" style="--accent:${colorFor(item.domain || "command")};"><span class="command-item__icon">${iconSvg(item.domain || "command", item.title)}</span><span><strong>${escapeHtml(item.title)}</strong><small>${escapeHtml(item.subtitle)}</small></span><kbd>Enter</kbd></button>`).join("") : `<div class="empty-command-results">No command matched. Try "upload", "connect", "calendar", or "constraints".</div>`}</div><div class="command-palette__footer"><span>Ctrl/⌘ K opens this palette</span><span>Esc closes · ↑ ↓ moves · Enter opens</span></div></div>`;
+  requestAnimationFrame(() => panel?.querySelector("[data-command-input]")?.focus());
+}
+
+function openCommandPalette() {
+  if (!state.auth.user) return;
+  state.commandPaletteOpen = true;
+  state.commandPaletteIndex = 0;
+  renderCommandPalette();
+}
+
+function closeCommandPalette() {
+  state.commandPaletteOpen = false;
+  state.commandPaletteQuery = "";
+  state.commandPaletteIndex = 0;
+  renderCommandPalette();
+}
+
+function scrollToSelectorAfterRender(selector) {
+  if (!selector) return;
+  requestAnimationFrame(() => doc?.querySelector(selector)?.scrollIntoView({ block: "start", behavior: "smooth" }));
+}
+
+function executeCommandPaletteAction(actionId) {
+  const item = commandPaletteItems().find((candidate) => candidate.id === actionId);
+  if (!item) return;
+  closeCommandPalette();
+  if (item.action === "notifications") {
+    state.notificationPanelOpen = true;
+    saveState();
+    renderNotificationCenter();
+    return;
+  }
+  if (item.widgetId && item.domain === "command") {
+    state.widgets = normalizeWidgets(state.widgets);
+    const profile = activeWidgetProfile();
+    state.widgets.commandProfiles[profile] = commandWidgets().map((widget) => (widget.id === item.widgetId ? { ...widget, visible: true } : widget));
+    state.widgets.command = state.widgets.commandProfiles.guided;
+  }
+  if (item.domain) state.activeDomain = item.domain;
+  rerender();
+  scrollToSelectorAfterRender(item.scrollSelector);
+}
+
 function heroBand(intel) {
   const domain = activeDomain();
   const loadValue = intel.loadDisplay || `${intel.loadScore}%`;
@@ -1658,7 +1750,7 @@ function renderConstraintPanel(intel) {
     ["afternoon", "Reserve afternoon"],
     ["evening", "Reserve evening"],
   ];
-  return `<article class="panel span-6" style="--accent:${TOKENS.command};"><div class="panel-label">constraint studio</div><div class="control-grid"><div class="control-card"><div class="subtle-label">Hard guardrails</div><div class="toggle-grid">${[
+  return `<article class="panel span-6" data-constraint-panel style="--accent:${TOKENS.command};"><div class="panel-label">constraint studio</div><div class="control-grid"><div class="control-card"><div class="subtle-label">Hard guardrails</div><div class="toggle-grid">${[
     ["lockClasses", "Lock classes"],
     ["lockWorkShifts", "Lock work shifts"],
     ["protectRecoveryBlocks", "Protect recovery"],
@@ -1690,7 +1782,7 @@ function renderScheduleModePanel(intel) {
   const previewDelta = compareScheduleRunSnapshots(currentSnapshot, previewSnapshot);
   const previewItems = previewDelta.items || [];
   const statTone = isPreviewing ? TOKENS.warn : TOKENS.ok;
-  return `<article class="panel span-12" style="--accent:${TOKENS.command};"><div class="panel-label">schedule modes</div><div class="mode-panel-head"><div><h3 class="empty-title">${isPreviewing ? `Preview: ${previewMode.label}` : activeMode.label}</h3><p class="row-subtitle">${isPreviewing ? "Review the tradeoffs before applying this mode." : activeMode.description}</p></div>${pill(isPreviewing ? "preview not applied" : "active mode", statTone)}</div><div class="mode-grid">${Object.entries(SCHEDULE_MODES).map(([key, item]) => `<button class="mode-card ${state.scheduleMode === key ? "is-active" : ""} ${previewKey === key && isPreviewing ? "is-preview" : ""}" data-schedule-mode="${key}" style="--accent:${TOKENS.command};"><strong>${item.label}</strong><span>${item.description}</span><small>${key === state.scheduleMode ? "Active" : previewKey === key ? "Previewing" : item.bestFor}</small></button>`).join("")}</div><div class="mode-preview-shell" style="--accent:${statTone};"><div class="mode-preview-copy"><div class="subtle-label">mode preview</div><h4>${escapeHtml(previewMode.label)}</h4><p>${escapeHtml(previewMode.bestFor)}</p><div class="inline-chips">${pill(`Load ${previewIntel.loadDisplay || `${previewIntel.loadScore}%`}`, TOKENS.command)}${pill(`${previewIntel.solverSummary.unscheduledUrgentCount} urgent carryover`, previewIntel.solverSummary.unscheduledUrgentCount ? TOKENS.warn : TOKENS.ok)}${pill(`${previewIntel.solverSummary.scheduledMinutes}m scheduled`, TOKENS.academy)}</div></div><div class="mode-preview-grid"><div><div class="subtle-label">Expected tradeoffs</div><div class="why-list why-list--compact">${previewMode.tradeoffs.map((item) => `<div><span>Tradeoff</span><strong>${escapeHtml(item)}</strong></div>`).join("")}</div></div><div><div class="subtle-label">Preview deltas</div><div class="why-list why-list--compact">${previewItems.slice(0, 4).map((item) => `<div><span>${isPreviewing ? "Preview" : "Current"}</span><strong>${escapeHtml(item)}</strong></div>`).join("")}</div><div class="footer-note" style="margin-top:0.75rem;">Watch for: ${escapeHtml(previewMode.watchFor)}</div></div></div><div class="mode-preview-actions"><button class="primary-action" data-mode-apply ${!isPreviewing ? "disabled" : ""}>Apply ${escapeHtml(previewMode.label)}</button><button class="surface-action" data-mode-cancel ${!isPreviewing ? "disabled" : ""}>Keep ${escapeHtml(activeMode.label)}</button><button class="surface-action" data-mode-reset ${state.scheduleMode === "balanced" && !isPreviewing ? "disabled" : ""}>Preview Balanced</button></div></div><div class="footer-note">Modes are overlays. They adjust solver weights for this planning context without deleting your custom hard/soft constraint settings.</div></article>`;
+  return `<article class="panel span-12" data-schedule-mode-panel style="--accent:${TOKENS.command};"><div class="panel-label">schedule modes</div><div class="mode-panel-head"><div><h3 class="empty-title">${isPreviewing ? `Preview: ${previewMode.label}` : activeMode.label}</h3><p class="row-subtitle">${isPreviewing ? "Review the tradeoffs before applying this mode." : activeMode.description}</p></div>${pill(isPreviewing ? "preview not applied" : "active mode", statTone)}</div><div class="mode-grid">${Object.entries(SCHEDULE_MODES).map(([key, item]) => `<button class="mode-card ${state.scheduleMode === key ? "is-active" : ""} ${previewKey === key && isPreviewing ? "is-preview" : ""}" data-schedule-mode="${key}" style="--accent:${TOKENS.command};"><strong>${item.label}</strong><span>${item.description}</span><small>${key === state.scheduleMode ? "Active" : previewKey === key ? "Previewing" : item.bestFor}</small></button>`).join("")}</div><div class="mode-preview-shell" style="--accent:${statTone};"><div class="mode-preview-copy"><div class="subtle-label">mode preview</div><h4>${escapeHtml(previewMode.label)}</h4><p>${escapeHtml(previewMode.bestFor)}</p><div class="inline-chips">${pill(`Load ${previewIntel.loadDisplay || `${previewIntel.loadScore}%`}`, TOKENS.command)}${pill(`${previewIntel.solverSummary.unscheduledUrgentCount} urgent carryover`, previewIntel.solverSummary.unscheduledUrgentCount ? TOKENS.warn : TOKENS.ok)}${pill(`${previewIntel.solverSummary.scheduledMinutes}m scheduled`, TOKENS.academy)}</div></div><div class="mode-preview-grid"><div><div class="subtle-label">Expected tradeoffs</div><div class="why-list why-list--compact">${previewMode.tradeoffs.map((item) => `<div><span>Tradeoff</span><strong>${escapeHtml(item)}</strong></div>`).join("")}</div></div><div><div class="subtle-label">Preview deltas</div><div class="why-list why-list--compact">${previewItems.slice(0, 4).map((item) => `<div><span>${isPreviewing ? "Preview" : "Current"}</span><strong>${escapeHtml(item)}</strong></div>`).join("")}</div><div class="footer-note" style="margin-top:0.75rem;">Watch for: ${escapeHtml(previewMode.watchFor)}</div></div></div><div class="mode-preview-actions"><button class="primary-action" data-mode-apply ${!isPreviewing ? "disabled" : ""}>Apply ${escapeHtml(previewMode.label)}</button><button class="surface-action" data-mode-cancel ${!isPreviewing ? "disabled" : ""}>Keep ${escapeHtml(activeMode.label)}</button><button class="surface-action" data-mode-reset ${state.scheduleMode === "balanced" && !isPreviewing ? "disabled" : ""}>Preview Balanced</button></div></div><div class="footer-note">Modes are overlays. They adjust solver weights for this planning context without deleting your custom hard/soft constraint settings.</div></article>`;
 }
 
 function renderWhyPlanPanel(intel) {
@@ -1701,17 +1793,17 @@ function renderWhyPlanPanel(intel) {
   const changedAt = changes.previousAt
     ? `Compared with ${formatTimestamp(changes.previousAt)}`
     : "Baseline captured now";
-  return `<article class="panel span-12" style="--accent:${TOKENS.command};"><div class="panel-label">why this plan?</div><div class="why-plan-layout"><div class="why-plan-main"><h3 class="empty-title">${escapeHtml(explanation.primaryReason)}</h3><p class="row-subtitle">Confidence ${explanation.confidence}% &middot; ${SCHEDULE_MODES[state.scheduleMode]?.label || "Balanced"} mode</p><div class="why-list">${explanation.supportingReasons.map((reason) => `<div><span>Reason</span><strong>${escapeHtml(reason)}</strong></div>`).join("")}</div></div><div class="why-plan-side"><div class="subtle-label">Constraints applied</div><div class="inline-chips">${explanation.constraintsApplied.map((item) => pill(item, TOKENS.command)).join("")}</div><div class="subtle-label" style="margin-top:1rem;">Tradeoffs</div><div class="why-list why-list--compact">${explanation.tradeoffs.map((item) => `<div><span>Tradeoff</span><strong>${escapeHtml(item)}</strong></div>`).join("")}</div></div></div><div class="plan-change-card" style="--accent:${changeTone};"><div><div class="subtle-label">what changed since last plan</div><h4>${escapeHtml(changes.summary || "Plan comparison is warming up.")}</h4><p class="row-subtitle">${escapeHtml(changedAt)}</p></div><div class="why-list why-list--compact">${(changes.items || ["APEX will compare the next schedule recalculation against this baseline."]).map((item) => `<div><span>Delta</span><strong>${escapeHtml(item)}</strong></div>`).join("")}</div></div>${unscheduled.length ? `<div class="unscheduled-strip"><div class="subtle-label">unscheduled carryover</div>${unscheduled.slice(0, 4).map((chunk) => `<div class="row" style="--accent:${colorFor(chunk.domain)};"><div class="row-badge">${chunk.urgent ? "!" : "~"}</div><div class="row-copy"><div class="row-title">${escapeHtml(chunk.title)}</div><div class="row-subtitle">${escapeHtml(chunk.why)}</div></div>${pill(`${chunk.minutes}m`, colorFor(chunk.domain))}</div>`).join("")}</div>` : `<div class="footer-note">No unscheduled carryover under the current guardrails.</div>`}</article>`;
+  return `<article class="panel span-12" data-why-plan-panel style="--accent:${TOKENS.command};"><div class="panel-label">why this plan?</div><div class="why-plan-layout"><div class="why-plan-main"><h3 class="empty-title">${escapeHtml(explanation.primaryReason)}</h3><p class="row-subtitle">Confidence ${explanation.confidence}% &middot; ${SCHEDULE_MODES[state.scheduleMode]?.label || "Balanced"} mode</p><div class="why-list">${explanation.supportingReasons.map((reason) => `<div><span>Reason</span><strong>${escapeHtml(reason)}</strong></div>`).join("")}</div></div><div class="why-plan-side"><div class="subtle-label">Constraints applied</div><div class="inline-chips">${explanation.constraintsApplied.map((item) => pill(item, TOKENS.command)).join("")}</div><div class="subtle-label" style="margin-top:1rem;">Tradeoffs</div><div class="why-list why-list--compact">${explanation.tradeoffs.map((item) => `<div><span>Tradeoff</span><strong>${escapeHtml(item)}</strong></div>`).join("")}</div></div></div><div class="plan-change-card" style="--accent:${changeTone};"><div><div class="subtle-label">what changed since last plan</div><h4>${escapeHtml(changes.summary || "Plan comparison is warming up.")}</h4><p class="row-subtitle">${escapeHtml(changedAt)}</p></div><div class="why-list why-list--compact">${(changes.items || ["APEX will compare the next schedule recalculation against this baseline."]).map((item) => `<div><span>Delta</span><strong>${escapeHtml(item)}</strong></div>`).join("")}</div></div>${unscheduled.length ? `<div class="unscheduled-strip"><div class="subtle-label">unscheduled carryover</div>${unscheduled.slice(0, 4).map((chunk) => `<div class="row" style="--accent:${colorFor(chunk.domain)};"><div class="row-badge">${chunk.urgent ? "!" : "~"}</div><div class="row-copy"><div class="row-title">${escapeHtml(chunk.title)}</div><div class="row-subtitle">${escapeHtml(chunk.why)}</div></div>${pill(`${chunk.minutes}m`, colorFor(chunk.domain))}</div>`).join("")}</div>` : `<div class="footer-note">No unscheduled carryover under the current guardrails.</div>`}</article>`;
 }
 
 function renderSourcePanel() {
   const source = state.sourceConfig;
-  return `<article class="panel span-6" style="--accent:${TOKENS.notebook};"><div class="panel-label">live data sources</div><div class="source-shell"><label class="field-shell"><div class="field-row"><span>Remote JSON URL</span><strong>${source.lastSyncStatus}</strong></div><input class="search-input" type="url" value="${escapeHtml(source.remoteUrl)}" placeholder="https://example.com/apex.json" data-source-url /></label><div class="source-actions"><button class="surface-action" data-use-local-source>Use local live source</button>${pill("/api/source/live", TOKENS.command)}</div><div class="field-row"><span>Auto-sync every minute</span><button class="toggle-chip ${source.autoSync ? "is-active" : ""}" data-source-toggle="autoSync" style="--accent:${TOKENS.command};"><strong>${source.autoSync ? "On" : "Off"}</strong></button></div><div class="source-actions"><button class="primary-action" data-sync-source>Sync now</button><button class="surface-action" data-reset-source>Status reset</button>${pill(source.lastSyncStatus, statusTone(source.lastSyncStatus))}</div><div class="meta-grid"><div class="metric-stack"><span>Last sync</span><strong>${formatTimestamp(source.lastSyncAt)}</strong></div><div class="metric-stack"><span>Error</span><strong>${escapeHtml(source.lastError || "None")}</strong></div></div><label class="field-shell"><div class="field-row"><span>Manual payload</span><strong>JSON merge</strong></div><textarea class="brain-dump source-draft" placeholder='{"tasks":[...],"constraints":{"soft":{"keepEveningLight":7}}}' data-source-draft>${escapeHtml(source.draftPayload)}</textarea></label><div class="source-actions"><button class="primary-action" data-apply-source>Apply payload</button></div></div><div class="footer-note">Supported keys: <code>tasks</code>, <code>courses</code>, <code>schedule</code>, <code>bills</code>, <code>budget</code>, <code>paychecks</code>, <code>checkin</code>, and <code>constraints</code>. The bundled local server also exposes calendar, LMS, and webhook routes behind this source path.</div></article>`;
+  return `<article class="panel span-6" data-source-panel style="--accent:${TOKENS.notebook};"><div class="panel-label">live data sources</div><div class="source-shell"><label class="field-shell"><div class="field-row"><span>Remote JSON URL</span><strong>${source.lastSyncStatus}</strong></div><input class="search-input" type="url" value="${escapeHtml(source.remoteUrl)}" placeholder="https://example.com/apex.json" data-source-url /></label><div class="source-actions"><button class="surface-action" data-use-local-source>Use local live source</button>${pill("/api/source/live", TOKENS.command)}</div><div class="field-row"><span>Auto-sync every minute</span><button class="toggle-chip ${source.autoSync ? "is-active" : ""}" data-source-toggle="autoSync" style="--accent:${TOKENS.command};"><strong>${source.autoSync ? "On" : "Off"}</strong></button></div><div class="source-actions"><button class="primary-action" data-sync-source>Sync now</button><button class="surface-action" data-reset-source>Status reset</button>${pill(source.lastSyncStatus, statusTone(source.lastSyncStatus))}</div><div class="meta-grid"><div class="metric-stack"><span>Last sync</span><strong>${formatTimestamp(source.lastSyncAt)}</strong></div><div class="metric-stack"><span>Error</span><strong>${escapeHtml(source.lastError || "None")}</strong></div></div><label class="field-shell"><div class="field-row"><span>Manual payload</span><strong>JSON merge</strong></div><textarea class="brain-dump source-draft" placeholder='{"tasks":[...],"constraints":{"soft":{"keepEveningLight":7}}}' data-source-draft>${escapeHtml(source.draftPayload)}</textarea></label><div class="source-actions"><button class="primary-action" data-apply-source>Apply payload</button></div></div><div class="footer-note">Supported keys: <code>tasks</code>, <code>courses</code>, <code>schedule</code>, <code>bills</code>, <code>budget</code>, <code>paychecks</code>, <code>checkin</code>, and <code>constraints</code>. The bundled local server also exposes calendar, LMS, and webhook routes behind this source path.</div></article>`;
 }
 
 function renderConnectorPanel() {
   const connectors = mergeIntegrationTemplates();
-  return `<article class="panel span-6" style="--accent:${TOKENS.command};"><div class="panel-label">connector framework</div><h3 class="empty-title">Every integration has an inspectable lifecycle.</h3><p class="row-subtitle">Connectors now track auth, webhooks, sync health, token refresh, last result, and event history instead of relying on one-off button state.</p><div class="connector-grid">${connectors.map((item) => {
+  return `<article class="panel span-6" data-connector-panel style="--accent:${TOKENS.command};"><div class="panel-label">connector framework</div><h3 class="empty-title">Every integration has an inspectable lifecycle.</h3><p class="row-subtitle">Connectors now track auth, webhooks, sync health, token refresh, last result, and event history instead of relying on one-off button state.</p><div class="connector-grid">${connectors.map((item) => {
     const events = Array.isArray(item.metadata?.events) ? item.metadata.events : [];
     return `<div class="connector-card" style="--accent:${colorFor(item.domain)};"><div class="connector-card__head"><div class="row-badge">${iconSvg(item.domain, item.displayName)}</div><div><strong>${escapeHtml(item.displayName)}</strong><small>${escapeHtml(item.providerType)} &middot; ${escapeHtml(item.status)}</small></div></div><p>${escapeHtml(item.description)}</p><div class="connector-status-grid">${pill(`Auth: ${item.authState}`, connectorTone(item.authState))}${pill(`Sync: ${item.syncStatus}`, connectorTone(item.syncStatus))}${pill(`Webhook: ${item.webhookStatus}`, connectorTone(item.webhookStatus))}${pill(`Refresh: ${item.refreshStatus}`, connectorTone(item.refreshStatus))}</div><div class="inline-chips">${item.scopes.slice(0, 3).map((scope) => pill(scope, colorFor(item.domain))).join("")}${pill(item.local ? "local" : "cloud", item.local ? TOKENS.warn : TOKENS.ok)}</div><div class="meta-grid connector-meta-grid"><div class="metric-stack"><span>Last sync</span><strong>${formatTimestamp(item.lastSyncedAt)}</strong></div><div class="metric-stack"><span>Next sync</span><strong>${formatTimestamp(item.nextSyncAt)}</strong></div><div class="metric-stack"><span>Last test</span><strong>${formatTimestamp(item.lastTestedAt)}</strong></div><div class="metric-stack"><span>Token expires</span><strong>${formatTimestamp(item.tokenExpiresAt)}</strong></div><div class="metric-stack"><span>Errors</span><strong>${item.errorCount}</strong></div><div class="metric-stack"><span>Token ref</span><strong>${item.tokenRef ? "stored" : "none"}</strong></div></div><div class="connector-result"><span>Last result</span><strong>${escapeHtml(summarizeConnectorResult(item.lastSyncResult))}</strong></div>${item.lastError ? `<div class="connector-error">${escapeHtml(item.lastError)}</div>` : ""}<div class="connector-log">${events.length ? events.slice(0, 3).map((event) => `<div><span>${escapeHtml(event.type || "event")} &middot; ${formatTimestamp(event.createdAt)}</span><strong>${escapeHtml(event.message || "Connector event recorded.")}</strong></div>`).join("") : `<div><span>No events yet</span><strong>Use Connect, Test, or Sync to create the first connector event.</strong></div>`}</div><div class="source-actions connector-actions"><button class="surface-action surface-action--small" data-integration-connect="${escapeHtml(item.provider)}">${item.status === "connected" ? "Reconnect" : "Connect"}</button><button class="surface-action surface-action--small" data-integration-test="${escapeHtml(item.provider)}">Test</button><button class="surface-action surface-action--small" data-integration-sync="${escapeHtml(item.provider)}">Sync now</button><button class="surface-action surface-action--small" data-integration-reauth="${escapeHtml(item.provider)}">Re-auth</button><button class="surface-action surface-action--small" data-integration-disconnect="${escapeHtml(item.provider)}">Disconnect</button></div></div>`;
   }).join("")}</div><div class="footer-note">Canvas, Google Calendar, and APEX webhook can call local endpoints now. Plaid, Deputy, and Health now have lifecycle records and logs so the real provider flows can plug in cleanly.</div></article>`;
@@ -1744,7 +1836,7 @@ function renderWidgetManager() {
   const widgets = orderedCommandWidgets({ includeHidden: true });
   const visible = widgets.filter((widget) => widget.visible).length;
   const pinned = widgets.filter((widget) => widget.pinned).length;
-  return `<article class="panel span-12 widget-manager-panel" style="--accent:${selectedAccent()};"><div class="setup-head"><div><div class="panel-label">widget layout</div><h3 class="empty-title">Choose what ${escapeHtml(preset.label)} shows first.</h3><p class="row-subtitle">${escapeHtml(preset.description)}</p></div><div class="inline-chips">${pill(`${visible}/${widgets.length} visible`, selectedAccent())}${pill(`${pinned} pinned`, TOKENS.warn)}${pill(`${preset.label} profile`, selectedAccent())}</div></div><div class="state-notice widget-profile-notice" style="--accent:${selectedAccent()};"><div class="row-badge">${iconSvg("command", "Layout profile")}</div><div><strong>Profile-specific layout is active.</strong><div>Switch Layout Profile in Personalization to edit a different Command Center layout without overwriting this one.</div></div></div><div class="widget-manager-list">${widgets.map((widget) => widgetManagerRow(widget, widgets)).join("")}</div><div class="source-actions" style="margin-top:1rem;"><button class="surface-action" data-widget-reset>Reset ${escapeHtml(preset.label)} Widgets</button>${pill("Saved to workspace", TOKENS.ok)}</div></article>`;
+  return `<article class="panel span-12 widget-manager-panel" data-widget-manager-panel style="--accent:${selectedAccent()};"><div class="setup-head"><div><div class="panel-label">widget layout</div><h3 class="empty-title">Choose what ${escapeHtml(preset.label)} shows first.</h3><p class="row-subtitle">${escapeHtml(preset.description)}</p></div><div class="inline-chips">${pill(`${visible}/${widgets.length} visible`, selectedAccent())}${pill(`${pinned} pinned`, TOKENS.warn)}${pill(`${preset.label} profile`, selectedAccent())}</div></div><div class="state-notice widget-profile-notice" style="--accent:${selectedAccent()};"><div class="row-badge">${iconSvg("command", "Layout profile")}</div><div><strong>Profile-specific layout is active.</strong><div>Switch Layout Profile in Personalization to edit a different Command Center layout without overwriting this one.</div></div></div><div class="widget-manager-list">${widgets.map((widget) => widgetManagerRow(widget, widgets)).join("")}</div><div class="source-actions" style="margin-top:1rem;"><button class="surface-action" data-widget-reset>Reset ${escapeHtml(preset.label)} Widgets</button>${pill("Saved to workspace", TOKENS.ok)}</div></article>`;
 }
 
 function renderVisibleCommandWidgets(widgetPanels) {
@@ -1866,7 +1958,7 @@ function renderNotebook(intel) {
     : `<div class="empty-note-state">${emptyState({ domain: "notebook", title: "No notes yet.", body: "Create a note to capture source-grounded context before the AI/RAG layer lands.", primaryLabel: "", compact: true })}<button class="primary-action" data-note-create type="button">Create first note</button></div>`;
   const uploadEmpty = emptyState({ domain: "notebook", title: "No source files attached yet.", body: "Start with a syllabus, lecture note, or assignment sheet. APEX will keep the file as a safe source stub until parsing is ready.", primaryLabel: "", compact: true });
   const reviewEmpty = emptyState({ domain: "academy", title: "No syllabus reviews yet.", body: "Upload a syllabus, then choose Review as syllabus. Nothing gets scheduled until you confirm it.", primaryLabel: "Upload syllabus", primaryDomain: "notebook", compact: true });
-  return `<section class="section-shell">${heroBand(intel)}<div class="notebook-layout"><aside class="panel panel--quiet" style="--accent:${TOKENS.notebook};"><div class="panel-label">search notes</div><input class="search-input" type="search" placeholder="Search all notes..." value="${escapeHtml(state.noteSearch)}" data-note-search /><button class="primary-action note-create-action" data-note-create type="button">New note</button><div class="note-list" style="margin-top:1rem;">${noteButtons || stateNotice("loading", "No notes yet", "Create your first note to make Notebook useful.", "notebook")}</div></aside><div class="section-shell"><article class="panel" style="--accent:${activeNote ? colorFor(activeNote.domain) : TOKENS.notebook};">${editor}</article><article class="panel" style="--accent:${TOKENS.notebook};"><div class="panel-label">source uploads</div><h3 class="empty-title">Upload syllabi, notes, and assignment sheets.</h3><p class="row-subtitle">APEX stores metadata now and can start a review queue for syllabi before real text extraction is connected.</p><label class="upload-zone"><input type="file" multiple data-file-upload /><span>Choose files to attach</span><small>${uploads.length ? `${uploads.length} source file(s) tracked` : "No source files attached yet"}</small></label><div class="section-list" style="margin-top:1rem;">${uploadRows || uploadEmpty}</div></article><article class="panel" style="--accent:${TOKENS.academy};"><div class="panel-label">syllabus review queue</div><h3 class="empty-title">Confirm before APEX schedules anything.</h3><p class="row-subtitle">This is a safe placeholder pipeline: APEX creates review cards from upload metadata, then waits for your confirmation.</p><div class="review-list">${reviewRows || reviewEmpty}</div></article><article class="panel" style="--accent:${TOKENS.command};"><div class="panel-label">brain dump</div>${!state.processedDump ? `<textarea class="brain-dump" placeholder="Type anything: study thermo, email professor, pay rent, prep Friday quiz..." data-brain-dump>${escapeHtml(state.brainDump)}</textarea><div class="hero-actions"><button class="primary-action" data-process-dump>Process + sort</button></div>` : `<div class="processing-result"><div class="row is-hot" style="--accent:${TOKENS.ok};"><div class="row-badge">${iconSvg("command", "Processed")}</div><div class="row-copy"><div class="row-title">Dump routed into ${state.processedDump.domains.length} dashboards</div><div class="row-subtitle">${escapeHtml(state.processedDump.summary)}</div></div></div><div class="inline-chips">${state.processedDump.domains.map((domain) => pill(domain, colorFor(domain.toLowerCase()))).join("")}</div><button class="surface-action" data-clear-dump>New dump</button></div>`}</article></div></div></section>`;
+  return `<section class="section-shell">${heroBand(intel)}<div class="notebook-layout"><aside class="panel panel--quiet" style="--accent:${TOKENS.notebook};"><div class="panel-label">search notes</div><input class="search-input" type="search" placeholder="Search all notes..." value="${escapeHtml(state.noteSearch)}" data-note-search /><button class="primary-action note-create-action" data-note-create type="button">New note</button><div class="note-list" style="margin-top:1rem;">${noteButtons || stateNotice("loading", "No notes yet", "Create your first note to make Notebook useful.", "notebook")}</div></aside><div class="section-shell"><article class="panel" style="--accent:${activeNote ? colorFor(activeNote.domain) : TOKENS.notebook};">${editor}</article><article class="panel" data-upload-panel style="--accent:${TOKENS.notebook};"><div class="panel-label">source uploads</div><h3 class="empty-title">Upload syllabi, notes, and assignment sheets.</h3><p class="row-subtitle">APEX stores metadata now and can start a review queue for syllabi before real text extraction is connected.</p><label class="upload-zone"><input type="file" multiple data-file-upload /><span>Choose files to attach</span><small>${uploads.length ? `${uploads.length} source file(s) tracked` : "No source files attached yet"}</small></label><div class="section-list" style="margin-top:1rem;">${uploadRows || uploadEmpty}</div></article><article class="panel" data-syllabus-review-panel style="--accent:${TOKENS.academy};"><div class="panel-label">syllabus review queue</div><h3 class="empty-title">Confirm before APEX schedules anything.</h3><p class="row-subtitle">This is a safe placeholder pipeline: APEX creates review cards from upload metadata, then waits for your confirmation.</p><div class="review-list">${reviewRows || reviewEmpty}</div></article><article class="panel" style="--accent:${TOKENS.command};"><div class="panel-label">brain dump</div>${!state.processedDump ? `<textarea class="brain-dump" placeholder="Type anything: study thermo, email professor, pay rent, prep Friday quiz..." data-brain-dump>${escapeHtml(state.brainDump)}</textarea><div class="hero-actions"><button class="primary-action" data-process-dump>Process + sort</button></div>` : `<div class="processing-result"><div class="row is-hot" style="--accent:${TOKENS.ok};"><div class="row-badge">${iconSvg("command", "Processed")}</div><div class="row-copy"><div class="row-title">Dump routed into ${state.processedDump.domains.length} dashboards</div><div class="row-subtitle">${escapeHtml(state.processedDump.summary)}</div></div></div><div class="inline-chips">${state.processedDump.domains.map((domain) => pill(domain, colorFor(domain.toLowerCase()))).join("")}</div><button class="surface-action" data-clear-dump>New dump</button></div>`}</article></div></div></section>`;
 }
 
 function renderFreshDomainState(intel) {
@@ -1918,11 +2010,12 @@ function renderApp() {
   intel.planChanges = state.lastPlanChanges || latestPlanChanges;
   const prefs = normalizePreferences(state.preferences);
   const shellClass = `theme-${prefs.theme} density-${prefs.density} text-${prefs.fontScale} layout-${prefs.layoutProfile}`;
-  app.innerHTML = `<div class="app-shell ${shellClass}" style="--accent:${selectedAccent(domain.id)};"><a class="skip-link" href="#main-content">Skip to content</a><div class="ambient"><div class="orb orb--one"></div><div class="orb orb--two"></div><div class="orb orb--three"></div></div><aside class="sidebar ${state.sidebarCollapsed ? "is-collapsed" : ""}"><div class="brand"><div class="brand-mark">${iconSvg("command")}</div><div class="brand-copy"><h1>APEX</h1><p>Universal 2.0</p></div></div><nav class="sidebar-nav" aria-label="Primary sections">${DOMAINS.map((item) => `<button class="nav-button ${state.activeDomain === item.id ? "is-active" : ""}" data-domain="${item.id}" style="--accent:${colorFor(item.id)};" aria-current="${state.activeDomain === item.id ? "page" : "false"}"><span class="nav-icon">${iconSvg(item.id, item.label)}</span><span class="nav-copy"><strong>${item.label}</strong><span>${item.blurb}</span></span></button>`).join("")}</nav><div class="sidebar-footer"><button class="collapse-button" data-collapse-sidebar aria-label="${state.sidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"}"><span>${state.sidebarCollapsed ? "&#9654;" : "&#9664;"}</span><span>${state.sidebarCollapsed ? "Expand" : "Collapse"}</span></button></div></aside><main class="main" id="main-content"><header class="topbar"><div class="topbar-title"><div class="topbar-icon">${iconSvg(domain.id, domain.label)}</div><div class="topbar-copy"><h2>APEX ${domain.label}</h2><p>${formatToday()} &middot; ${state.auth.user.email}</p></div></div><div class="topbar-metrics"><div class="metric-pill"><span class="metric-dot"></span><span>Load</span><strong data-shell-load>${intel.loadDisplay || `${intel.loadScore}%`}</strong></div><div class="metric-pill"><span class="metric-dot" style="background:${TOKENS.command};"></span><span>Cloud</span><strong data-shell-cloud>${state.cloudSaveStatus}</strong></div><div class="metric-pill"><span class="metric-dot" data-shell-source-dot style="background:${statusTone(state.sourceConfig.lastSyncStatus)};"></span><span>Source</span><strong data-shell-source>${state.sourceConfig.lastSyncStatus}</strong></div><button class="metric-pill metric-button ${unreadNotifications().length ? "has-unread" : ""}" data-notification-toggle type="button" aria-label="Open notification center"><span class="metric-dot" data-shell-notification-dot style="background:${unreadNotifications().length ? TOKENS.warn : TOKENS.ok};"></span><span>Alerts</span><strong data-shell-notifications>${unreadNotifications().length}</strong></button><button class="surface-action" data-domain="command" data-scroll-personalization>Personalize</button><button class="surface-action" data-auth-signout>Sign Out</button><div class="mini-domain-rail" aria-label="Quick sections">${DOMAINS.filter((item) => item.id !== "command").map((item) => `<button class="stat-dot-button ${item.id === state.activeDomain ? "is-active" : ""}" data-domain="${item.id}" style="--dot:${colorFor(item.id)};" title="${item.label}" aria-label="Open ${item.label}"></button>`).join("")}</div></div></header><div class="content">${renderContent(intel)}</div></main>${renderOnboarding()}${renderSectionHelp()}</div>`;
+  app.innerHTML = `<div class="app-shell ${shellClass}" style="--accent:${selectedAccent(domain.id)};"><a class="skip-link" href="#main-content">Skip to content</a><div class="ambient"><div class="orb orb--one"></div><div class="orb orb--two"></div><div class="orb orb--three"></div></div><aside class="sidebar ${state.sidebarCollapsed ? "is-collapsed" : ""}"><div class="brand"><div class="brand-mark">${iconSvg("command")}</div><div class="brand-copy"><h1>APEX</h1><p>Universal 2.0</p></div></div><nav class="sidebar-nav" aria-label="Primary sections">${DOMAINS.map((item) => `<button class="nav-button ${state.activeDomain === item.id ? "is-active" : ""}" data-domain="${item.id}" style="--accent:${colorFor(item.id)};" aria-current="${state.activeDomain === item.id ? "page" : "false"}"><span class="nav-icon">${iconSvg(item.id, item.label)}</span><span class="nav-copy"><strong>${item.label}</strong><span>${item.blurb}</span></span></button>`).join("")}</nav><div class="sidebar-footer"><button class="collapse-button" data-collapse-sidebar aria-label="${state.sidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"}"><span>${state.sidebarCollapsed ? "&#9654;" : "&#9664;"}</span><span>${state.sidebarCollapsed ? "Expand" : "Collapse"}</span></button></div></aside><main class="main" id="main-content"><header class="topbar"><div class="topbar-title"><div class="topbar-icon">${iconSvg(domain.id, domain.label)}</div><div class="topbar-copy"><h2>APEX ${domain.label}</h2><p>${formatToday()} &middot; ${state.auth.user.email}</p></div></div><div class="topbar-metrics"><button class="command-trigger" data-command-open aria-label="Open command palette"><span>${iconSvg("command", "Command palette")}</span><strong>Search</strong><kbd>Ctrl K</kbd></button><div class="metric-pill"><span class="metric-dot"></span><span>Load</span><strong data-shell-load>${intel.loadDisplay || `${intel.loadScore}%`}</strong></div><div class="metric-pill"><span class="metric-dot" style="background:${TOKENS.command};"></span><span>Cloud</span><strong data-shell-cloud>${state.cloudSaveStatus}</strong></div><div class="metric-pill"><span class="metric-dot" data-shell-source-dot style="background:${statusTone(state.sourceConfig.lastSyncStatus)};"></span><span>Source</span><strong data-shell-source>${state.sourceConfig.lastSyncStatus}</strong></div><button class="metric-pill metric-button ${unreadNotifications().length ? "has-unread" : ""}" data-notification-toggle type="button" aria-label="Open notification center"><span class="metric-dot" data-shell-notification-dot style="background:${unreadNotifications().length ? TOKENS.warn : TOKENS.ok};"></span><span>Alerts</span><strong data-shell-notifications>${unreadNotifications().length}</strong></button><button class="surface-action" data-domain="command" data-scroll-personalization>Personalize</button><button class="surface-action" data-auth-signout>Sign Out</button><div class="mini-domain-rail" aria-label="Quick sections">${DOMAINS.filter((item) => item.id !== "command").map((item) => `<button class="stat-dot-button ${item.id === state.activeDomain ? "is-active" : ""}" data-domain="${item.id}" style="--dot:${colorFor(item.id)};" title="${item.label}" aria-label="Open ${item.label}"></button>`).join("")}</div></div></header><div class="content">${renderContent(intel)}</div></main>${renderOnboarding()}${renderSectionHelp()}</div>`;
   state.lastPlanSnapshot = nextPlanSnapshot;
   persistPlanSnapshotOnly();
   renderToast();
   renderNotificationCenter();
+  renderCommandPalette();
 }
 
 function processBrainDump(text) {
@@ -2106,6 +2199,10 @@ async function syncRemoteSource() {
 doc?.addEventListener("click", async (event) => {
   const target = event.target instanceof Element ? event.target : null;
   if (!target) return;
+  if (target.closest("[data-command-open]")) { openCommandPalette(); return; }
+  if (target.closest("[data-command-close]")) { closeCommandPalette(); return; }
+  const commandAction = target.closest("[data-command-action]");
+  if (commandAction) { executeCommandPaletteAction(commandAction.dataset.commandAction); return; }
   const domainButton = target.closest("[data-domain]");
   if (domainButton) {
     state.activeDomain = domainButton.dataset.domain;
@@ -2227,6 +2324,13 @@ doc?.addEventListener("submit", async (event) => {
 doc?.addEventListener("input", async (event) => {
   const target = event.target instanceof Element ? event.target : null;
   if (!target) return;
+  const commandInput = target.closest("[data-command-input]");
+  if (commandInput) {
+    state.commandPaletteQuery = commandInput.value;
+    state.commandPaletteIndex = 0;
+    renderCommandPalette();
+    return;
+  }
   const search = target.closest("[data-note-search]");
   if (search) {
     const value = search.value;
@@ -2257,6 +2361,40 @@ doc?.addEventListener("input", async (event) => {
   if (email) { state.auth.email = email.value; return; }
   const password = target.closest("[data-auth-password]");
   if (password) { state.auth.password = password.value; }
+});
+
+doc?.addEventListener("keydown", (event) => {
+  const isPaletteShortcut = (event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "k";
+  if (isPaletteShortcut) {
+    event.preventDefault();
+    if (state.commandPaletteOpen) closeCommandPalette();
+    else openCommandPalette();
+    return;
+  }
+  if (!state.commandPaletteOpen) return;
+  if (event.key === "Escape") {
+    event.preventDefault();
+    closeCommandPalette();
+    return;
+  }
+  const items = filteredCommandPaletteItems();
+  if (event.key === "ArrowDown") {
+    event.preventDefault();
+    state.commandPaletteIndex = items.length ? (state.commandPaletteIndex + 1) % items.length : 0;
+    renderCommandPalette();
+    return;
+  }
+  if (event.key === "ArrowUp") {
+    event.preventDefault();
+    state.commandPaletteIndex = items.length ? (state.commandPaletteIndex - 1 + items.length) % items.length : 0;
+    renderCommandPalette();
+    return;
+  }
+  if (event.key === "Enter" && doc?.activeElement?.matches("[data-command-input]")) {
+    event.preventDefault();
+    const item = items[state.commandPaletteIndex];
+    if (item) executeCommandPaletteAction(item.id);
+  }
 });
 
 doc?.addEventListener("change", async (event) => {

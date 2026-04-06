@@ -20,6 +20,7 @@ This file defines the current product UI rules so new screens feel intentional i
 - Loading states: use `.skeleton-line` when a future fetch needs a visible placeholder instead of a blank surface.
 - Preferences: use `.preference-chip` inside `.preference-grid`; chips should use `aria-pressed` when selectable.
 - Widget layout: use `.widget-manager-panel`, `.widget-manager-list`, and `.widget-manager-row` for dashboard module visibility/order controls. Pin, hide, and move controls must have labels and disabled states. Profile-specific layouts should explain which profile is being edited.
+- Command palette: use `.command-palette` for app-wide quick switching. It must support `Ctrl`/`Cmd` + `K`, Escape, arrow keys, Enter, focus management, and descriptive result copy.
 
 ## Empty-State Copy Rules
 
@@ -39,3 +40,4 @@ This file defines the current product UI rules so new screens feel intentional i
 - Notebook: empty notes, uploads, and syllabus review queue.
 - Personalization: Command Center controls for theme, density, type scale, accent profile, and layout profile.
 - Widgets: Command Center layout controls for visible/hidden state, pinned priority, manual ordering, and profile-specific Guided/Operator/Focus layouts.
+- Navigation: app-wide command palette for sections, setup surfaces, uploads, connectors, notifications, and scheduler panels.
