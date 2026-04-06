@@ -4,6 +4,7 @@ const WORKSPACE_TABLE = "apex_workspaces";
 const NOTIFICATION_TABLE = "apex_notifications";
 const UPLOAD_TABLE = "apex_uploads";
 const SYLLABUS_TABLE = "apex_syllabi";
+const NOTE_TABLE = "apex_notes";
 
 export async function loadRuntimeConfig() {
   if (typeof fetch === "undefined") return { supabaseUrl: "", supabaseAnonKey: "" };
@@ -241,6 +242,52 @@ export async function updateSyllabusRecord(client, syllabusId, patch) {
     .update(update)
     .eq("id", syllabusId)
     .select("id, upload_id, title, parse_status, parsed_summary, confidence, created_at, updated_at")
+    .single();
+  if (error) throw error;
+  return data;
+}
+
+export async function loadNoteRecords(client, workspaceId) {
+  const { data, error } = await client
+    .from(NOTE_TABLE)
+    .select("id, title, body, tags, domain, created_at, updated_at")
+    .eq("workspace_id", workspaceId)
+    .order("updated_at", { ascending: false })
+    .limit(100);
+  if (error) throw error;
+  return data || [];
+}
+
+export async function createNoteRecord(client, workspaceId, note) {
+  const { data, error } = await client
+    .from(NOTE_TABLE)
+    .insert({
+      workspace_id: workspaceId,
+      title: note.title || "Untitled note",
+      body: note.body || note.summary || "",
+      tags: Array.isArray(note.tags) ? note.tags : [],
+      domain: note.domain || "notebook",
+    })
+    .select("id, title, body, tags, domain, created_at, updated_at")
+    .single();
+  if (error) throw error;
+  return data;
+}
+
+export async function updateNoteRecord(client, noteId, patch) {
+  const update = {};
+  if (patch.title !== undefined) update.title = patch.title;
+  if (patch.body !== undefined) update.body = patch.body;
+  if (patch.summary !== undefined && patch.body === undefined) update.body = patch.summary;
+  if (patch.tags !== undefined) update.tags = Array.isArray(patch.tags) ? patch.tags : [];
+  if (patch.domain !== undefined) update.domain = patch.domain || "notebook";
+  update.updated_at = new Date().toISOString();
+
+  const { data, error } = await client
+    .from(NOTE_TABLE)
+    .update(update)
+    .eq("id", noteId)
+    .select("id, title, body, tags, domain, created_at, updated_at")
     .single();
   if (error) throw error;
   return data;

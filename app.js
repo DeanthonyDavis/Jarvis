@@ -1,12 +1,14 @@
 import { buildCommandCenterIntelligence, normalizeConstraints } from "./intelligence.js";
 import {
   createNotificationRecord,
+  createNoteRecord,
   createSyllabusRecord,
   createUploadRecord,
   dismissNotificationRecord,
   ensureUserWorkspace,
   initAuthClient,
   loadNotificationRecords,
+  loadNoteRecords,
   loadSyllabusRecords,
   loadUploadRecords,
   loadUserWorkspace,
@@ -15,6 +17,7 @@ import {
   signInWithPassword,
   signOut,
   signUpWithPassword,
+  updateNoteRecord,
   updateSyllabusRecord,
 } from "./auth.js";
 import {
@@ -96,6 +99,7 @@ function defaultSnapshot() {
     notificationStatus: "local",
     noteSearch: "",
     activeNoteId: NOTES[0]?.id || null,
+    notes: clone(NOTES),
     uploadedFiles: [],
     syllabusReviews: [],
     brainDump: "",
@@ -116,6 +120,7 @@ function emptyUserSnapshot() {
     paychecks: [],
     noteSearch: "",
     activeNoteId: null,
+    notes: [],
     brainDump: "",
     processedDump: null,
     checkin: { energy: 0, focus: 0, mood: 0, submitted: false },
@@ -154,6 +159,7 @@ function loadState() {
       notificationStatus: saved.notificationStatus || defaults.notificationStatus,
       noteSearch: saved.noteSearch || "",
       activeNoteId: saved.activeNoteId ?? defaults.activeNoteId,
+      notes: Array.isArray(saved.notes) ? saved.notes : defaults.notes,
       uploadedFiles: Array.isArray(saved.uploadedFiles) ? saved.uploadedFiles : defaults.uploadedFiles,
       syllabusReviews: Array.isArray(saved.syllabusReviews) ? saved.syllabusReviews : defaults.syllabusReviews,
       brainDump: saved.brainDump || "",
@@ -246,6 +252,7 @@ function saveState() {
       notificationStatus: state.notificationStatus,
       noteSearch: state.noteSearch,
       activeNoteId: state.activeNoteId,
+      notes: state.notes,
       uploadedFiles: state.uploadedFiles,
       syllabusReviews: state.syllabusReviews,
       brainDump: state.brainDump,
@@ -272,6 +279,7 @@ function userWorkspaceState() {
     notificationStatus: state.notificationStatus,
     noteSearch: state.noteSearch,
     activeNoteId: state.activeNoteId,
+    notes: state.notes,
     uploadedFiles: state.uploadedFiles,
     syllabusReviews: state.syllabusReviews,
     brainDump: state.brainDump,
@@ -298,6 +306,7 @@ function applyWorkspaceState(workspace) {
   state.notificationPanelOpen = Boolean(workspace?.notificationPanelOpen);
   state.noteSearch = workspace?.noteSearch || "";
   state.activeNoteId = workspace?.activeNoteId ?? null;
+  state.notes = Array.isArray(workspace?.notes) ? workspace.notes : [];
   state.uploadedFiles = Array.isArray(workspace?.uploadedFiles) ? workspace.uploadedFiles : [];
   state.syllabusReviews = Array.isArray(workspace?.syllabusReviews) ? workspace.syllabusReviews : [];
   state.brainDump = workspace?.brainDump || "";
@@ -430,6 +439,30 @@ function normalizeSyllabusReview(record) {
     updatedAt: record.updatedAt || record.updated_at || record.createdAt || record.created_at || new Date().toISOString(),
     local: Boolean(record.local),
   };
+}
+
+function normalizeNote(record) {
+  const body = record.body ?? record.summary ?? "";
+  return {
+    id: String(record.id || localId("note")),
+    title: record.title || "Untitled note",
+    domain: record.domain || "notebook",
+    updated: record.updated || (record.updated_at ? new Date(record.updated_at).toLocaleDateString("en-US", { month: "short", day: "numeric" }) : "Just now"),
+    updatedAt: record.updatedAt || record.updated_at || new Date().toISOString(),
+    createdAt: record.createdAt || record.created_at || new Date().toISOString(),
+    tags: Array.isArray(record.tags) ? record.tags : [],
+    summary: body || "Start writing here. APEX will use notes as source-grounded context in a later AI phase.",
+    body,
+    local: Boolean(record.local),
+  };
+}
+
+function parseTags(value) {
+  return String(value || "")
+    .split(",")
+    .map((tag) => tag.trim().replace(/^#/, ""))
+    .filter(Boolean)
+    .slice(0, 12);
 }
 
 function buildSyllabusDraft(upload) {
@@ -613,6 +646,76 @@ async function confirmSyllabusReview(reviewId) {
     };
     saveState();
   }
+}
+
+async function createNotebookNote() {
+  const note = normalizeNote({
+    id: localId("note"),
+    title: "Untitled note",
+    domain: "notebook",
+    tags: ["draft"],
+    body: "",
+    local: true,
+  });
+  state.notes = [note, ...state.notes].slice(0, 100);
+  state.activeNoteId = note.id;
+  rerender();
+  notifyUser({
+    type: "note_created",
+    title: "New note created",
+    body: "Your note is ready. It autosaves locally and syncs to Supabase when the Phase 2 schema is active.",
+    severity: "success",
+  });
+
+  if (!state.workspace.phase2Enabled || !state.workspace.id || !state.auth.client) return;
+  try {
+    const cloud = normalizeNote(await createNoteRecord(state.auth.client, state.workspace.id, note));
+    state.notes = state.notes.map((item) => item.id === note.id ? cloud : item);
+    state.activeNoteId = cloud.id;
+    saveState();
+    renderApp();
+  } catch (error) {
+    state.workspace = {
+      ...state.workspace,
+      error: error instanceof Error ? error.message : "Note sync unavailable.",
+    };
+    saveState();
+  }
+}
+
+async function syncNoteIfCloud(note) {
+  if (!state.workspace.phase2Enabled || !state.auth.client || !isUuid(note.id)) return;
+  try {
+    const cloud = normalizeNote(await updateNoteRecord(state.auth.client, note.id, note));
+    state.notes = state.notes.map((item) => item.id === note.id ? cloud : item);
+    saveState();
+    renderShellStatus();
+  } catch (error) {
+    state.workspace = {
+      ...state.workspace,
+      error: error instanceof Error ? error.message : "Note update unavailable.",
+    };
+    saveState();
+  }
+}
+
+async function updateActiveNote(patch, { syncCloud = false } = {}) {
+  const activeId = state.activeNoteId;
+  if (!activeId) return;
+  let updatedNote = null;
+  state.notes = state.notes.map((item) => {
+    if (String(item.id) !== String(activeId)) return item;
+    updatedNote = normalizeNote({
+      ...item,
+      ...patch,
+      updatedAt: new Date().toISOString(),
+      updated: "Just now",
+    });
+    return updatedNote;
+  });
+  saveState();
+  renderShellStatus();
+  if (syncCloud && updatedNote) await syncNoteIfCloud(updatedNote);
 }
 
 async function markNotificationRead(notificationId) {
@@ -848,8 +951,9 @@ function renderMind(intel) {
 }
 
 function renderNotebook(intel) {
-  const filtered = NOTES.filter((note) => { const search = state.noteSearch.trim().toLowerCase(); return !search || note.title.toLowerCase().includes(search) || note.domain.toLowerCase().includes(search) || note.tags.some((tag) => tag.toLowerCase().includes(search)); });
-  const activeNote = NOTES.find((note) => note.id === state.activeNoteId) || filtered[0] || null;
+  const notes = state.notes.map(normalizeNote);
+  const filtered = notes.filter((note) => { const search = state.noteSearch.trim().toLowerCase(); return !search || note.title.toLowerCase().includes(search) || note.domain.toLowerCase().includes(search) || note.tags.some((tag) => tag.toLowerCase().includes(search)) || note.body.toLowerCase().includes(search); });
+  const activeNote = notes.find((note) => String(note.id) === String(state.activeNoteId)) || filtered[0] || null;
   const uploads = state.uploadedFiles.map(normalizeUpload);
   const reviews = state.syllabusReviews.map(normalizeSyllabusReview);
   const uploadRows = uploads.map((file) => {
@@ -861,7 +965,7 @@ function renderNotebook(intel) {
     const items = Array.isArray(summary.extractedItems) ? summary.extractedItems : [];
     return `<div class="review-card" style="--accent:${review.parseStatus === "confirmed" ? TOKENS.ok : TOKENS.academy};"><div class="review-card__head"><div><div class="panel-label">${review.parseStatus === "confirmed" ? "confirmed syllabus" : "needs review"}</div><h4>${escapeHtml(review.title)}</h4></div>${pill(`${Math.round((review.confidence || 0) * 100)}% confidence`, review.parseStatus === "confirmed" ? TOKENS.ok : TOKENS.warn)}</div><div class="review-grid"><span>Course</span><strong>${escapeHtml(summary.courseName || "Needs review")}</strong><span>Code</span><strong>${escapeHtml(summary.courseCode || "Needs review")}</strong></div><div class="extraction-list">${items.map((item) => `<div><span>${escapeHtml(item.type)}</span><strong>${escapeHtml(item.title)}</strong></div>`).join("")}</div><p class="footer-note">${escapeHtml(summary.warning || "Review before scheduling assignments.")}</p><button class="primary-action" data-syllabus-confirm="${escapeHtml(review.id)}" ${review.parseStatus === "confirmed" ? "disabled" : ""}>${review.parseStatus === "confirmed" ? "Confirmed" : "Confirm review"}</button></div>`;
   }).join("");
-  return `<section class="section-shell">${heroBand(intel)}<div class="notebook-layout"><aside class="panel panel--quiet" style="--accent:${TOKENS.notebook};"><div class="panel-label">search notes</div><input class="search-input" type="search" placeholder="Search all notes..." value="${escapeHtml(state.noteSearch)}" data-note-search /><div class="note-list" style="margin-top:1rem;">${filtered.map((note) => `<button class="note-button ${note.id === state.activeNoteId ? "is-active" : ""}" data-note-id="${note.id}" style="--accent:${colorFor(note.domain)};"><strong>${note.title}</strong><small>${note.updated} &middot; ${note.domain}</small></button>`).join("")}</div></aside><div class="section-shell"><article class="panel" style="--accent:${activeNote ? colorFor(activeNote.domain) : TOKENS.notebook};">${activeNote ? `<div class="section-list"><div><div class="panel-label">${iconSvg(activeNote.domain)} ${activeNote.domain}</div><h3 style="margin:0; font-family:Syne,system-ui,sans-serif; font-size:1.9rem;">${activeNote.title}</h3><div class="inline-chips" style="margin-top:0.9rem;">${activeNote.tags.map((tag) => pill(`#${tag}`, TOKENS.notebook)).join("")}</div></div><div class="note-content">${activeNote.summary}</div></div>` : `<div class="footer-note">No notes match that search yet.</div>`}</article><article class="panel" style="--accent:${TOKENS.notebook};"><div class="panel-label">source uploads</div><h3 class="empty-title">Upload syllabi, notes, and assignment sheets.</h3><p class="row-subtitle">APEX stores metadata now and can start a review queue for syllabi before real text extraction is connected.</p><label class="upload-zone"><input type="file" multiple data-file-upload /><span>Choose files to attach</span><small>${uploads.length ? `${uploads.length} source file(s) tracked` : "No source files attached yet"}</small></label><div class="section-list" style="margin-top:1rem;">${uploadRows || `<div class="footer-note">No uploads yet. Start with a syllabus so Academy can eventually extract dates and assignments.</div>`}</div></article><article class="panel" style="--accent:${TOKENS.academy};"><div class="panel-label">syllabus review queue</div><h3 class="empty-title">Confirm before APEX schedules anything.</h3><p class="row-subtitle">This is a safe placeholder pipeline: APEX creates review cards from upload metadata, then waits for your confirmation.</p><div class="review-list">${reviewRows || `<div class="footer-note">No syllabus reviews yet. Upload a syllabus, then choose Review as syllabus.</div>`}</div></article><article class="panel" style="--accent:${TOKENS.command};"><div class="panel-label">brain dump</div>${!state.processedDump ? `<textarea class="brain-dump" placeholder="Type anything: study thermo, email professor, pay rent, prep Friday quiz..." data-brain-dump>${escapeHtml(state.brainDump)}</textarea><div class="hero-actions"><button class="primary-action" data-process-dump>Process + sort</button></div>` : `<div class="processing-result"><div class="row is-hot" style="--accent:${TOKENS.ok};"><div class="row-badge">${iconSvg("command", "Processed")}</div><div class="row-copy"><div class="row-title">Dump routed into ${state.processedDump.domains.length} dashboards</div><div class="row-subtitle">${state.processedDump.summary}</div></div></div><div class="inline-chips">${state.processedDump.domains.map((domain) => pill(domain, colorFor(domain.toLowerCase()))).join("")}</div><button class="surface-action" data-clear-dump>New dump</button></div>`}</article></div></div></section>`;
+  return `<section class="section-shell">${heroBand(intel)}<div class="notebook-layout"><aside class="panel panel--quiet" style="--accent:${TOKENS.notebook};"><div class="panel-label">search notes</div><input class="search-input" type="search" placeholder="Search all notes..." value="${escapeHtml(state.noteSearch)}" data-note-search /><button class="primary-action note-create-action" data-note-create type="button">New note</button><div class="note-list" style="margin-top:1rem;">${filtered.map((note) => `<button class="note-button ${String(note.id) === String(state.activeNoteId) ? "is-active" : ""}" data-note-id="${escapeHtml(note.id)}" style="--accent:${colorFor(note.domain)};"><strong>${escapeHtml(note.title)}</strong><small>${escapeHtml(note.updated)} &middot; ${escapeHtml(note.domain)}</small></button>`).join("") || `<div class="footer-note">No notes yet. Create your first source note.</div>`}</div></aside><div class="section-shell"><article class="panel" style="--accent:${activeNote ? colorFor(activeNote.domain) : TOKENS.notebook};">${activeNote ? `<div class="note-editor"><div class="panel-label">${iconSvg(activeNote.domain)} editable note</div><input class="note-title-input" value="${escapeHtml(activeNote.title)}" placeholder="Note title" data-note-title /><div class="note-meta-grid"><label><span>Domain</span><select data-note-domain>${DOMAINS.filter((domain) => domain.id !== "command").map((domain) => `<option value="${domain.id}" ${activeNote.domain === domain.id ? "selected" : ""}>${domain.label}</option>`).join("")}</select></label><label><span>Tags</span><input value="${escapeHtml(activeNote.tags.join(", "))}" placeholder="exam-prep, ideas" data-note-tags /></label></div><textarea class="note-body-input" placeholder="Write notes, links, questions, or source-grounded context here..." data-note-body>${escapeHtml(activeNote.body || activeNote.summary || "")}</textarea><p class="footer-note">Autosaves locally. Cloud sync updates on field change when apex_notes is available.</p></div>` : `<div class="empty-note-state"><h3 class="empty-title">No notes yet.</h3><p class="row-subtitle">Create a note to capture source-grounded context before the AI/RAG layer lands.</p><button class="primary-action" data-note-create type="button">Create first note</button></div>`}</article><article class="panel" style="--accent:${TOKENS.notebook};"><div class="panel-label">source uploads</div><h3 class="empty-title">Upload syllabi, notes, and assignment sheets.</h3><p class="row-subtitle">APEX stores metadata now and can start a review queue for syllabi before real text extraction is connected.</p><label class="upload-zone"><input type="file" multiple data-file-upload /><span>Choose files to attach</span><small>${uploads.length ? `${uploads.length} source file(s) tracked` : "No source files attached yet"}</small></label><div class="section-list" style="margin-top:1rem;">${uploadRows || `<div class="footer-note">No uploads yet. Start with a syllabus so Academy can eventually extract dates and assignments.</div>`}</div></article><article class="panel" style="--accent:${TOKENS.academy};"><div class="panel-label">syllabus review queue</div><h3 class="empty-title">Confirm before APEX schedules anything.</h3><p class="row-subtitle">This is a safe placeholder pipeline: APEX creates review cards from upload metadata, then waits for your confirmation.</p><div class="review-list">${reviewRows || `<div class="footer-note">No syllabus reviews yet. Upload a syllabus, then choose Review as syllabus.</div>`}</div></article><article class="panel" style="--accent:${TOKENS.command};"><div class="panel-label">brain dump</div>${!state.processedDump ? `<textarea class="brain-dump" placeholder="Type anything: study thermo, email professor, pay rent, prep Friday quiz..." data-brain-dump>${escapeHtml(state.brainDump)}</textarea><div class="hero-actions"><button class="primary-action" data-process-dump>Process + sort</button></div>` : `<div class="processing-result"><div class="row is-hot" style="--accent:${TOKENS.ok};"><div class="row-badge">${iconSvg("command", "Processed")}</div><div class="row-copy"><div class="row-title">Dump routed into ${state.processedDump.domains.length} dashboards</div><div class="row-subtitle">${state.processedDump.summary}</div></div></div><div class="inline-chips">${state.processedDump.domains.map((domain) => pill(domain, colorFor(domain.toLowerCase()))).join("")}</div><button class="surface-action" data-clear-dump>New dump</button></div>`}</article></div></div></section>`;
 }
 
 function renderFreshDomainState(intel) {
@@ -1050,7 +1154,8 @@ doc?.addEventListener("click", async (event) => {
   const task = target.closest("[data-task-id]");
   if (task) { const id = Number(task.dataset.taskId); state.tasks = state.tasks.map((item) => item.id === id ? { ...item, done: !item.done } : item); rerender(); return; }
   const noteButton = target.closest("[data-note-id]");
-  if (noteButton) { state.activeNoteId = Number(noteButton.dataset.noteId); rerender(); return; }
+  if (noteButton) { state.activeNoteId = noteButton.dataset.noteId; rerender(); return; }
+  if (target.closest("[data-note-create]")) { await createNotebookNote(); return; }
   const syllabusStart = target.closest("[data-syllabus-start]");
   if (syllabusStart) { await startSyllabusReview(syllabusStart.dataset.syllabusStart); return; }
   const syllabusConfirm = target.closest("[data-syllabus-confirm]");
@@ -1109,21 +1214,42 @@ doc?.addEventListener("input", async (event) => {
   }
   const dump = target.closest("[data-brain-dump]");
   if (dump) { state.brainDump = dump.value; saveState(); return; }
+  const noteTitle = target.closest("[data-note-title]");
+  if (noteTitle) { await updateActiveNote({ title: noteTitle.value }); return; }
+  const noteBody = target.closest("[data-note-body]");
+  if (noteBody) { await updateActiveNote({ body: noteBody.value, summary: noteBody.value }); return; }
+  const noteTags = target.closest("[data-note-tags]");
+  if (noteTags) { await updateActiveNote({ tags: parseTags(noteTags.value) }); return; }
   const range = target.closest("[data-constraint-range-key]");
   if (range) { updateConstraint(range.dataset.constraintRangeGroup, range.dataset.constraintRangeKey, Number(range.value)); return; }
   const sourceUrl = target.closest("[data-source-url]");
   if (sourceUrl) { state.sourceConfig = { ...state.sourceConfig, remoteUrl: sourceUrl.value }; saveState(); scheduleAutoSync(); return; }
   const sourceDraft = target.closest("[data-source-draft]");
   if (sourceDraft) { state.sourceConfig = { ...state.sourceConfig, draftPayload: sourceDraft.value }; saveState(); }
+  const email = target.closest("[data-auth-email]");
+  if (email) { state.auth.email = email.value; return; }
+  const password = target.closest("[data-auth-password]");
+  if (password) { state.auth.password = password.value; }
+});
+
+doc?.addEventListener("change", async (event) => {
+  const target = event.target instanceof Element ? event.target : null;
+  if (!target) return;
   const fileInput = target.closest("[data-file-upload]");
   if (fileInput) {
     await attachSourceFiles(fileInput.files);
     return;
   }
-  const email = target.closest("[data-auth-email]");
-  if (email) { state.auth.email = email.value; return; }
-  const password = target.closest("[data-auth-password]");
-  if (password) { state.auth.password = password.value; }
+  const noteDomain = target.closest("[data-note-domain]");
+  if (noteDomain) {
+    await updateActiveNote({ domain: noteDomain.value }, { syncCloud: true });
+    renderApp();
+    return;
+  }
+  if (target.closest("[data-note-title]") || target.closest("[data-note-body]") || target.closest("[data-note-tags]")) {
+    const active = state.notes.map(normalizeNote).find((note) => String(note.id) === String(state.activeNoteId));
+    if (active) await syncNoteIfCloud(active);
+  }
 });
 
 function scheduleAutoSync() {
@@ -1173,6 +1299,11 @@ async function loadRelationalWorkspaceForUser(user) {
     state.notificationStatus = "cloud";
     const notifications = await loadNotificationRecords(state.auth.client, workspace.id, user.id);
     state.notifications = notifications.map(normalizeNotification);
+    const notes = await loadNoteRecords(state.auth.client, workspace.id);
+    if (notes.length) {
+      state.notes = notes.map(normalizeNote);
+      state.activeNoteId = state.notes[0]?.id || null;
+    }
     const uploads = await loadUploadRecords(state.auth.client, workspace.id);
     if (uploads.length) state.uploadedFiles = uploads.map(normalizeUpload);
     const syllabi = await loadSyllabusRecords(state.auth.client, workspace.id);
@@ -1269,6 +1400,7 @@ async function handleSignOut() {
     state.cloudSaveStatus = "idle";
     state.workspace = { id: null, name: "Local workspace", phase2Enabled: false, error: "" };
     state.notifications = [];
+    state.notes = [];
     state.syllabusReviews = [];
     state.notificationPanelOpen = false;
     state.notificationStatus = "local";
@@ -1296,6 +1428,7 @@ win?.addEventListener("storage", (event) => {
   state.notificationStatus = next.notificationStatus;
   state.noteSearch = next.noteSearch;
   state.activeNoteId = next.activeNoteId;
+  state.notes = next.notes;
   state.brainDump = next.brainDump;
   state.processedDump = next.processedDump;
   state.uploadedFiles = next.uploadedFiles;

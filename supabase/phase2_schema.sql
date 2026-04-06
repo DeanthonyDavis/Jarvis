@@ -200,11 +200,15 @@ create table if not exists public.apex_notes (
   workspace_id uuid not null references public.apex_workspaces(id) on delete cascade,
   notebook_id uuid references public.apex_notebooks(id) on delete set null,
   title text not null,
+  domain text not null default 'notebook',
   body text not null default '',
   tags text[] not null default '{}',
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
+
+alter table public.apex_notes
+add column if not exists domain text not null default 'notebook';
 
 create table if not exists public.apex_uploads (
   id uuid primary key default gen_random_uuid(),
@@ -323,6 +327,7 @@ create index if not exists apex_transactions_account_posted_idx on public.apex_t
 create index if not exists apex_budgets_workspace_period_idx on public.apex_budgets (workspace_id, period_start, period_end);
 create index if not exists apex_notebooks_workspace_id_idx on public.apex_notebooks (workspace_id);
 create index if not exists apex_notes_workspace_id_idx on public.apex_notes (workspace_id);
+create index if not exists apex_notes_workspace_domain_idx on public.apex_notes (workspace_id, domain);
 create index if not exists apex_uploads_workspace_id_idx on public.apex_uploads (workspace_id);
 create index if not exists apex_integrations_workspace_provider_idx on public.apex_integrations (workspace_id, provider_type, provider);
 create index if not exists apex_notifications_user_unread_idx on public.apex_notifications (user_id, created_at desc) where read_at is null and dismissed_at is null;

@@ -1101,6 +1101,70 @@ textarea:focus-visible {
   color: var(--text-soft);
 }
 
+.note-create-action {
+  width: 100%;
+  margin-top: 0.9rem;
+}
+
+.note-editor,
+.empty-note-state {
+  display: grid;
+  gap: 1rem;
+}
+
+.note-title-input,
+.note-body-input,
+.note-meta-grid input,
+.note-meta-grid select {
+  width: 100%;
+  border: 1px solid color-mix(in srgb, var(--accent) 18%, var(--border));
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--text);
+}
+
+.note-title-input {
+  padding: 0.8rem 0;
+  border-width: 0 0 1px;
+  border-radius: 0;
+  background: transparent;
+  font-family: "Syne", system-ui, sans-serif;
+  font-size: clamp(1.8rem, 4vw, 3rem);
+  font-weight: 800;
+  letter-spacing: -0.06em;
+}
+
+.note-meta-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 0.65fr) minmax(0, 1fr);
+  gap: 0.85rem;
+}
+
+.note-meta-grid label {
+  display: grid;
+  gap: 0.45rem;
+  color: var(--text-soft);
+  font-size: 0.76rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.note-meta-grid input,
+.note-meta-grid select {
+  min-height: 2.75rem;
+  padding: 0.75rem 0.85rem;
+  border-radius: 16px;
+  text-transform: none;
+  letter-spacing: 0;
+}
+
+.note-body-input {
+  min-height: 17rem;
+  padding: 1rem;
+  border-radius: 20px;
+  line-height: 1.8;
+  resize: vertical;
+}
+
 .review-list {
   display: grid;
   gap: 1rem;
