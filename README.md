@@ -13,6 +13,7 @@ This workspace contains a self-contained front-end prototype for the APEX Life O
 - `server.js`: local connector server and runtime config endpoint
 - `supabase/schema.sql`: Supabase table plus row-level security policies
 - `supabase/phase2_schema.sql`: additive normalized schema foundation for the production data model
+- `docs/phase-5-intelligence-map.md`: full Phase 5 intelligence definition of done and build order
 - `api/config.js`: Vercel runtime config endpoint for public Supabase keys
 
 ## Dashboards
