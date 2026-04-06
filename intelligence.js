@@ -760,12 +760,23 @@ export function buildCommandCenterIntelligence({
   const completedCount = tasks.filter((task) => task.done).length;
   const openUrgentCount = taskInsights.filter((task) => task.urgent).length;
   const domainLoads = buildDomainLoads(taskInsights, solver.schedulePlan, courseInsights, billInsights);
-  const baseLoad = 34 + openUrgentCount * 7 + taskInsights.length * 2;
+  const hasUserData =
+    taskInsights.length > 0 ||
+    courseInsights.length > 0 ||
+    billInsights.length > 0 ||
+    schedule.length > 0 ||
+    Boolean(checkin.submitted);
+  const baseLoad = hasUserData ? 18 + openUrgentCount * 7 + taskInsights.length * 2 : 0;
   const academicPressure = courseInsights.reduce((sum, course) => sum + course.riskScore, 0) * 0.12;
   const financePressure = billInsights.reduce((sum, bill) => sum + (bill.daysUntilDue !== null && bill.daysUntilDue <= 3 ? 5 : 1), 0);
   const energyPenalty = checkin.submitted ? (6 - checkin.energy) * 4 + (6 - checkin.focus) * 3 : 0;
   const solverPenalty = solver.summary.unscheduledUrgentCount * 8 + solver.summary.unscheduledMinutes * 0.03;
-  const loadScore = CLAMP(Math.round(baseLoad + academicPressure + financePressure + energyPenalty + solverPenalty), 24, 98);
+  const loadScore = hasUserData ? CLAMP(Math.round(baseLoad + academicPressure + financePressure + energyPenalty + solverPenalty), 8, 98) : 0;
+  const loadLabel = !hasUserData ? "setup" : loadScore >= 78 ? "stabilize" : loadScore >= 62 ? "pressured" : "balanced";
+  const loadDisplay = !hasUserData ? "Setup" : `${loadScore}%`;
+  const loadExplanation = !hasUserData
+    ? "Add tasks, classes, bills, calendar events, or a check-in before APEX estimates your load."
+    : "Computed from urgent tasks, course risk, bill timing, check-ins, and solver fit.";
   const conflicts = buildConflicts({
     courseInsights,
     billInsights,
@@ -788,7 +799,10 @@ export function buildCommandCenterIntelligence({
   return {
     generatedAt: now,
     loadScore,
-    loadLabel: loadScore >= 78 ? "stabilize" : loadScore >= 62 ? "pressured" : "balanced",
+    loadLabel,
+    loadDisplay,
+    loadExplanation,
+    hasUserData,
     topPriorities: taskInsights.slice(0, 3),
     completedCount,
     openUrgentCount,
