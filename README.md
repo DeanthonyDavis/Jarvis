@@ -1,8 +1,8 @@
-# APEX Universal 2.0 Prototype
+# Ember Prototype
 
-This workspace contains a self-contained front-end prototype for the APEX Life OS concept.
+This workspace contains a self-contained front-end prototype for the Ember Life OS concept.
 
-APEX is mobile-first. Build and review new product surfaces for phone-sized flows first, then expand them into tablet and desktop layouts. Desktop dashboards are helpful for power review, but the primary user experience should feel like a mobile app: bottom-sheet navigation, large touch targets, short guided steps, and setup actions that fit one screen at a time.
+Ember is mobile-first. Build and review new product surfaces for phone-sized flows first, then expand them into tablet and desktop layouts. Desktop dashboards are helpful for power review, but the primary user experience should feel like a mobile app: bottom-sheet navigation, large touch targets, short guided steps, and setup actions that fit one screen at a time.
 
 ## Files
 
@@ -113,7 +113,7 @@ You can still open `index.html` directly for a static-only pass, but the local s
    - `SUPABASE_URL`
    - `SUPABASE_ANON_KEY`
 4. Redeploy the Vercel project.
-5. Open the app, create an account, and you should land in a clean APEX workspace with no demo tasks or classes.
+5. Open the app, create an account, and you should land in a clean Ember workspace with no demo tasks or classes.
 
 For local testing, copy `.env.example` to `.env` and fill in the same Supabase values, then run `node server.js`.
 
@@ -121,9 +121,9 @@ For local testing, copy `.env.example` to `.env` and fill in the same Supabase v
 
 `supabase/phase2_schema.sql` adds the normalized production-model foundation without removing the current workspace blob. It creates workspace membership, classes, assignments, syllabi, tasks, calendar events, finance records, notebooks, uploads, integrations, notifications, activity logs, scheduler preferences, and constraint rules with RLS policies and supporting indexes.
 
-Run it only after `supabase/schema.sql`. The app still uses `apex_user_state` as its compatibility layer until the UI and API are migrated table-by-table. If this file has been run, APEX will create/read a real workspace row and use `apex_notifications` for notification records, `apex_integrations` plus `apex_integration_events` for connector lifecycle state and logs, `apex_activity_log` for audit records, `apex_notes` for Notebook notes, `apex_uploads` for upload metadata, and `apex_syllabi` for syllabus review state. If it has not been run yet, notifications, connector status, connector events, activity, notes, uploads, and syllabus reviews fall back to local workspace state.
+Run it only after `supabase/schema.sql`. The app still uses `apex_user_state` as its compatibility layer until the UI and API are migrated table-by-table. If this file has been run, Ember will create/read a real workspace row and use `apex_notifications` for notification records, `apex_integrations` plus `apex_integration_events` for connector lifecycle state and logs, `apex_activity_log` for audit records, `apex_notes` for Notebook notes, `apex_uploads` for upload metadata, and `apex_syllabi` for syllabus review state. If it has not been run yet, notifications, connector status, connector events, activity, notes, uploads, and syllabus reviews fall back to local workspace state.
 
-The syllabus review flow is intentionally conservative: `/api/ingest` extracts text, creates a parsed review card, and waits for user confirmation before parsed dates and assignments become Academy data. After confirmation, APEX adds the imported course plus extracted assignment/exam tasks when they are present and avoids duplicating existing rows. Plain text works without extra packages. PDF/DOCX extraction uses optional `pdf-parse` and `mammoth` dependencies. Image OCR uses `tesseract.js` as the fallback when available. If `APEX_AI_PARSE_URL` or `OPENAI_API_KEY` is configured, the parser can upgrade from deterministic heuristics to a source-grounded AI parse.
+The syllabus review flow is intentionally conservative: `/api/ingest` extracts text, creates a parsed review card, and waits for user confirmation before parsed dates and assignments become Academy data. After confirmation, Ember adds the imported course plus extracted assignment/exam tasks when they are present and avoids duplicating existing rows. Plain text works without extra packages. PDF/DOCX extraction uses optional `pdf-parse` and `mammoth` dependencies. Image OCR uses `tesseract.js` as the fallback when available. If `APEX_AI_PARSE_URL` or `OPENAI_API_KEY` is configured, the parser can upgrade from deterministic heuristics to a source-grounded AI parse.
 
 ## First User Testing
 
@@ -137,7 +137,7 @@ Invoke-RestMethod -Uri "http://127.0.0.1:4173/api/user/first" -Method Post -Cont
 ```
 
 4. In the app, use Command Center -> Live Data Sources -> Use local live source -> Sync now.
-5. Use APEX like a real beta user: change constraints, complete tasks, submit a Mind check-in, add a Brain Dump, and post webhook payloads for calendar/LMS changes.
+5. Use Ember like a real beta user: change constraints, complete tasks, submit a Mind check-in, add a Brain Dump, and post webhook payloads for calendar/LMS changes.
 
 ## Next step
 
