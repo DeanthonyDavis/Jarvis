@@ -47,6 +47,7 @@ You can still open `index.html` directly for a static-only pass, but the local s
 - Contextual section guide boxes that can be dismissed after each section is understood
 - Command Center first-time setup checklist for uploading syllabi and connecting school, work/calendar, and finance sources
 - Consistent SVG domain icon system across navigation, topbar, help, and setup surfaces
+- Notification center with read/dismiss state, local fallback, and optional Supabase-backed records from the Phase 2 schema
 - Domain switching with a collapsible sidebar
 - Command Center driven by computed priorities, conflicts, load, weekly heat, and a real slot-assignment solver pass
 - Interactive tasks across Academy, Works, and Life
@@ -89,7 +90,7 @@ For local testing, copy `.env.example` to `.env` and fill in the same Supabase v
 
 `supabase/phase2_schema.sql` adds the normalized production-model foundation without removing the current workspace blob. It creates workspace membership, classes, assignments, syllabi, tasks, calendar events, finance records, notebooks, uploads, integrations, notifications, activity logs, scheduler preferences, and constraint rules with RLS policies and supporting indexes.
 
-Run it only after `supabase/schema.sql`. The app still uses `apex_user_state` as its compatibility layer until the UI and API are migrated table-by-table.
+Run it only after `supabase/schema.sql`. The app still uses `apex_user_state` as its compatibility layer until the UI and API are migrated table-by-table. If this file has been run, APEX will create/read a real workspace row and use `apex_notifications` for notification records. If it has not been run yet, notifications fall back to local workspace state.
 
 ## First User Testing
 

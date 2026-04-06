@@ -1,7 +1,12 @@
 import { buildCommandCenterIntelligence, normalizeConstraints } from "./intelligence.js";
 import {
+  createNotificationRecord,
+  dismissNotificationRecord,
+  ensureUserWorkspace,
   initAuthClient,
+  loadNotificationRecords,
   loadUserWorkspace,
+  markNotificationRecordRead,
   saveUserWorkspace,
   signInWithPassword,
   signOut,
@@ -80,6 +85,10 @@ function defaultSnapshot() {
     },
     subTabs: { academy: "grades", works: "shifts" },
     toast: null,
+    workspace: { id: null, name: "Local workspace", phase2Enabled: false, error: "" },
+    notifications: [],
+    notificationPanelOpen: false,
+    notificationStatus: "local",
     noteSearch: "",
     activeNoteId: NOTES[0]?.id || null,
     uploadedFiles: [],
@@ -133,6 +142,10 @@ function loadState() {
       constraints: normalizeConstraints(saved.constraints),
       sourceConfig: { ...defaults.sourceConfig, ...(saved.sourceConfig || {}) },
       subTabs: { ...defaults.subTabs, ...(saved.subTabs || {}) },
+      workspace: { ...defaults.workspace, ...(saved.workspace || {}) },
+      notifications: Array.isArray(saved.notifications) ? saved.notifications : defaults.notifications,
+      notificationPanelOpen: Boolean(saved.notificationPanelOpen),
+      notificationStatus: saved.notificationStatus || defaults.notificationStatus,
       noteSearch: saved.noteSearch || "",
       activeNoteId: saved.activeNoteId ?? defaults.activeNoteId,
       uploadedFiles: Array.isArray(saved.uploadedFiles) ? saved.uploadedFiles : defaults.uploadedFiles,
@@ -175,6 +188,8 @@ const state = {
 const app = doc?.querySelector("#app") || null;
 const colorFor = (domain) => TOKENS[domain] || TOKENS.command;
 const activeDomain = () => DOMAINS.find((domain) => domain.id === state.activeDomain);
+const localId = (prefix) => `${prefix}-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+const unreadNotifications = () => state.notifications.filter((item) => !item.read_at && !item.dismissed_at && !item.resolved_at);
 const getIntel = (now = new Date()) =>
   buildCommandCenterIntelligence({
     now,
@@ -218,6 +233,10 @@ function saveState() {
       constraints: state.constraints,
       sourceConfig: state.sourceConfig,
       subTabs: state.subTabs,
+      workspace: state.workspace,
+      notifications: state.notifications,
+      notificationPanelOpen: state.notificationPanelOpen,
+      notificationStatus: state.notificationStatus,
       noteSearch: state.noteSearch,
       activeNoteId: state.activeNoteId,
       uploadedFiles: state.uploadedFiles,
@@ -240,6 +259,9 @@ function userWorkspaceState() {
     constraints: state.constraints,
     sourceConfig: state.sourceConfig,
     subTabs: state.subTabs,
+    workspace: state.workspace,
+    notifications: state.notifications,
+    notificationStatus: state.notificationStatus,
     noteSearch: state.noteSearch,
     activeNoteId: state.activeNoteId,
     uploadedFiles: state.uploadedFiles,
@@ -261,6 +283,10 @@ function applyWorkspaceState(workspace) {
   state.constraints = normalizeConstraints(workspace?.constraints || base.constraints);
   state.sourceConfig = { ...base.sourceConfig, ...(workspace?.sourceConfig || {}) };
   state.subTabs = { ...base.subTabs, ...(workspace?.subTabs || {}) };
+  state.workspace = { ...base.workspace, ...(workspace?.workspace || {}) };
+  state.notifications = Array.isArray(workspace?.notifications) ? workspace.notifications : base.notifications;
+  state.notificationStatus = workspace?.notificationStatus || base.notificationStatus;
+  state.notificationPanelOpen = Boolean(workspace?.notificationPanelOpen);
   state.noteSearch = workspace?.noteSearch || "";
   state.activeNoteId = workspace?.activeNoteId ?? null;
   state.uploadedFiles = Array.isArray(workspace?.uploadedFiles) ? workspace.uploadedFiles : [];
@@ -333,10 +359,113 @@ function renderShellStatus(intel = getIntel()) {
   const cloud = doc?.querySelector("[data-shell-cloud]");
   const source = doc?.querySelector("[data-shell-source]");
   const sourceDot = doc?.querySelector("[data-shell-source-dot]");
+  const notifications = doc?.querySelector("[data-shell-notifications]");
+  const notificationDot = doc?.querySelector("[data-shell-notification-dot]");
+  const notificationToggle = doc?.querySelector("[data-notification-toggle]");
+  const unreadCount = unreadNotifications().length;
   if (load) load.textContent = intel.loadDisplay || `${intel.loadScore}%`;
   if (cloud) cloud.textContent = state.cloudSaveStatus;
   if (source) source.textContent = state.sourceConfig.lastSyncStatus;
   if (sourceDot) sourceDot.style.background = statusTone(state.sourceConfig.lastSyncStatus);
+  if (notifications) notifications.textContent = String(unreadCount);
+  if (notificationDot) notificationDot.style.background = unreadCount ? TOKENS.warn : TOKENS.ok;
+  if (notificationToggle) notificationToggle.classList.toggle("has-unread", unreadCount > 0);
+}
+
+function normalizeNotification(record) {
+  return {
+    id: record.id || localId("note"),
+    type: record.type || "app",
+    title: record.title || "APEX notification",
+    body: record.body || "",
+    severity: record.severity || "info",
+    source_entity_type: record.source_entity_type || record.sourceEntityType || null,
+    source_entity_id: record.source_entity_id || record.sourceEntityId || null,
+    action_payload: record.action_payload || record.actionPayload || {},
+    created_at: record.created_at || new Date().toISOString(),
+    read_at: record.read_at || null,
+    resolved_at: record.resolved_at || null,
+    dismissed_at: record.dismissed_at || null,
+    local: Boolean(record.local),
+  };
+}
+
+async function notifyUser(notification, { toast = true } = {}) {
+  const localNotification = normalizeNotification({ ...notification, local: true });
+  state.notifications = [localNotification, ...state.notifications].slice(0, 30);
+  saveState();
+  renderShellStatus();
+  if (state.notificationPanelOpen) renderNotificationCenter();
+  if (toast) pushToast(localNotification.title);
+
+  if (!state.workspace.phase2Enabled || !state.workspace.id || !state.auth.client || !state.auth.user) return;
+  try {
+    const created = await createNotificationRecord(state.auth.client, state.workspace.id, state.auth.user.id, notification);
+    state.notifications = state.notifications.map((item) => item.id === localNotification.id ? normalizeNotification(created) : item);
+    saveState();
+    renderShellStatus();
+    if (state.notificationPanelOpen) renderNotificationCenter();
+  } catch (error) {
+    state.notificationStatus = "local";
+    state.workspace = {
+      ...state.workspace,
+      phase2Enabled: false,
+      error: error instanceof Error ? error.message : "Notification sync unavailable.",
+    };
+    saveState();
+  }
+}
+
+async function markNotificationRead(notificationId) {
+  const now = new Date().toISOString();
+  state.notifications = state.notifications.map((item) => item.id === notificationId ? { ...item, read_at: item.read_at || now } : item);
+  saveState();
+  renderShellStatus();
+  renderNotificationCenter();
+  if (!state.workspace.phase2Enabled || !state.auth.client || !state.auth.user) return;
+  try {
+    await markNotificationRecordRead(state.auth.client, notificationId, state.auth.user.id);
+  } catch {
+    state.notificationStatus = "local";
+    saveState();
+    renderNotificationCenter();
+  }
+}
+
+async function dismissNotification(notificationId) {
+  const now = new Date().toISOString();
+  state.notifications = state.notifications.map((item) => item.id === notificationId ? { ...item, dismissed_at: item.dismissed_at || now } : item);
+  saveState();
+  renderShellStatus();
+  renderNotificationCenter();
+  if (!state.workspace.phase2Enabled || !state.auth.client || !state.auth.user) return;
+  try {
+    await dismissNotificationRecord(state.auth.client, notificationId, state.auth.user.id);
+  } catch {
+    state.notificationStatus = "local";
+    saveState();
+    renderNotificationCenter();
+  }
+}
+
+async function markAllNotificationsRead() {
+  const ids = unreadNotifications().map((item) => item.id);
+  state.notifications = state.notifications.map((item) => item.dismissed_at || item.resolved_at ? item : { ...item, read_at: item.read_at || new Date().toISOString() });
+  saveState();
+  renderShellStatus();
+  renderNotificationCenter();
+  for (const id of ids) {
+    if (state.workspace.phase2Enabled && state.auth.client && state.auth.user) {
+      try {
+        await markNotificationRecordRead(state.auth.client, id, state.auth.user.id);
+      } catch {
+        state.notificationStatus = "local";
+        saveState();
+        renderNotificationCenter();
+        break;
+      }
+    }
+  }
 }
 
 function formatHourLabel(hour) {
@@ -401,6 +530,22 @@ function renderSectionHelp() {
   const help = HELP_COPY[domain.id];
   if (!help) return "";
   return `<aside class="section-help" style="--accent:${colorFor(domain.id)};"><div class="help-icon">${iconSvg(domain.id)}</div><div><div class="panel-label">section guide</div><h4>${help[0]}</h4><p>${help[1]}</p></div><button aria-label="Dismiss help" data-help-dismiss>&times;</button></aside>`;
+}
+
+function renderNotificationCenter() {
+  let panel = doc?.querySelector("[data-notification-center]");
+  if (!state.notificationPanelOpen) {
+    panel?.remove();
+    return;
+  }
+  if (!panel) {
+    panel = doc.createElement("aside");
+    panel.setAttribute("data-notification-center", "");
+    doc.body.appendChild(panel);
+  }
+  const activeItems = state.notifications.filter((item) => !item.dismissed_at).slice(0, 20);
+  panel.className = "notification-center";
+  panel.innerHTML = `<div class="notification-head"><div><div class="panel-label">notification center</div><h4>Action state</h4><p>${state.workspace.phase2Enabled ? "Backed by Supabase records." : "Local fallback until phase2_schema.sql is active."}</p></div><button aria-label="Close notifications" data-notification-toggle>&times;</button></div><div class="notification-actions"><button class="surface-action" data-notification-read-all>Mark all read</button>${pill(`${unreadNotifications().length} unread`, unreadNotifications().length ? TOKENS.warn : TOKENS.ok)}${pill(state.notificationStatus, state.notificationStatus === "cloud" ? TOKENS.ok : TOKENS.notebook)}</div><div class="notification-list">${activeItems.length ? activeItems.map((item) => `<article class="notification-item ${item.read_at ? "is-read" : "is-unread"}" style="--accent:${item.severity === "critical" ? TOKENS.danger : item.severity === "warning" ? TOKENS.warn : item.severity === "success" ? TOKENS.ok : TOKENS.command};"><div class="notification-dot"></div><div class="notification-copy"><strong>${escapeHtml(item.title)}</strong><p>${escapeHtml(item.body || "No additional detail.")}</p><small>${new Date(item.created_at).toLocaleString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}</small></div><div class="notification-controls"><button class="small-action" data-notification-read="${item.id}">${item.read_at ? "Read" : "Mark Read"}</button><button class="small-action" data-notification-dismiss="${item.id}">Dismiss</button></div></article>`).join("") : `<div class="empty-notifications">No active notifications. When APEX creates a real alert, it will show here first and the toast will only mirror it briefly.</div>`}</div></aside>`;
 }
 
 function heroBand(intel) {
@@ -547,12 +692,14 @@ function renderApp() {
   if (!state.auth.ready || !state.auth.user) {
     renderAuthShell();
     renderToast();
+    renderNotificationCenter();
     return;
   }
   const domain = activeDomain();
   const intel = getIntel();
-  app.innerHTML = `<div class="app-shell" style="--accent:${colorFor(domain.id)};"><div class="ambient"><div class="orb orb--one"></div><div class="orb orb--two"></div><div class="orb orb--three"></div></div><aside class="sidebar ${state.sidebarCollapsed ? "is-collapsed" : ""}"><div class="brand"><div class="brand-mark">${iconSvg("command")}</div><div class="brand-copy"><h1>APEX</h1><p>Universal 2.0</p></div></div><nav class="sidebar-nav">${DOMAINS.map((item) => `<button class="nav-button ${state.activeDomain === item.id ? "is-active" : ""}" data-domain="${item.id}" style="--accent:${colorFor(item.id)};"><span class="nav-icon">${iconSvg(item.id, item.label)}</span><span class="nav-copy"><strong>${item.label}</strong><span>${item.blurb}</span></span></button>`).join("")}</nav><div class="sidebar-footer"><button class="collapse-button" data-collapse-sidebar aria-label="${state.sidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"}"><span>${state.sidebarCollapsed ? "&#9654;" : "&#9664;"}</span><span>${state.sidebarCollapsed ? "Expand" : "Collapse"}</span></button></div></aside><main class="main"><header class="topbar"><div class="topbar-title"><div class="topbar-icon">${iconSvg(domain.id, domain.label)}</div><div class="topbar-copy"><h2>APEX ${domain.label}</h2><p>${formatToday()} &middot; ${state.auth.user.email}</p></div></div><div class="topbar-metrics"><div class="metric-pill"><span class="metric-dot"></span><span>Load</span><strong data-shell-load>${intel.loadDisplay || `${intel.loadScore}%`}</strong></div><div class="metric-pill"><span class="metric-dot" style="background:${TOKENS.command};"></span><span>Cloud</span><strong data-shell-cloud>${state.cloudSaveStatus}</strong></div><div class="metric-pill"><span class="metric-dot" data-shell-source-dot style="background:${statusTone(state.sourceConfig.lastSyncStatus)};"></span><span>Source</span><strong data-shell-source>${state.sourceConfig.lastSyncStatus}</strong></div><button class="surface-action" data-auth-signout>Sign Out</button><div class="mini-domain-rail">${DOMAINS.filter((item) => item.id !== "command").map((item) => `<button class="stat-dot-button ${item.id === state.activeDomain ? "is-active" : ""}" data-domain="${item.id}" style="--dot:${colorFor(item.id)};" title="${item.label}" aria-label="Open ${item.label}"></button>`).join("")}</div></div></header><div class="content">${renderContent(intel)}</div></main>${renderOnboarding()}${renderSectionHelp()}</div>`;
+  app.innerHTML = `<div class="app-shell" style="--accent:${colorFor(domain.id)};"><div class="ambient"><div class="orb orb--one"></div><div class="orb orb--two"></div><div class="orb orb--three"></div></div><aside class="sidebar ${state.sidebarCollapsed ? "is-collapsed" : ""}"><div class="brand"><div class="brand-mark">${iconSvg("command")}</div><div class="brand-copy"><h1>APEX</h1><p>Universal 2.0</p></div></div><nav class="sidebar-nav">${DOMAINS.map((item) => `<button class="nav-button ${state.activeDomain === item.id ? "is-active" : ""}" data-domain="${item.id}" style="--accent:${colorFor(item.id)};"><span class="nav-icon">${iconSvg(item.id, item.label)}</span><span class="nav-copy"><strong>${item.label}</strong><span>${item.blurb}</span></span></button>`).join("")}</nav><div class="sidebar-footer"><button class="collapse-button" data-collapse-sidebar aria-label="${state.sidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"}"><span>${state.sidebarCollapsed ? "&#9654;" : "&#9664;"}</span><span>${state.sidebarCollapsed ? "Expand" : "Collapse"}</span></button></div></aside><main class="main"><header class="topbar"><div class="topbar-title"><div class="topbar-icon">${iconSvg(domain.id, domain.label)}</div><div class="topbar-copy"><h2>APEX ${domain.label}</h2><p>${formatToday()} &middot; ${state.auth.user.email}</p></div></div><div class="topbar-metrics"><div class="metric-pill"><span class="metric-dot"></span><span>Load</span><strong data-shell-load>${intel.loadDisplay || `${intel.loadScore}%`}</strong></div><div class="metric-pill"><span class="metric-dot" style="background:${TOKENS.command};"></span><span>Cloud</span><strong data-shell-cloud>${state.cloudSaveStatus}</strong></div><div class="metric-pill"><span class="metric-dot" data-shell-source-dot style="background:${statusTone(state.sourceConfig.lastSyncStatus)};"></span><span>Source</span><strong data-shell-source>${state.sourceConfig.lastSyncStatus}</strong></div><button class="metric-pill metric-button ${unreadNotifications().length ? "has-unread" : ""}" data-notification-toggle type="button"><span class="metric-dot" data-shell-notification-dot style="background:${unreadNotifications().length ? TOKENS.warn : TOKENS.ok};"></span><span>Alerts</span><strong data-shell-notifications>${unreadNotifications().length}</strong></button><button class="surface-action" data-auth-signout>Sign Out</button><div class="mini-domain-rail">${DOMAINS.filter((item) => item.id !== "command").map((item) => `<button class="stat-dot-button ${item.id === state.activeDomain ? "is-active" : ""}" data-domain="${item.id}" style="--dot:${colorFor(item.id)};" title="${item.label}" aria-label="Open ${item.label}"></button>`).join("")}</div></div></header><div class="content">${renderContent(intel)}</div></main>${renderOnboarding()}${renderSectionHelp()}</div>`;
   renderToast();
+  renderNotificationCenter();
 }
 
 function processBrainDump(text) {
@@ -630,12 +777,22 @@ function applySourcePayload(rawPayload, origin = "manual payload") {
     lastError: "",
   };
   rerender();
-  pushToast(`${origin} applied: ${applied.join(", ")}.`);
+  notifyUser({
+    type: "sync",
+    title: `${origin} applied`,
+    body: `Updated ${applied.join(", ")} from an APEX source payload.`,
+    severity: "success",
+  });
 }
 
 async function syncRemoteSource() {
   if (!state.sourceConfig.remoteUrl.trim()) {
-    pushToast("Add a remote JSON URL before syncing.");
+    notifyUser({
+      type: "setup",
+      title: "Add a remote JSON URL",
+      body: "The source panel needs a URL before APEX can run a remote sync.",
+      severity: "warning",
+    });
     return;
   }
   state.sourceConfig = {
@@ -663,7 +820,12 @@ async function syncRemoteSource() {
       lastError: error instanceof Error ? error.message : "Unknown sync error",
     };
     rerender();
-    pushToast("Remote sync failed. Check the source panel for details.");
+    notifyUser({
+      type: "sync_error",
+      title: "Remote sync failed",
+      body: "Check the source panel for details before trusting the imported data.",
+      severity: "warning",
+    });
   }
 }
 
@@ -689,13 +851,19 @@ doc?.addEventListener("click", async (event) => {
   if (target.closest("[data-apply-source]")) { try { applySourcePayload(state.sourceConfig.draftPayload, "manual payload"); } catch (error) { state.sourceConfig = { ...state.sourceConfig, lastSyncStatus: "error", lastError: error instanceof Error ? error.message : "Invalid payload" }; rerender(); } return; }
   if (target.closest("[data-sync-source]")) { await syncRemoteSource(); scheduleAutoSync(); return; }
   if (target.closest("[data-reset-source]")) { state.sourceConfig = { ...state.sourceConfig, lastSyncStatus: "idle", lastError: "" }; rerender(); return; }
-  if (target.closest("[data-submit-checkin]")) { if (state.checkin.energy && state.checkin.focus && state.checkin.mood) { state.checkin.submitted = true; rerender(); pushToast("Mind check-in logged. The solver softened the next 24 hours."); } return; }
+  if (target.closest("[data-submit-checkin]")) { if (state.checkin.energy && state.checkin.focus && state.checkin.mood) { state.checkin.submitted = true; rerender(); notifyUser({ type: "mind_checkin", title: "Mind check-in logged", body: "The solver softened the next 24 hours using your energy, focus, and mood signals.", severity: "success" }); } return; }
   if (target.closest("[data-reset-checkin]")) { state.checkin = { energy: 0, focus: 0, mood: 0, submitted: false }; rerender(); return; }
   if (target.closest("[data-process-dump]")) { if (state.brainDump.trim()) { state.processedDump = processBrainDump(state.brainDump); rerender(); } return; }
   if (target.closest("[data-clear-dump]")) { state.brainDump = ""; state.processedDump = null; rerender(); return; }
-  if (target.closest("[data-focus-top]")) { const intel = getIntel(); if (intel.topPriorities[0]) pushToast(`Focus target: ${intel.topPriorities[0].title}.`); return; }
+  if (target.closest("[data-focus-top]")) { const intel = getIntel(); if (intel.topPriorities[0]) notifyUser({ type: "focus_target", title: "Focus target selected", body: intel.topPriorities[0].title, severity: "info" }); return; }
   if (target.closest("[data-auth-toggle]")) { state.auth.mode = state.auth.mode === "sign-up" ? "sign-in" : "sign-up"; state.auth.error = ""; renderApp(); return; }
   if (target.closest("[data-auth-signout]")) { await handleSignOut(); return; }
+  if (target.closest("[data-notification-toggle]")) { state.notificationPanelOpen = !state.notificationPanelOpen; saveState(); renderNotificationCenter(); return; }
+  if (target.closest("[data-notification-read-all]")) { await markAllNotificationsRead(); return; }
+  const readNotification = target.closest("[data-notification-read]");
+  if (readNotification) { await markNotificationRead(readNotification.dataset.notificationRead); return; }
+  const dismissNotificationButton = target.closest("[data-notification-dismiss]");
+  if (dismissNotificationButton) { await dismissNotification(dismissNotificationButton.dataset.notificationDismiss); return; }
   if (target.closest("[data-onboarding-skip]")) { state.onboarding = { ...state.onboarding, tutorialOpen: false, tutorialSkipped: true }; rerender(); return; }
   if (target.closest("[data-onboarding-next]")) { advanceOnboarding(); return; }
   if (target.closest("[data-onboarding-back]")) { retreatOnboarding(); return; }
@@ -745,7 +913,12 @@ doc?.addEventListener("input", (event) => {
       })),
     ];
     rerender();
-    pushToast("Files attached as source stubs. Parsing comes next.");
+    notifyUser({
+      type: "upload",
+      title: "Files attached",
+      body: "Your files were added as source stubs. Parsing and review comes next.",
+      severity: "success",
+    });
     return;
   }
   const email = target.closest("[data-auth-email]");
@@ -788,6 +961,30 @@ function retreatOnboarding() {
   rerender();
 }
 
+async function loadRelationalWorkspaceForUser(user) {
+  if (!state.auth.client) return;
+  try {
+    const workspace = await ensureUserWorkspace(state.auth.client, user.id);
+    state.workspace = {
+      id: workspace.id,
+      name: workspace.name || "My APEX Workspace",
+      phase2Enabled: true,
+      error: "",
+    };
+    state.notificationStatus = "cloud";
+    const notifications = await loadNotificationRecords(state.auth.client, workspace.id, user.id);
+    state.notifications = notifications.map(normalizeNotification);
+  } catch (error) {
+    state.workspace = {
+      id: null,
+      name: "Local workspace",
+      phase2Enabled: false,
+      error: error instanceof Error ? error.message : "Phase 2 schema unavailable.",
+    };
+    state.notificationStatus = "local";
+  }
+}
+
 async function loadWorkspaceForUser(user) {
   try {
     const workspace = await loadUserWorkspace(state.auth.client, user.id);
@@ -799,6 +996,7 @@ async function loadWorkspaceForUser(user) {
       await saveUserWorkspace(state.auth.client, user.id, userWorkspaceState());
       state.cloudSaveStatus = "ready";
     }
+    await loadRelationalWorkspaceForUser(user);
     saveState();
   } catch (error) {
     state.auth.error = error instanceof Error ? error.message : "Unable to load your workspace.";
@@ -842,7 +1040,12 @@ async function handleAuthSubmit() {
     state.auth.user = data.user || data.session?.user || null;
     if (state.auth.user) {
       await loadWorkspaceForUser(state.auth.user);
-      pushToast("Welcome to your fresh APEX workspace.");
+      notifyUser({
+        type: "welcome",
+        title: "Welcome to your APEX workspace",
+        body: "Start with the setup checklist, then add your own sources when you are ready.",
+        severity: "success",
+      });
     } else {
       state.auth.message = "Check your email to confirm the account, then sign in.";
     }
@@ -861,6 +1064,10 @@ async function handleSignOut() {
     state.auth.user = null;
     state.auth.password = "";
     state.cloudSaveStatus = "idle";
+    state.workspace = { id: null, name: "Local workspace", phase2Enabled: false, error: "" };
+    state.notifications = [];
+    state.notificationPanelOpen = false;
+    state.notificationStatus = "local";
     renderApp();
   }
 }
@@ -879,6 +1086,10 @@ win?.addEventListener("storage", (event) => {
   state.constraints = next.constraints;
   state.sourceConfig = next.sourceConfig;
   state.subTabs = next.subTabs;
+  state.workspace = next.workspace;
+  state.notifications = next.notifications;
+  state.notificationPanelOpen = next.notificationPanelOpen;
+  state.notificationStatus = next.notificationStatus;
   state.noteSearch = next.noteSearch;
   state.activeNoteId = next.activeNoteId;
   state.brainDump = next.brainDump;
