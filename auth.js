@@ -6,6 +6,7 @@ const UPLOAD_TABLE = "apex_uploads";
 const SYLLABUS_TABLE = "apex_syllabi";
 const NOTE_TABLE = "apex_notes";
 const INTEGRATION_TABLE = "apex_integrations";
+const INTEGRATION_EVENT_TABLE = "apex_integration_events";
 
 export async function loadRuntimeConfig() {
   if (typeof fetch === "undefined") return { supabaseUrl: "", supabaseAnonKey: "" };
@@ -294,22 +295,34 @@ export async function updateNoteRecord(client, noteId, patch) {
   return data;
 }
 
-const integrationColumns = "id, provider, provider_type, status, scopes, token_ref, last_synced_at, last_error, metadata, created_at, updated_at";
+const legacyIntegrationColumns = "id, provider, provider_type, status, scopes, token_ref, last_synced_at, next_sync_at, last_error, metadata, created_at, updated_at";
+const integrationColumns = "id, provider, provider_type, status, auth_state, webhook_status, sync_status, scopes, token_ref, refresh_token_ref, token_expires_at, refresh_status, last_synced_at, next_sync_at, last_tested_at, last_sync_result, error_count, last_error, metadata, created_at, updated_at";
 
 export async function loadIntegrationRecords(client, workspaceId) {
-  const { data, error } = await client
+  const query = client
     .from(INTEGRATION_TABLE)
     .select(integrationColumns)
     .eq("workspace_id", workspaceId)
     .order("provider_type", { ascending: true })
     .order("provider", { ascending: true });
+  const { data, error } = await query;
+  if (error && /column .* does not exist/i.test(error.message || "")) {
+    const fallback = await client
+      .from(INTEGRATION_TABLE)
+      .select(legacyIntegrationColumns)
+      .eq("workspace_id", workspaceId)
+      .order("provider_type", { ascending: true })
+      .order("provider", { ascending: true });
+    if (fallback.error) throw fallback.error;
+    return fallback.data || [];
+  }
   if (error) throw error;
   return data || [];
 }
 
 export async function upsertIntegrationRecord(client, workspaceId, integration) {
   const providerType = integration.providerType || integration.provider_type;
-  const payload = {
+  const basePayload = {
       workspace_id: workspaceId,
       provider: integration.provider,
       provider_type: providerType,
@@ -317,6 +330,7 @@ export async function upsertIntegrationRecord(client, workspaceId, integration) 
       scopes: Array.isArray(integration.scopes) ? integration.scopes : [],
       token_ref: integration.tokenRef || integration.token_ref || null,
       last_synced_at: integration.lastSyncedAt || integration.last_synced_at || null,
+      next_sync_at: integration.nextSyncAt || integration.next_sync_at || integration.metadata?.nextSyncAt || null,
       last_error: integration.lastError || integration.last_error || null,
       metadata: {
         ...(integration.metadata || {}),
@@ -324,6 +338,18 @@ export async function upsertIntegrationRecord(client, workspaceId, integration) 
       },
       updated_at: new Date().toISOString(),
     };
+  const payload = {
+    ...basePayload,
+    auth_state: integration.authState || integration.auth_state || "not_connected",
+    webhook_status: integration.webhookStatus || integration.webhook_status || "not_configured",
+    sync_status: integration.syncStatus || integration.sync_status || "idle",
+    refresh_token_ref: integration.refreshTokenRef || integration.refresh_token_ref || null,
+    token_expires_at: integration.tokenExpiresAt || integration.token_expires_at || null,
+    refresh_status: integration.refreshStatus || integration.refresh_status || "not_required",
+    last_tested_at: integration.lastTestedAt || integration.last_tested_at || null,
+    last_sync_result: integration.lastSyncResult || integration.last_sync_result || {},
+    error_count: Number(integration.errorCount ?? integration.error_count ?? 0),
+  };
 
   const existing = await client
     .from(INTEGRATION_TABLE)
@@ -334,12 +360,41 @@ export async function upsertIntegrationRecord(client, workspaceId, integration) 
     .maybeSingle();
   if (existing.error) throw existing.error;
 
-  const query = existing.data
-    ? client.from(INTEGRATION_TABLE).update(payload).eq("id", existing.data.id)
-    : client.from(INTEGRATION_TABLE).insert(payload);
+  const writeIntegration = (nextPayload) => existing.data
+    ? client.from(INTEGRATION_TABLE).update(nextPayload).eq("id", existing.data.id)
+    : client.from(INTEGRATION_TABLE).insert(nextPayload);
 
-  const { data, error } = await query
+  let { data, error } = await writeIntegration(payload)
     .select(integrationColumns)
+    .single();
+  if (error && /column .* does not exist/i.test(error.message || "")) {
+    const fallback = await writeIntegration(basePayload)
+      .select(legacyIntegrationColumns)
+      .single();
+    data = fallback.data;
+    error = fallback.error;
+  }
+  if (error) throw error;
+  return data;
+}
+
+export async function createIntegrationEventRecord(client, workspaceId, integration, event) {
+  const integrationId = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(String(integration.id || ""))
+    ? integration.id
+    : null;
+  const payload = {
+    workspace_id: workspaceId,
+    integration_id: integrationId,
+    provider: integration.provider,
+    event_type: event.eventType || event.type || "sync",
+    status: event.status || "info",
+    message: event.message || "",
+    result: event.result || {},
+  };
+  const { data, error } = await client
+    .from(INTEGRATION_EVENT_TABLE)
+    .insert(payload)
+    .select("id, workspace_id, integration_id, provider, event_type, status, message, result, created_at")
     .single();
   if (error) throw error;
   return data;

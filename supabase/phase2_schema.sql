@@ -235,10 +235,19 @@ create table if not exists public.apex_integrations (
   provider text not null,
   provider_type text not null check (provider_type in ('lms', 'calendar', 'finance', 'workforce', 'health', 'webhook', 'storage')),
   status text not null default 'disconnected' check (status in ('disconnected', 'connected', 'needs_reauth', 'error')),
+  auth_state text not null default 'not_connected' check (auth_state in ('not_connected', 'connected', 'needs_reauth', 'reauth_requested', 'error')),
+  webhook_status text not null default 'not_configured' check (webhook_status in ('not_configured', 'active', 'paused', 'error')),
+  sync_status text not null default 'idle' check (sync_status in ('idle', 'syncing', 'success', 'error', 'disabled')),
   scopes text[] not null default '{}',
   token_ref text,
+  refresh_token_ref text,
+  token_expires_at timestamptz,
+  refresh_status text not null default 'not_required' check (refresh_status in ('not_required', 'fresh', 'expires_soon', 'expired', 'refreshing', 'error')),
   last_synced_at timestamptz,
   next_sync_at timestamptz,
+  last_tested_at timestamptz,
+  last_sync_result jsonb not null default '{}'::jsonb,
+  error_count integer not null default 0 check (error_count >= 0),
   last_error text,
   metadata jsonb not null default '{}'::jsonb,
   created_at timestamptz not null default now(),
@@ -248,6 +257,29 @@ create table if not exists public.apex_integrations (
 
 alter table public.apex_integrations
 add column if not exists next_sync_at timestamptz;
+
+alter table public.apex_integrations
+add column if not exists auth_state text not null default 'not_connected',
+add column if not exists webhook_status text not null default 'not_configured',
+add column if not exists sync_status text not null default 'idle',
+add column if not exists refresh_token_ref text,
+add column if not exists token_expires_at timestamptz,
+add column if not exists refresh_status text not null default 'not_required',
+add column if not exists last_tested_at timestamptz,
+add column if not exists last_sync_result jsonb not null default '{}'::jsonb,
+add column if not exists error_count integer not null default 0;
+
+create table if not exists public.apex_integration_events (
+  id uuid primary key default gen_random_uuid(),
+  workspace_id uuid not null references public.apex_workspaces(id) on delete cascade,
+  integration_id uuid references public.apex_integrations(id) on delete set null,
+  provider text not null,
+  event_type text not null check (event_type in ('connect', 'disconnect', 'test', 'sync', 'reauth', 'refresh', 'webhook', 'error')),
+  status text not null default 'info' check (status in ('info', 'success', 'warning', 'error')),
+  message text not null default '',
+  result jsonb not null default '{}'::jsonb,
+  created_at timestamptz not null default now()
+);
 
 create table if not exists public.apex_notifications (
   id uuid primary key default gen_random_uuid(),
@@ -335,6 +367,10 @@ create index if not exists apex_notes_workspace_id_idx on public.apex_notes (wor
 create index if not exists apex_notes_workspace_domain_idx on public.apex_notes (workspace_id, domain);
 create index if not exists apex_uploads_workspace_id_idx on public.apex_uploads (workspace_id);
 create index if not exists apex_integrations_workspace_provider_idx on public.apex_integrations (workspace_id, provider_type, provider);
+create index if not exists apex_integrations_workspace_sync_idx on public.apex_integrations (workspace_id, sync_status, next_sync_at);
+create index if not exists apex_integrations_workspace_auth_idx on public.apex_integrations (workspace_id, auth_state);
+create index if not exists apex_integration_events_workspace_created_idx on public.apex_integration_events (workspace_id, created_at desc);
+create index if not exists apex_integration_events_integration_created_idx on public.apex_integration_events (integration_id, created_at desc);
 create index if not exists apex_notifications_user_unread_idx on public.apex_notifications (user_id, created_at desc) where read_at is null and dismissed_at is null;
 create index if not exists apex_notifications_workspace_idx on public.apex_notifications (workspace_id, created_at desc);
 create index if not exists apex_notification_events_notification_id_idx on public.apex_notification_events (notification_id);
@@ -356,6 +392,7 @@ alter table public.apex_notebooks enable row level security;
 alter table public.apex_notes enable row level security;
 alter table public.apex_uploads enable row level security;
 alter table public.apex_integrations enable row level security;
+alter table public.apex_integration_events enable row level security;
 alter table public.apex_notifications enable row level security;
 alter table public.apex_notification_events enable row level security;
 alter table public.apex_notification_preferences enable row level security;
@@ -403,6 +440,8 @@ drop policy if exists "Members can manage uploads" on public.apex_uploads;
 create policy "Members can manage uploads" on public.apex_uploads for all to authenticated using ((select public.apex_is_workspace_member(workspace_id))) with check ((select public.apex_is_workspace_member(workspace_id)));
 drop policy if exists "Members can manage integrations" on public.apex_integrations;
 create policy "Members can manage integrations" on public.apex_integrations for all to authenticated using ((select public.apex_is_workspace_member(workspace_id))) with check ((select public.apex_is_workspace_member(workspace_id)));
+drop policy if exists "Members can manage integration events" on public.apex_integration_events;
+create policy "Members can manage integration events" on public.apex_integration_events for all to authenticated using ((select public.apex_is_workspace_member(workspace_id))) with check ((select public.apex_is_workspace_member(workspace_id)));
 drop policy if exists "Members can manage notifications" on public.apex_notifications;
 create policy "Members can manage notifications" on public.apex_notifications for all to authenticated using (user_id = (select auth.uid()) and (select public.apex_is_workspace_member(workspace_id))) with check (user_id = (select auth.uid()) and (select public.apex_is_workspace_member(workspace_id)));
 drop policy if exists "Members can manage notification events" on public.apex_notification_events;

@@ -1224,6 +1224,55 @@ textarea:focus-visible {
   font-size: 0.88rem;
 }
 
+.connector-status-grid,
+.connector-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+}
+
+.connector-meta-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.connector-result {
+  display: grid;
+  gap: 0.35rem;
+  padding: 0.75rem 0.85rem;
+  border-radius: 16px;
+  border: 1px solid color-mix(in srgb, var(--accent) 20%, var(--border));
+  background: color-mix(in srgb, var(--accent) 7%, rgba(255, 255, 255, 0.025));
+}
+
+.connector-result span,
+.connector-log span {
+  color: var(--text-faint);
+  font-size: 0.68rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.connector-result strong,
+.connector-log strong {
+  color: var(--text);
+  font-size: 0.82rem;
+  line-height: 1.45;
+}
+
+.connector-log {
+  display: grid;
+  gap: 0.45rem;
+}
+
+.connector-log div {
+  display: grid;
+  gap: 0.25rem;
+  padding: 0.65rem 0.75rem;
+  border-radius: 14px;
+  border: 1px solid var(--border);
+  background: rgba(255, 255, 255, 0.025);
+}
+
 .connector-error {
   padding: 0.65rem 0.75rem;
   border-radius: 14px;

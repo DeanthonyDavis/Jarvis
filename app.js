@@ -5,6 +5,7 @@ import {
   normalizeConstraints,
 } from "./intelligence.js";
 import {
+  createIntegrationEventRecord,
   createNotificationRecord,
   createNoteRecord,
   createSyllabusRecord,
@@ -171,7 +172,24 @@ function defaultSnapshot() {
     notifications: [],
     notificationPanelOpen: false,
     notificationStatus: "local",
-    integrations: clone(CONNECTOR_TEMPLATES).map((item) => ({ ...item, status: "disconnected", lastSyncedAt: null, nextSyncAt: null, lastError: "", metadata: {} })),
+    integrations: clone(CONNECTOR_TEMPLATES).map((item) => ({
+      ...item,
+      status: "disconnected",
+      authState: "not_connected",
+      webhookStatus: item.providerType === "webhook" ? "paused" : "not_configured",
+      syncStatus: "disabled",
+      refreshStatus: "not_required",
+      tokenRef: null,
+      refreshTokenRef: null,
+      tokenExpiresAt: null,
+      lastSyncedAt: null,
+      nextSyncAt: null,
+      lastTestedAt: null,
+      lastSyncResult: {},
+      errorCount: 0,
+      lastError: "",
+      metadata: { events: [] },
+    })),
     noteSearch: "",
     activeNoteId: NOTES[0]?.id || null,
     notes: clone(NOTES),
@@ -590,6 +608,9 @@ function normalizeIntegration(record) {
   const provider = record.provider;
   const template = CONNECTOR_TEMPLATES.find((item) => item.provider === provider) || {};
   const metadata = record.metadata || {};
+  const status = record.status || "disconnected";
+  const defaultWebhookStatus = provider === "apex_webhook" ? (status === "connected" ? "active" : "paused") : "not_configured";
+  const defaultSyncStatus = status === "connected" ? "idle" : status === "error" ? "error" : "disabled";
   return {
     id: record.id || localId("integration"),
     provider,
@@ -597,11 +618,20 @@ function normalizeIntegration(record) {
     displayName: record.displayName || metadata.displayName || template.displayName || provider,
     domain: record.domain || metadata.domain || template.domain || "command",
     description: record.description || metadata.description || template.description || "External source connection.",
-    status: record.status || "disconnected",
+    status,
+    authState: record.authState || record.auth_state || metadata.authState || (status === "connected" ? "connected" : status === "needs_reauth" ? "needs_reauth" : status === "error" ? "error" : "not_connected"),
+    webhookStatus: record.webhookStatus || record.webhook_status || metadata.webhookStatus || defaultWebhookStatus,
+    syncStatus: record.syncStatus || record.sync_status || metadata.syncStatus || defaultSyncStatus,
     scopes: Array.isArray(record.scopes) && record.scopes.length ? record.scopes : clone(template.scopes || []),
     tokenRef: record.tokenRef || record.token_ref || null,
+    refreshTokenRef: record.refreshTokenRef || record.refresh_token_ref || null,
+    tokenExpiresAt: record.tokenExpiresAt || record.token_expires_at || null,
+    refreshStatus: record.refreshStatus || record.refresh_status || metadata.refreshStatus || (record.refreshTokenRef || record.refresh_token_ref ? "fresh" : "not_required"),
     lastSyncedAt: record.lastSyncedAt || record.last_synced_at || null,
     nextSyncAt: record.nextSyncAt || record.next_sync_at || metadata.nextSyncAt || null,
+    lastTestedAt: record.lastTestedAt || record.last_tested_at || null,
+    lastSyncResult: record.lastSyncResult || record.last_sync_result || metadata.lastSyncResult || {},
+    errorCount: Number(record.errorCount ?? record.error_count ?? metadata.errorCount ?? 0),
     lastError: record.lastError || record.last_error || "",
     metadata,
     createdAt: record.createdAt || record.created_at || new Date().toISOString(),
@@ -616,6 +646,52 @@ function mergeIntegrationTemplates(records = state.integrations) {
     if (!byProvider.has(template.provider)) byProvider.set(template.provider, normalizeIntegration({ ...template, status: "disconnected", local: true }));
   }
   return [...byProvider.values()];
+}
+
+function integrationEndpoint(provider, { refresh = false } = {}) {
+  const suffix = refresh ? "?refresh=1" : "";
+  if (provider === "google_calendar") return `/api/connectors/calendar${suffix}`;
+  if (provider === "canvas") return `/api/connectors/lms${suffix}`;
+  if (provider === "apex_webhook") return "/api/source/live";
+  return "";
+}
+
+function connectorEvent(type, status, message, result = {}) {
+  return {
+    type,
+    status,
+    message,
+    result,
+    createdAt: new Date().toISOString(),
+  };
+}
+
+function mergeConnectorEvent(metadata = {}, event) {
+  if (!event) return metadata;
+  const events = Array.isArray(metadata.events) ? metadata.events : [];
+  return {
+    ...metadata,
+    events: [event, ...events].slice(0, 6),
+  };
+}
+
+function connectorTone(value) {
+  const normalized = String(value || "").toLowerCase();
+  if (["connected", "success", "active", "fresh", "idle"].includes(normalized)) return TOKENS.ok;
+  if (["syncing", "refreshing", "reauth_requested"].includes(normalized)) return TOKENS.command;
+  if (["needs_reauth", "expires_soon", "warning", "paused"].includes(normalized)) return TOKENS.warn;
+  if (["error", "expired"].includes(normalized)) return TOKENS.danger;
+  return TOKENS.notebook;
+}
+
+function summarizeConnectorResult(result = {}) {
+  if (!result || !Object.keys(result).length) return "No sync result yet.";
+  const parts = [];
+  if (result.httpStatus) parts.push(`HTTP ${result.httpStatus}`);
+  if (result.recordsImported != null) parts.push(`${result.recordsImported} records`);
+  if (result.endpoint) parts.push(result.endpoint);
+  if (result.message) parts.push(result.message);
+  return parts.join(" | ") || "Result saved.";
 }
 
 function buildSyllabusDraft(upload) {
@@ -881,6 +957,7 @@ async function persistIntegration(integration) {
         displayName: integration.displayName,
         domain: integration.domain,
         description: integration.description,
+        events: integration.metadata?.events || [],
       },
     }));
     state.integrations = mergeIntegrationTemplates(state.integrations.map((item) => item.provider === saved.provider ? saved : item));
@@ -895,12 +972,30 @@ async function persistIntegration(integration) {
   }
 }
 
-async function updateIntegration(provider, patch, { toast = false } = {}) {
+async function persistIntegrationEvent(integration, event) {
+  if (!event || !state.workspace.phase2Enabled || !state.workspace.id || !state.auth.client) return;
+  try {
+    await createIntegrationEventRecord(state.auth.client, state.workspace.id, integration, event);
+  } catch (error) {
+    state.workspace = {
+      ...state.workspace,
+      error: error instanceof Error ? error.message : "Integration event log unavailable.",
+    };
+    saveState();
+  }
+}
+
+async function updateIntegration(provider, patch, { toast = false, event = null } = {}) {
   const current = mergeIntegrationTemplates().find((item) => item.provider === provider);
   if (!current) return;
+  const metadata = mergeConnectorEvent({
+    ...(current.metadata || {}),
+    ...(patch.metadata || {}),
+  }, event);
   const updated = normalizeIntegration({
     ...current,
     ...patch,
+    metadata,
     updatedAt: new Date().toISOString(),
     local: current.local,
   });
@@ -908,6 +1003,7 @@ async function updateIntegration(provider, patch, { toast = false } = {}) {
   saveState();
   renderApp();
   await persistIntegration(updated);
+  await persistIntegrationEvent(updated, event);
   if (toast) {
     notifyUser({
       type: "integration_update",
@@ -920,6 +1016,144 @@ async function updateIntegration(provider, patch, { toast = false } = {}) {
   }
 }
 
+async function connectIntegration(provider) {
+  const integration = mergeIntegrationTemplates().find((item) => item.provider === provider);
+  if (!integration) return;
+  const now = new Date().toISOString();
+  const tokenExpiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString();
+  await updateIntegration(provider, {
+    status: "connected",
+    authState: "connected",
+    syncStatus: "idle",
+    webhookStatus: provider === "apex_webhook" ? "active" : "not_configured",
+    refreshStatus: provider === "apex_webhook" ? "not_required" : "fresh",
+    tokenRef: provider === "apex_webhook" ? null : `${provider}_stub_access_token`,
+    refreshTokenRef: provider === "apex_webhook" ? null : `${provider}_stub_refresh_token`,
+    tokenExpiresAt: provider === "apex_webhook" ? null : tokenExpiresAt,
+    lastTestedAt: now,
+    lastError: "",
+    lastSyncResult: {
+      message: provider === "apex_webhook" ? "Webhook source enabled." : "Connector auth placeholder created. Replace with provider OAuth flow.",
+      endpoint: integrationEndpoint(provider) || "oauth-required",
+      recordsImported: 0,
+    },
+  }, {
+    toast: true,
+    event: connectorEvent("connect", "success", `${integration.displayName} connector connected.`, { provider, connectedAt: now }),
+  });
+}
+
+async function disconnectIntegration(provider) {
+  const integration = mergeIntegrationTemplates().find((item) => item.provider === provider);
+  if (!integration) return;
+  const now = new Date().toISOString();
+  await updateIntegration(provider, {
+    status: "disconnected",
+    authState: "not_connected",
+    syncStatus: "disabled",
+    webhookStatus: provider === "apex_webhook" ? "paused" : "not_configured",
+    refreshStatus: "not_required",
+    tokenRef: null,
+    refreshTokenRef: null,
+    tokenExpiresAt: null,
+    nextSyncAt: null,
+    lastError: "",
+    lastSyncResult: { message: "Connector disconnected.", recordsImported: 0 },
+  }, {
+    toast: true,
+    event: connectorEvent("disconnect", "info", `${integration.displayName} connector disconnected.`, { provider, disconnectedAt: now }),
+  });
+}
+
+async function reauthIntegration(provider) {
+  const integration = mergeIntegrationTemplates().find((item) => item.provider === provider);
+  if (!integration) return;
+  await updateIntegration(provider, {
+    status: "needs_reauth",
+    authState: "reauth_requested",
+    syncStatus: "disabled",
+    refreshStatus: "refreshing",
+    tokenRef: null,
+    refreshTokenRef: null,
+    tokenExpiresAt: null,
+    lastError: "Re-auth requested. The connector is waiting for the real OAuth redirect flow.",
+    lastSyncResult: { message: "Re-auth requested. OAuth implementation is the next provider-specific step." },
+  }, {
+    toast: true,
+    event: connectorEvent("reauth", "warning", `${integration.displayName} is ready for provider re-auth.`, { provider }),
+  });
+}
+
+async function testIntegration(provider) {
+  const integration = mergeIntegrationTemplates().find((item) => item.provider === provider);
+  if (!integration) return;
+  const now = new Date().toISOString();
+  const endpoint = integrationEndpoint(provider);
+  if (integration.status !== "connected" && provider !== "apex_webhook") {
+    await updateIntegration(provider, {
+      status: "needs_reauth",
+      authState: "needs_reauth",
+      syncStatus: "disabled",
+      lastTestedAt: now,
+      lastError: "Connect this provider before testing it.",
+      lastSyncResult: { message: "Connection test blocked because auth is not connected." },
+      errorCount: integration.errorCount + 1,
+    }, {
+      toast: true,
+      event: connectorEvent("test", "warning", `${integration.displayName} test needs auth first.`, { provider }),
+    });
+    return;
+  }
+  if (!endpoint) {
+    await updateIntegration(provider, {
+      status: "needs_reauth",
+      authState: "needs_reauth",
+      syncStatus: "error",
+      lastTestedAt: now,
+      lastError: "This provider needs its OAuth/native connector implementation before tests can pass.",
+      lastSyncResult: { message: "No test endpoint exists yet.", endpoint: "provider-oauth-required" },
+      errorCount: integration.errorCount + 1,
+    }, {
+      toast: true,
+      event: connectorEvent("test", "warning", `${integration.displayName} has no live test endpoint yet.`, { provider }),
+    });
+    return;
+  }
+  await updateIntegration(provider, {
+    syncStatus: "syncing",
+    lastTestedAt: now,
+    lastError: "Testing connection...",
+  });
+  try {
+    const response = await fetch(endpoint, { headers: { Accept: "application/json" }, cache: "no-store" });
+    if (!response.ok) throw new Error(`Connector test returned ${response.status}`);
+    await updateIntegration(provider, {
+      status: "connected",
+      authState: "connected",
+      syncStatus: "success",
+      lastTestedAt: new Date().toISOString(),
+      lastError: "",
+      lastSyncResult: { message: "Connection test passed.", endpoint, httpStatus: response.status, recordsImported: 0 },
+    }, {
+      toast: true,
+      event: connectorEvent("test", "success", `${integration.displayName} test passed.`, { provider, endpoint, httpStatus: response.status }),
+    });
+  } catch (error) {
+    await updateIntegration(provider, {
+      status: "error",
+      authState: "error",
+      syncStatus: "error",
+      lastTestedAt: now,
+      lastError: error instanceof Error ? error.message : "Connector test failed.",
+      lastSyncResult: { message: "Connection test failed.", endpoint },
+      errorCount: integration.errorCount + 1,
+    }, {
+      toast: true,
+      event: connectorEvent("test", "error", `${integration.displayName} test failed.`, { provider, endpoint }),
+    });
+  }
+}
+
 async function syncIntegration(provider) {
   const integration = mergeIntegrationTemplates().find((item) => item.provider === provider);
   if (!integration) return;
@@ -927,44 +1161,69 @@ async function syncIntegration(provider) {
   if (integration.status !== "connected" && provider !== "apex_webhook") {
     await updateIntegration(provider, {
       status: "needs_reauth",
+      authState: "needs_reauth",
+      syncStatus: "disabled",
       lastError: "Connect this provider before running a live sync.",
-    }, { toast: true });
+      lastSyncResult: { message: "Sync blocked because auth is not connected." },
+      errorCount: integration.errorCount + 1,
+    }, {
+      toast: true,
+      event: connectorEvent("sync", "warning", `${integration.displayName} sync needs auth first.`, { provider }),
+    });
     return;
   }
 
-  const endpoint = provider === "google_calendar"
-    ? "/api/connectors/calendar?refresh=1"
-    : provider === "canvas"
-      ? "/api/connectors/lms?refresh=1"
-      : provider === "apex_webhook"
-        ? "/api/source/live"
-        : "";
+  const endpoint = integrationEndpoint(provider, { refresh: true });
 
   if (!endpoint) {
     await updateIntegration(provider, {
       status: "needs_reauth",
+      authState: "needs_reauth",
+      syncStatus: "error",
       lastError: "OAuth for this provider is not implemented yet. The connector record is ready for the real flow.",
       lastSyncedAt: now,
-    }, { toast: true });
+      lastSyncResult: { message: "No sync endpoint exists yet.", endpoint: "provider-oauth-required" },
+      errorCount: integration.errorCount + 1,
+    }, {
+      toast: true,
+      event: connectorEvent("sync", "warning", `${integration.displayName} needs a provider-specific sync implementation.`, { provider }),
+    });
     return;
   }
 
-  await updateIntegration(provider, { status: "connected", lastError: "Syncing...", lastSyncedAt: now });
+  await updateIntegration(provider, { status: "connected", authState: "connected", syncStatus: "syncing", lastError: "Syncing...", lastSyncedAt: now });
   try {
     const response = await fetch(endpoint, { headers: { Accept: "application/json" }, cache: "no-store" });
     if (!response.ok) throw new Error(`Connector returned ${response.status}`);
+    const payload = await response.json().catch(() => ({}));
+    const importedCount = Object.values(payload || {}).reduce((count, value) => count + (Array.isArray(value) ? value.length : 0), 0);
+    const finishedAt = new Date().toISOString();
     await updateIntegration(provider, {
       status: "connected",
-      lastSyncedAt: new Date().toISOString(),
+      authState: "connected",
+      syncStatus: "success",
+      refreshStatus: provider === "apex_webhook" ? "not_required" : "fresh",
+      lastSyncedAt: finishedAt,
       nextSyncAt: new Date(Date.now() + 60 * 60 * 1000).toISOString(),
+      lastSyncResult: { message: "Sync completed.", endpoint, httpStatus: response.status, recordsImported: importedCount },
       lastError: "",
-    }, { toast: true });
+    }, {
+      toast: true,
+      event: connectorEvent("sync", "success", `${integration.displayName} sync completed.`, { provider, endpoint, httpStatus: response.status, recordsImported: importedCount }),
+    });
   } catch (error) {
     await updateIntegration(provider, {
       status: "error",
+      authState: "error",
+      syncStatus: "error",
       lastSyncedAt: now,
       lastError: error instanceof Error ? error.message : "Connector sync failed.",
-    }, { toast: true });
+      lastSyncResult: { message: "Sync failed.", endpoint },
+      errorCount: integration.errorCount + 1,
+    }, {
+      toast: true,
+      event: connectorEvent("sync", "error", `${integration.displayName} sync failed.`, { provider, endpoint }),
+    });
   }
 }
 
@@ -1282,7 +1541,10 @@ function renderSourcePanel() {
 
 function renderConnectorPanel() {
   const connectors = mergeIntegrationTemplates();
-  return `<article class="panel span-6" style="--accent:${TOKENS.command};"><div class="panel-label">connector framework</div><h3 class="empty-title">Integration status is now explicit.</h3><p class="row-subtitle">These records separate connector state from one-off webhook payloads: connect, test, sync, disconnect, last sync, and last error all live in one place.</p><div class="connector-grid">${connectors.map((item) => `<div class="connector-card" style="--accent:${colorFor(item.domain)};"><div class="connector-card__head"><div class="row-badge">${iconSvg(item.domain, item.displayName)}</div><div><strong>${escapeHtml(item.displayName)}</strong><small>${escapeHtml(item.providerType)} &middot; ${escapeHtml(item.status)}</small></div></div><p>${escapeHtml(item.description)}</p><div class="inline-chips">${item.scopes.slice(0, 3).map((scope) => pill(scope, colorFor(item.domain))).join("")}${pill(item.local ? "local" : "cloud", item.local ? TOKENS.warn : TOKENS.ok)}</div><div class="meta-grid"><div class="metric-stack"><span>Last sync</span><strong>${formatTimestamp(item.lastSyncedAt)}</strong></div><div class="metric-stack"><span>Next</span><strong>${formatTimestamp(item.nextSyncAt)}</strong></div></div>${item.lastError ? `<div class="connector-error">${escapeHtml(item.lastError)}</div>` : ""}<div class="source-actions"><button class="surface-action surface-action--small" data-integration-connect="${escapeHtml(item.provider)}">${item.status === "connected" ? "Reconnect" : "Connect stub"}</button><button class="surface-action surface-action--small" data-integration-sync="${escapeHtml(item.provider)}">Sync/test</button><button class="surface-action surface-action--small" data-integration-disconnect="${escapeHtml(item.provider)}">Disconnect</button></div></div>`).join("")}</div><div class="footer-note">Canvas, Google Calendar, and APEX webhook can call local endpoints now. Plaid, Deputy, and Health are framework records until real OAuth/native connectors are added.</div></article>`;
+  return `<article class="panel span-6" style="--accent:${TOKENS.command};"><div class="panel-label">connector framework</div><h3 class="empty-title">Every integration has an inspectable lifecycle.</h3><p class="row-subtitle">Connectors now track auth, webhooks, sync health, token refresh, last result, and event history instead of relying on one-off button state.</p><div class="connector-grid">${connectors.map((item) => {
+    const events = Array.isArray(item.metadata?.events) ? item.metadata.events : [];
+    return `<div class="connector-card" style="--accent:${colorFor(item.domain)};"><div class="connector-card__head"><div class="row-badge">${iconSvg(item.domain, item.displayName)}</div><div><strong>${escapeHtml(item.displayName)}</strong><small>${escapeHtml(item.providerType)} &middot; ${escapeHtml(item.status)}</small></div></div><p>${escapeHtml(item.description)}</p><div class="connector-status-grid">${pill(`Auth: ${item.authState}`, connectorTone(item.authState))}${pill(`Sync: ${item.syncStatus}`, connectorTone(item.syncStatus))}${pill(`Webhook: ${item.webhookStatus}`, connectorTone(item.webhookStatus))}${pill(`Refresh: ${item.refreshStatus}`, connectorTone(item.refreshStatus))}</div><div class="inline-chips">${item.scopes.slice(0, 3).map((scope) => pill(scope, colorFor(item.domain))).join("")}${pill(item.local ? "local" : "cloud", item.local ? TOKENS.warn : TOKENS.ok)}</div><div class="meta-grid connector-meta-grid"><div class="metric-stack"><span>Last sync</span><strong>${formatTimestamp(item.lastSyncedAt)}</strong></div><div class="metric-stack"><span>Next sync</span><strong>${formatTimestamp(item.nextSyncAt)}</strong></div><div class="metric-stack"><span>Last test</span><strong>${formatTimestamp(item.lastTestedAt)}</strong></div><div class="metric-stack"><span>Token expires</span><strong>${formatTimestamp(item.tokenExpiresAt)}</strong></div><div class="metric-stack"><span>Errors</span><strong>${item.errorCount}</strong></div><div class="metric-stack"><span>Token ref</span><strong>${item.tokenRef ? "stored" : "none"}</strong></div></div><div class="connector-result"><span>Last result</span><strong>${escapeHtml(summarizeConnectorResult(item.lastSyncResult))}</strong></div>${item.lastError ? `<div class="connector-error">${escapeHtml(item.lastError)}</div>` : ""}<div class="connector-log">${events.length ? events.slice(0, 3).map((event) => `<div><span>${escapeHtml(event.type || "event")} &middot; ${formatTimestamp(event.createdAt)}</span><strong>${escapeHtml(event.message || "Connector event recorded.")}</strong></div>`).join("") : `<div><span>No events yet</span><strong>Use Connect, Test, or Sync to create the first connector event.</strong></div>`}</div><div class="source-actions connector-actions"><button class="surface-action surface-action--small" data-integration-connect="${escapeHtml(item.provider)}">${item.status === "connected" ? "Reconnect" : "Connect"}</button><button class="surface-action surface-action--small" data-integration-test="${escapeHtml(item.provider)}">Test</button><button class="surface-action surface-action--small" data-integration-sync="${escapeHtml(item.provider)}">Sync now</button><button class="surface-action surface-action--small" data-integration-reauth="${escapeHtml(item.provider)}">Re-auth</button><button class="surface-action surface-action--small" data-integration-disconnect="${escapeHtml(item.provider)}">Disconnect</button></div></div>`;
+  }).join("")}</div><div class="footer-note">Canvas, Google Calendar, and APEX webhook can call local endpoints now. Plaid, Deputy, and Health now have lifecycle records and logs so the real provider flows can plug in cleanly.</div></article>`;
 }
 
 function renderSetupChecklist() {
@@ -1556,11 +1818,15 @@ doc?.addEventListener("click", async (event) => {
   const syllabusConfirm = target.closest("[data-syllabus-confirm]");
   if (syllabusConfirm) { await confirmSyllabusReview(syllabusConfirm.dataset.syllabusConfirm); return; }
   const integrationConnect = target.closest("[data-integration-connect]");
-  if (integrationConnect) { await updateIntegration(integrationConnect.dataset.integrationConnect, { status: "connected", lastError: "", tokenRef: "stub_pending_oauth" }, { toast: true }); return; }
+  if (integrationConnect) { await connectIntegration(integrationConnect.dataset.integrationConnect); return; }
+  const integrationTest = target.closest("[data-integration-test]");
+  if (integrationTest) { await testIntegration(integrationTest.dataset.integrationTest); return; }
   const integrationSync = target.closest("[data-integration-sync]");
   if (integrationSync) { await syncIntegration(integrationSync.dataset.integrationSync); return; }
+  const integrationReauth = target.closest("[data-integration-reauth]");
+  if (integrationReauth) { await reauthIntegration(integrationReauth.dataset.integrationReauth); return; }
   const integrationDisconnect = target.closest("[data-integration-disconnect]");
-  if (integrationDisconnect) { await updateIntegration(integrationDisconnect.dataset.integrationDisconnect, { status: "disconnected", tokenRef: null, lastError: "", nextSyncAt: null }, { toast: true }); return; }
+  if (integrationDisconnect) { await disconnectIntegration(integrationDisconnect.dataset.integrationDisconnect); return; }
   const scheduleMode = target.closest("[data-schedule-mode]");
   if (scheduleMode) {
     state.pendingScheduleMode = scheduleMode.dataset.scheduleMode;

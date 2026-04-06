@@ -49,7 +49,7 @@ You can still open `index.html` directly for a static-only pass, but the local s
 - Command Center first-time setup checklist for uploading syllabi and connecting school, work/calendar, and finance sources
 - Consistent SVG domain icon system across navigation, topbar, help, and setup surfaces
 - Notification center with read/dismiss state, local fallback, and optional Supabase-backed records from the Phase 2 schema
-- Connector framework panel with provider status, test/sync actions, local fallback, and optional Supabase-backed `apex_integrations` records
+- Connector framework panel with provider type, auth state, webhook status, sync status, last/next sync, token refresh state, error count, last result, event logs, local fallback, and optional Supabase-backed `apex_integrations` records
 - Notebook source upload panel with local fallback and optional Supabase-backed `apex_uploads` metadata records
 - User-created Notebook notes with editable title, body, tags, and domain, plus optional Supabase-backed `apex_notes` records
 - Syllabus review queue that turns an upload into a safe `needs_review -> confirmed` workflow before any scheduling data is trusted
@@ -83,6 +83,8 @@ You can still open `index.html` directly for a static-only pass, but the local s
 
 - Set optional environment variables from `.env.example` for Google Calendar or Canvas sync.
 - The server reads a local `.env` file automatically.
+- The connector framework tracks an explicit lifecycle for each provider: connect, disconnect, test connection, sync now, re-auth, last sync result, error count, token expiration, refresh status, and recent connector events.
+- `apex_integration_events` stores the connector audit stream when `supabase/phase2_schema.sql` is installed. If that table is not available yet, recent events stay in local connector metadata so the UI remains usable.
 - Without external credentials, the webhook endpoints are the easiest way to feed live events and assignments into the app.
 - If you set `APEX_WEBHOOK_SECRET`, send the same value in the `x-apex-secret` header for webhook requests.
 
@@ -102,7 +104,7 @@ For local testing, copy `.env.example` to `.env` and fill in the same Supabase v
 
 `supabase/phase2_schema.sql` adds the normalized production-model foundation without removing the current workspace blob. It creates workspace membership, classes, assignments, syllabi, tasks, calendar events, finance records, notebooks, uploads, integrations, notifications, activity logs, scheduler preferences, and constraint rules with RLS policies and supporting indexes.
 
-Run it only after `supabase/schema.sql`. The app still uses `apex_user_state` as its compatibility layer until the UI and API are migrated table-by-table. If this file has been run, APEX will create/read a real workspace row and use `apex_notifications` for notification records, `apex_integrations` for connector status, `apex_notes` for Notebook notes, `apex_uploads` for upload metadata, and `apex_syllabi` for syllabus review state. If it has not been run yet, notifications, connector status, notes, uploads, and syllabus reviews fall back to local workspace state.
+Run it only after `supabase/schema.sql`. The app still uses `apex_user_state` as its compatibility layer until the UI and API are migrated table-by-table. If this file has been run, APEX will create/read a real workspace row and use `apex_notifications` for notification records, `apex_integrations` plus `apex_integration_events` for connector lifecycle state and logs, `apex_notes` for Notebook notes, `apex_uploads` for upload metadata, and `apex_syllabi` for syllabus review state. If it has not been run yet, notifications, connector status, connector events, notes, uploads, and syllabus reviews fall back to local workspace state.
 
 The syllabus review flow is intentionally conservative right now: it creates placeholder extraction cards from upload metadata and filename hints only. It does not parse PDF/DOCX text yet. Users must confirm the review before later phases turn parsed dates and assignments into schedule data.
 
