@@ -2,6 +2,7 @@ import http from "node:http";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { readFile, writeFile, access } from "node:fs/promises";
+import { extractAndParseUpload } from "./ingestion.js";
 
 import {
   INITIAL_TASKS,
@@ -43,6 +44,8 @@ const MIME = {
   ".js": "text/javascript; charset=utf-8",
   ".css": "text/css; charset=utf-8",
   ".json": "application/json; charset=utf-8",
+  ".webmanifest": "application/manifest+json; charset=utf-8",
+  ".svg": "image/svg+xml; charset=utf-8",
 };
 
 const clone = (value) => JSON.parse(JSON.stringify(value));
@@ -386,6 +389,25 @@ const server = http.createServer(async (req, res) => {
   if (pathname === "/api/source/live" && req.method === "GET") {
     if (url.searchParams.get("refresh") === "1") await refreshConnectors(store);
     sendJson(res, 200, buildLivePayload(store));
+    return;
+  }
+
+  if (pathname === "/api/ingest" && req.method === "POST") {
+    try {
+      const payload = await readJson(req);
+      if (!payload?.contentBase64) {
+        sendJson(res, 400, { error: "contentBase64 is required." });
+        return;
+      }
+      const result = await extractAndParseUpload({
+        name: payload.name || "upload",
+        type: payload.type || "",
+        contentBase64: payload.contentBase64,
+      });
+      sendJson(res, 200, result);
+    } catch (error) {
+      sendJson(res, 500, { error: error instanceof Error ? error.message : "Ingestion failed." });
+    }
     return;
   }
 

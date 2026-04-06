@@ -218,10 +218,21 @@ create table if not exists public.apex_uploads (
   mime_type text,
   file_size_bytes bigint,
   upload_status text not null default 'uploaded' check (upload_status in ('uploaded', 'processing', 'ready', 'failed')),
-  extracted_text_status text not null default 'pending' check (extracted_text_status in ('pending', 'complete', 'failed', 'skipped')),
+  extracted_text_status text not null default 'pending' check (extracted_text_status in ('pending', 'processing', 'partial', 'complete', 'failed', 'skipped')),
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
+
+alter table public.apex_uploads
+add column if not exists extraction_method text,
+add column if not exists extracted_text_preview text not null default '',
+add column if not exists extraction_warnings jsonb not null default '[]'::jsonb;
+
+alter table public.apex_uploads
+drop constraint if exists apex_uploads_extracted_text_status_check;
+alter table public.apex_uploads
+add constraint apex_uploads_extracted_text_status_check
+check (extracted_text_status in ('pending', 'processing', 'partial', 'complete', 'failed', 'skipped'));
 
 alter table public.apex_syllabi
 drop constraint if exists apex_syllabi_upload_id_fkey;

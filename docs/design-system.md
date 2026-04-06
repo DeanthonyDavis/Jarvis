@@ -44,6 +44,7 @@ This file defines the current product UI rules so new screens feel intentional i
 - Future: empty goals and milestones.
 - Mind: empty wellness signal and Mind insight states.
 - Notebook: empty notes, uploads, and syllabus review queue.
+- Ingestion: source uploads show extraction status, parser method, preview text, and review confidence without scheduling unconfirmed data.
 - Personalization: Command Center controls for theme, density, type scale, accent profile, and layout profile.
 - Widgets: Command Center layout controls for visible/hidden state, pinned priority, manual ordering, and profile-specific Guided/Operator/Focus layouts.
 - Activity: Command Center audit panel for setup, upload, syllabus, note, and connector actions.

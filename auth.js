@@ -177,7 +177,7 @@ export async function dismissNotificationRecord(client, notificationId, userId) 
 export async function loadUploadRecords(client, workspaceId) {
   const { data, error } = await client
     .from(UPLOAD_TABLE)
-    .select("id, original_filename, mime_type, file_size_bytes, upload_status, extracted_text_status, storage_path, created_at, updated_at")
+    .select("id, original_filename, mime_type, file_size_bytes, upload_status, extracted_text_status, extraction_method, extracted_text_preview, extraction_warnings, storage_path, created_at, updated_at")
     .eq("workspace_id", workspaceId)
     .order("created_at", { ascending: false })
     .limit(100);
@@ -198,7 +198,24 @@ export async function createUploadRecord(client, workspaceId, file) {
       upload_status: "uploaded",
       extracted_text_status: "pending",
     })
-    .select("id, original_filename, mime_type, file_size_bytes, upload_status, extracted_text_status, storage_path, created_at, updated_at")
+    .select("id, original_filename, mime_type, file_size_bytes, upload_status, extracted_text_status, extraction_method, extracted_text_preview, extraction_warnings, storage_path, created_at, updated_at")
+    .single();
+  if (error) throw error;
+  return data;
+}
+
+export async function updateUploadExtractionRecord(client, uploadId, extraction) {
+  const { data, error } = await client
+    .from(UPLOAD_TABLE)
+    .update({
+      extracted_text_status: extraction.textStatus || extraction.extracted_text_status || "pending",
+      extraction_method: extraction.method || extraction.extraction_method || null,
+      extracted_text_preview: extraction.preview || extraction.extracted_text_preview || "",
+      extraction_warnings: Array.isArray(extraction.warnings) ? extraction.warnings : [],
+      updated_at: new Date().toISOString(),
+    })
+    .eq("id", uploadId)
+    .select("id, original_filename, mime_type, file_size_bytes, upload_status, extracted_text_status, extraction_method, extracted_text_preview, extraction_warnings, storage_path, created_at, updated_at")
     .single();
   if (error) throw error;
   return data;

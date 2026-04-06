@@ -28,6 +28,7 @@ import {
   signUpWithPassword,
   updateNoteRecord,
   updateSyllabusRecord,
+  updateUploadExtractionRecord,
   upsertIntegrationRecord,
 } from "./auth.js";
 import {
@@ -775,6 +776,9 @@ function normalizeUpload(record) {
     addedAt: record.addedAt || record.created_at || new Date().toISOString(),
     uploadStatus: record.uploadStatus || record.upload_status || "uploaded",
     textStatus: record.textStatus || record.extracted_text_status || "pending",
+    extractionMethod: record.extractionMethod || record.extraction_method || "",
+    textPreview: record.textPreview || record.extracted_text_preview || "",
+    extractionWarnings: Array.isArray(record.extractionWarnings) ? record.extractionWarnings : Array.isArray(record.extraction_warnings) ? record.extraction_warnings : [],
     storagePath: record.storagePath || record.storage_path || "",
     local: Boolean(record.local),
   };
@@ -934,6 +938,79 @@ function buildSyllabusDraft(upload) {
   };
 }
 
+function readFileAsDataUrl(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result || ""));
+    reader.onerror = () => reject(reader.error || new Error("Unable to read file."));
+    reader.readAsDataURL(file);
+  });
+}
+
+function summaryFromParsedUpload(upload, parsed, extraction) {
+  const extractedItems = Array.isArray(parsed.extractedItems) && parsed.extractedItems.length
+    ? parsed.extractedItems
+    : [
+        ...(Array.isArray(parsed.assignments) ? parsed.assignments : []),
+        ...(Array.isArray(parsed.exams) ? parsed.exams : []),
+        ...(Array.isArray(parsed.policies) ? parsed.policies : []),
+      ].slice(0, 24);
+  return {
+    ...parsed,
+    courseName: parsed.courseName || upload.name.replace(/\.[^.]+$/, ""),
+    courseCode: parsed.courseCode || "Needs review",
+    extractedItems,
+    extractionMethod: extraction.method,
+    textStatus: extraction.textStatus,
+    textPreview: extraction.preview,
+    warning: parsed.warning || (extraction.textStatus === "complete" ? "Review extracted dates before scheduling." : "Extraction was incomplete. Review before trusting this source."),
+  };
+}
+
+async function upsertParsedSyllabusReview(upload, parsed, extraction) {
+  const summary = summaryFromParsedUpload(upload, parsed, extraction);
+  const existing = state.syllabusReviews.map(normalizeSyllabusReview).find((review) => review.uploadId === upload.id);
+  const localReview = normalizeSyllabusReview({
+    ...(existing || {}),
+    id: existing?.id || localId("syllabus"),
+    uploadId: upload.id,
+    title: `${summary.courseCode && summary.courseCode !== "Needs review" ? summary.courseCode : upload.name.replace(/\.[^.]+$/, "")} review`,
+    parseStatus: "needs_review",
+    parsedSummary: summary,
+    confidence: Number(summary.confidence || 0.35),
+    local: existing?.local ?? true,
+  });
+  state.syllabusReviews = existing
+    ? state.syllabusReviews.map((review) => review.uploadId === upload.id ? localReview : review)
+    : [localReview, ...state.syllabusReviews].slice(0, 100);
+  saveState();
+  renderApp();
+
+  if (!state.workspace.phase2Enabled || !state.workspace.id || !state.auth.client) return localReview;
+  try {
+    const cloudPayload = { ...localReview, uploadId: isUuid(upload.id) ? upload.id : null };
+    const cloudReview = existing && isUuid(existing.id)
+      ? normalizeSyllabusReview(await updateSyllabusRecord(state.auth.client, existing.id, {
+          title: localReview.title,
+          parseStatus: localReview.parseStatus,
+          parsedSummary: localReview.parsedSummary,
+          confidence: localReview.confidence,
+        }))
+      : normalizeSyllabusReview(await createSyllabusRecord(state.auth.client, state.workspace.id, cloudPayload));
+    state.syllabusReviews = state.syllabusReviews.map((review) => review.id === localReview.id || review.uploadId === upload.id ? cloudReview : review);
+    saveState();
+    renderApp();
+    return cloudReview;
+  } catch (error) {
+    state.workspace = {
+      ...state.workspace,
+      error: error instanceof Error ? error.message : "Parsed syllabus sync unavailable.",
+    };
+    saveState();
+    return localReview;
+  }
+}
+
 async function notifyUser(notification, { toast = true } = {}) {
   const localNotification = normalizeNotification({ ...notification, local: true });
   state.notifications = [localNotification, ...state.notifications].slice(0, 30);
@@ -989,6 +1066,86 @@ async function logActivity(activity) {
   }
 }
 
+async function ingestUploadedFile(file, uploadRecord) {
+  const upload = normalizeUpload(uploadRecord);
+  state.uploadedFiles = state.uploadedFiles.map((item) => item.id === upload.id ? { ...item, textStatus: "processing" } : item);
+  saveState();
+  renderApp();
+  try {
+    const contentBase64 = await readFileAsDataUrl(file);
+    const response = await fetch("/api/ingest", {
+      method: "POST",
+      headers: { "content-type": "application/json", accept: "application/json" },
+      body: JSON.stringify({
+        name: file.name,
+        type: file.type,
+        size: file.size,
+        contentBase64,
+      }),
+    });
+    if (!response.ok) throw new Error(`Ingestion returned ${response.status}`);
+    const result = await response.json();
+    const extraction = result.extraction || {};
+    const parsed = result.parsed || {};
+    const updatedUpload = normalizeUpload({
+      ...upload,
+      textStatus: extraction.textStatus || "complete",
+      extractionMethod: extraction.method || "unknown",
+      textPreview: extraction.preview || "",
+      extractionWarnings: extraction.warnings || [],
+    });
+    state.uploadedFiles = state.uploadedFiles.map((item) => item.id === upload.id ? updatedUpload : item);
+    saveState();
+    renderApp();
+    if (state.workspace.phase2Enabled && state.auth.client && isUuid(upload.id)) {
+      try {
+        const cloudUpload = normalizeUpload(await updateUploadExtractionRecord(state.auth.client, upload.id, extraction));
+        state.uploadedFiles = state.uploadedFiles.map((item) => item.id === upload.id ? cloudUpload : item);
+      } catch (error) {
+        state.workspace = { ...state.workspace, error: error instanceof Error ? error.message : "Upload extraction sync unavailable." };
+      }
+    }
+    const review = await upsertParsedSyllabusReview(updatedUpload, parsed, extraction);
+    notifyUser({
+      type: "source_parsed",
+      title: "Source text extracted",
+      body: `${file.name} parsed with ${extraction.method || "the ingestion pipeline"}. Review the syllabus card before scheduling.`,
+      severity: extraction.textStatus === "complete" ? "success" : "warning",
+      sourceEntityType: "upload",
+      sourceEntityId: isUuid(upload.id) ? upload.id : null,
+    });
+    logActivity({
+      entityType: "syllabus",
+      entityId: isUuid(review.id) ? review.id : null,
+      actionType: "parsed",
+      afterState: {
+        title: review.title,
+        summary: `${file.name} parsed via ${extraction.method || "ingestion"}`,
+        confidence: review.confidence,
+        textStatus: extraction.textStatus,
+      },
+    });
+  } catch (error) {
+    state.uploadedFiles = state.uploadedFiles.map((item) => item.id === upload.id ? { ...item, textStatus: "failed", extractionWarnings: [error instanceof Error ? error.message : "Ingestion failed."] } : item);
+    saveState();
+    renderApp();
+    notifyUser({
+      type: "source_parse_error",
+      title: "Source parsing failed",
+      body: `${file.name} could not be extracted. You can still review it manually.`,
+      severity: "warning",
+      sourceEntityType: "upload",
+      sourceEntityId: isUuid(upload.id) ? upload.id : null,
+    });
+  }
+}
+
+async function ingestUploadedFiles(files, uploadRecords) {
+  for (let index = 0; index < files.length; index += 1) {
+    await ingestUploadedFile(files[index], uploadRecords[index] || uploadRecords[0]);
+  }
+}
+
 async function attachSourceFiles(files) {
   const fileList = [...files];
   if (!fileList.length) return;
@@ -1020,7 +1177,10 @@ async function attachSourceFiles(files) {
     },
   });
 
-  if (!state.workspace.phase2Enabled || !state.workspace.id || !state.auth.client) return;
+  if (!state.workspace.phase2Enabled || !state.workspace.id || !state.auth.client) {
+    await ingestUploadedFiles(fileList, localUploads);
+    return;
+  }
   try {
     const created = [];
     for (const file of fileList) {
@@ -1041,6 +1201,7 @@ async function attachSourceFiles(files) {
         uploadIds: created.map((item) => item.id).filter(isUuid),
       },
     });
+    await ingestUploadedFiles(fileList, created);
   } catch (error) {
     state.workspace = {
       ...state.workspace,
@@ -1052,6 +1213,7 @@ async function attachSourceFiles(files) {
       body: "APEX could not write upload metadata to Supabase, so this file remains in local fallback state.",
       severity: "warning",
     });
+    await ingestUploadedFiles(fileList, localUploads);
   }
 }
 
@@ -2120,20 +2282,21 @@ function renderNotebook(intel) {
   const reviews = state.syllabusReviews.map(normalizeSyllabusReview);
   const uploadRows = uploads.map((file) => {
     const hasReview = reviews.some((review) => review.uploadId === file.id);
-    return `<div class="row" style="--accent:${TOKENS.notebook};"><div class="row-badge">${iconSvg("notebook", "Source file")}</div><div class="row-copy"><div class="row-title">${escapeHtml(file.name)}</div><div class="row-subtitle">${escapeHtml(file.type)} &middot; ${Math.max(1, Math.round(file.size / 1024))} KB &middot; ${escapeHtml(file.uploadStatus)} / ${escapeHtml(file.textStatus)}</div></div><div class="row-actions">${pill(file.local ? "local" : "cloud", file.local ? TOKENS.warn : TOKENS.ok)}<button class="surface-action surface-action--small" data-syllabus-start="${escapeHtml(file.id)}" ${hasReview ? "disabled" : ""}>${hasReview ? "In review" : "Review as syllabus"}</button></div></div>`;
+    const extractionCopy = file.extractionMethod ? ` via ${file.extractionMethod}` : "";
+    return `<div class="row" style="--accent:${TOKENS.notebook};"><div class="row-badge">${iconSvg("notebook", "Source file")}</div><div class="row-copy"><div class="row-title">${escapeHtml(file.name)}</div><div class="row-subtitle">${escapeHtml(file.type)} &middot; ${Math.max(1, Math.round(file.size / 1024))} KB &middot; ${escapeHtml(file.uploadStatus)} / ${escapeHtml(file.textStatus)}${escapeHtml(extractionCopy)}</div>${file.textPreview ? `<div class="footer-note">${escapeHtml(file.textPreview.slice(0, 160))}</div>` : ""}</div><div class="row-actions">${pill(file.local ? "local" : "cloud", file.local ? TOKENS.warn : TOKENS.ok)}<button class="surface-action surface-action--small" data-syllabus-start="${escapeHtml(file.id)}" ${hasReview ? "disabled" : ""}>${hasReview ? "In review" : "Review as syllabus"}</button></div></div>`;
   }).join("");
   const reviewRows = reviews.map((review) => {
     const summary = review.parsedSummary || {};
     const items = Array.isArray(summary.extractedItems) ? summary.extractedItems : [];
-    return `<div class="review-card" style="--accent:${review.parseStatus === "confirmed" ? TOKENS.ok : TOKENS.academy};"><div class="review-card__head"><div><div class="panel-label">${review.parseStatus === "confirmed" ? "confirmed syllabus" : "needs review"}</div><h4>${escapeHtml(review.title)}</h4></div>${pill(`${Math.round((review.confidence || 0) * 100)}% confidence`, review.parseStatus === "confirmed" ? TOKENS.ok : TOKENS.warn)}</div><div class="review-grid"><span>Course</span><strong>${escapeHtml(summary.courseName || "Needs review")}</strong><span>Code</span><strong>${escapeHtml(summary.courseCode || "Needs review")}</strong></div><div class="extraction-list">${items.map((item) => `<div><span>${escapeHtml(item.type)}</span><strong>${escapeHtml(item.title)}</strong></div>`).join("")}</div><p class="footer-note">${escapeHtml(summary.warning || "Review before scheduling assignments.")}</p><button class="primary-action" data-syllabus-confirm="${escapeHtml(review.id)}" ${review.parseStatus === "confirmed" ? "disabled" : ""}>${review.parseStatus === "confirmed" ? "Confirmed" : "Confirm review"}</button></div>`;
+    return `<div class="review-card" style="--accent:${review.parseStatus === "confirmed" ? TOKENS.ok : TOKENS.academy};"><div class="review-card__head"><div><div class="panel-label">${review.parseStatus === "confirmed" ? "confirmed syllabus" : "needs review"}</div><h4>${escapeHtml(review.title)}</h4></div>${pill(`${Math.round((review.confidence || 0) * 100)}% confidence`, review.parseStatus === "confirmed" ? TOKENS.ok : TOKENS.warn)}</div><div class="review-grid"><span>Course</span><strong>${escapeHtml(summary.courseName || "Needs review")}</strong><span>Code</span><strong>${escapeHtml(summary.courseCode || "Needs review")}</strong><span>Parser</span><strong>${escapeHtml(summary.parser || summary.extractionMethod || "heuristic")}</strong><span>Text</span><strong>${escapeHtml(summary.textStatus || "review")}</strong></div><div class="extraction-list">${items.map((item) => `<div><span>${escapeHtml(item.type)}</span><strong>${escapeHtml(item.title)}${item.dateText ? ` (${escapeHtml(item.dateText)})` : ""}</strong></div>`).join("") || `<div><span>review</span><strong>No structured dates found yet</strong></div>`}</div><p class="footer-note">${escapeHtml(summary.warning || "Review before scheduling assignments.")}</p><button class="primary-action" data-syllabus-confirm="${escapeHtml(review.id)}" ${review.parseStatus === "confirmed" ? "disabled" : ""}>${review.parseStatus === "confirmed" ? "Confirmed" : "Confirm review"}</button></div>`;
   }).join("");
   const noteButtons = filtered.map((note) => `<button class="note-button ${String(note.id) === String(state.activeNoteId) ? "is-active" : ""}" data-note-id="${escapeHtml(note.id)}" style="--accent:${colorFor(note.domain)};"><strong>${escapeHtml(note.title)}</strong><small>${escapeHtml(note.updated)} &middot; ${escapeHtml(note.domain)}</small></button>`).join("");
   const editor = activeNote
     ? `<div class="note-editor"><div class="panel-label">${iconSvg(activeNote.domain)} editable note</div><input class="note-title-input" value="${escapeHtml(activeNote.title)}" placeholder="Note title" data-note-title /><div class="note-meta-grid"><label><span>Domain</span><select data-note-domain>${DOMAINS.filter((domain) => domain.id !== "command").map((domain) => `<option value="${domain.id}" ${activeNote.domain === domain.id ? "selected" : ""}>${domain.label}</option>`).join("")}</select></label><label><span>Tags</span><input value="${escapeHtml(activeNote.tags.join(", "))}" placeholder="exam-prep, ideas" data-note-tags /></label></div><textarea class="note-body-input" placeholder="Write notes, links, questions, or source-grounded context here..." data-note-body>${escapeHtml(activeNote.body || activeNote.summary || "")}</textarea><p class="footer-note">Autosaves locally. Cloud sync updates on field change when apex_notes is available.</p></div>`
     : `<div class="empty-note-state">${emptyState({ domain: "notebook", title: "No notes yet.", body: "Create a note to capture source-grounded context before the AI/RAG layer lands.", primaryLabel: "", compact: true })}<button class="primary-action" data-note-create type="button">Create first note</button></div>`;
-  const uploadEmpty = emptyState({ domain: "notebook", title: "No source files attached yet.", body: "Start with a syllabus, lecture note, or assignment sheet. APEX will keep the file as a safe source stub until parsing is ready.", primaryLabel: "", compact: true });
-  const reviewEmpty = emptyState({ domain: "academy", title: "No syllabus reviews yet.", body: "Upload a syllabus, then choose Review as syllabus. Nothing gets scheduled until you confirm it.", primaryLabel: "Upload syllabus", primaryDomain: "notebook", compact: true });
-  return `<section class="section-shell">${heroBand(intel)}<div class="notebook-layout"><aside class="panel panel--quiet" style="--accent:${TOKENS.notebook};"><div class="panel-label">search notes</div><input class="search-input" type="search" placeholder="Search all notes..." value="${escapeHtml(state.noteSearch)}" data-note-search /><button class="primary-action note-create-action" data-note-create type="button">New note</button><div class="note-list" style="margin-top:1rem;">${noteButtons || stateNotice("loading", "No notes yet", "Create your first note to make Notebook useful.", "notebook")}</div></aside><div class="section-shell"><article class="panel" style="--accent:${activeNote ? colorFor(activeNote.domain) : TOKENS.notebook};">${editor}</article><article class="panel" data-upload-panel style="--accent:${TOKENS.notebook};"><div class="panel-label">source uploads</div><h3 class="empty-title">Upload syllabi, notes, and assignment sheets.</h3><p class="row-subtitle">APEX stores metadata now and can start a review queue for syllabi before real text extraction is connected.</p><label class="upload-zone"><input type="file" multiple data-file-upload /><span>Choose files to attach</span><small>${uploads.length ? `${uploads.length} source file(s) tracked` : "No source files attached yet"}</small></label><div class="section-list" style="margin-top:1rem;">${uploadRows || uploadEmpty}</div></article><article class="panel" data-syllabus-review-panel style="--accent:${TOKENS.academy};"><div class="panel-label">syllabus review queue</div><h3 class="empty-title">Confirm before APEX schedules anything.</h3><p class="row-subtitle">This is a safe placeholder pipeline: APEX creates review cards from upload metadata, then waits for your confirmation.</p><div class="review-list">${reviewRows || reviewEmpty}</div></article><article class="panel" style="--accent:${TOKENS.command};"><div class="panel-label">brain dump</div>${!state.processedDump ? `<textarea class="brain-dump" placeholder="Type anything: study thermo, email professor, pay rent, prep Friday quiz..." data-brain-dump>${escapeHtml(state.brainDump)}</textarea><div class="hero-actions"><button class="primary-action" data-process-dump>Process + sort</button></div>` : `<div class="processing-result"><div class="row is-hot" style="--accent:${TOKENS.ok};"><div class="row-badge">${iconSvg("command", "Processed")}</div><div class="row-copy"><div class="row-title">Dump routed into ${state.processedDump.domains.length} dashboards</div><div class="row-subtitle">${escapeHtml(state.processedDump.summary)}</div></div></div><div class="inline-chips">${state.processedDump.domains.map((domain) => pill(domain, colorFor(domain.toLowerCase()))).join("")}</div><button class="surface-action" data-clear-dump>New dump</button></div>`}</article></div></div></section>`;
+  const uploadEmpty = emptyState({ domain: "notebook", title: "No source files attached yet.", body: "Start with a syllabus, lecture note, or assignment sheet. APEX will extract text, run AI-style parsing, and keep everything in review until you confirm it.", primaryLabel: "", compact: true });
+  const reviewEmpty = emptyState({ domain: "academy", title: "No syllabus reviews yet.", body: "Upload a syllabus and APEX will create a parsed review card automatically. Nothing gets scheduled until you confirm it.", primaryLabel: "Upload syllabus", primaryDomain: "notebook", compact: true });
+  return `<section class="section-shell">${heroBand(intel)}<div class="notebook-layout"><aside class="panel panel--quiet" style="--accent:${TOKENS.notebook};"><div class="panel-label">search notes</div><input class="search-input" type="search" placeholder="Search all notes..." value="${escapeHtml(state.noteSearch)}" data-note-search /><button class="primary-action note-create-action" data-note-create type="button">New note</button><div class="note-list" style="margin-top:1rem;">${noteButtons || stateNotice("loading", "No notes yet", "Create your first note to make Notebook useful.", "notebook")}</div></aside><div class="section-shell"><article class="panel" style="--accent:${activeNote ? colorFor(activeNote.domain) : TOKENS.notebook};">${editor}</article><article class="panel" data-upload-panel style="--accent:${TOKENS.notebook};"><div class="panel-label">source uploads</div><h3 class="empty-title">Upload syllabi, notes, and assignment sheets.</h3><p class="row-subtitle">APEX now extracts text, runs AI-style syllabus parsing, and falls back to Tesseract OCR for image uploads when available.</p><label class="upload-zone"><input type="file" multiple data-file-upload /><span>Choose files to attach</span><small>${uploads.length ? `${uploads.length} source file(s) tracked` : "No source files attached yet"}</small></label><div class="section-list" style="margin-top:1rem;">${uploadRows || uploadEmpty}</div></article><article class="panel" data-syllabus-review-panel style="--accent:${TOKENS.academy};"><div class="panel-label">syllabus review queue</div><h3 class="empty-title">Confirm before APEX schedules anything.</h3><p class="row-subtitle">Parsed dates, assignments, grading weights, and policies stay in review until you confirm the card.</p><div class="review-list">${reviewRows || reviewEmpty}</div></article><article class="panel" style="--accent:${TOKENS.command};"><div class="panel-label">brain dump</div>${!state.processedDump ? `<textarea class="brain-dump" placeholder="Type anything: study thermo, email professor, pay rent, prep Friday quiz..." data-brain-dump>${escapeHtml(state.brainDump)}</textarea><div class="hero-actions"><button class="primary-action" data-process-dump>Process + sort</button></div>` : `<div class="processing-result"><div class="row is-hot" style="--accent:${TOKENS.ok};"><div class="row-badge">${iconSvg("command", "Processed")}</div><div class="row-copy"><div class="row-title">Dump routed into ${state.processedDump.domains.length} dashboards</div><div class="row-subtitle">${escapeHtml(state.processedDump.summary)}</div></div></div><div class="inline-chips">${state.processedDump.domains.map((domain) => pill(domain, colorFor(domain.toLowerCase()))).join("")}</div><button class="surface-action" data-clear-dump>New dump</button></div>`}</article></div></div></section>`;
 }
 
 function renderFreshDomainState(intel) {

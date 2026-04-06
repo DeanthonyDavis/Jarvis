@@ -24,6 +24,7 @@ APEX should be reviewed as a mobile app first. The desktop dashboard is a power-
 - Command palette / quick switcher with keyboard navigation and deep links to setup, widgets, connectors, sources, uploads, and notifications.
 - Mobile bottom-sheet navigation for small screens with section links and high-value setup actions.
 - Activity Log widget with local fallback and Supabase-backed `apex_activity_log` writes for uploads, syllabus review decisions, notes, and connector lifecycle events.
+- `/api/ingest` source pipeline for text extraction, AI-style syllabus parsing, and Tesseract OCR fallback for image uploads.
 
 ## Next: Modular Widgets
 
