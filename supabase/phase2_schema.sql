@@ -238,11 +238,16 @@ create table if not exists public.apex_integrations (
   scopes text[] not null default '{}',
   token_ref text,
   last_synced_at timestamptz,
+  next_sync_at timestamptz,
   last_error text,
   metadata jsonb not null default '{}'::jsonb,
   created_at timestamptz not null default now(),
-  updated_at timestamptz not null default now()
+  updated_at timestamptz not null default now(),
+  unique (workspace_id, provider_type, provider)
 );
+
+alter table public.apex_integrations
+add column if not exists next_sync_at timestamptz;
 
 create table if not exists public.apex_notifications (
   id uuid primary key default gen_random_uuid(),

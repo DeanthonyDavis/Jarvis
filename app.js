@@ -9,6 +9,7 @@ import {
   initAuthClient,
   loadNotificationRecords,
   loadNoteRecords,
+  loadIntegrationRecords,
   loadSyllabusRecords,
   loadUploadRecords,
   loadUserWorkspace,
@@ -19,6 +20,7 @@ import {
   signUpWithPassword,
   updateNoteRecord,
   updateSyllabusRecord,
+  upsertIntegrationRecord,
 } from "./auth.js";
 import {
   TOKENS,
@@ -66,6 +68,15 @@ const HELP_COPY = {
   notebook: ["Notebook", "Upload syllabi, PDFs, notes, and assignment sheets here. APEX will attach them as sources before deeper parsing is connected."],
 };
 
+const CONNECTOR_TEMPLATES = [
+  { provider: "canvas", providerType: "lms", displayName: "Canvas LMS", domain: "academy", description: "Courses, assignments, deadlines, and grade signals.", scopes: ["courses", "assignments", "grades"] },
+  { provider: "google_calendar", providerType: "calendar", displayName: "Google Calendar", domain: "command", description: "Fixed events, study windows, and calendar conflicts.", scopes: ["events.read", "events.write"] },
+  { provider: "deputy", providerType: "workforce", displayName: "Deputy / shifts", domain: "works", description: "Shift changes and work-hour protection.", scopes: ["rosters", "timesheets"] },
+  { provider: "plaid", providerType: "finance", displayName: "Plaid finance", domain: "life", description: "Balances, recurring bills, and budget pressure.", scopes: ["accounts", "transactions"] },
+  { provider: "health_connect", providerType: "health", displayName: "Health signals", domain: "mind", description: "Sleep and recovery context for load softening.", scopes: ["sleep", "activity"] },
+  { provider: "apex_webhook", providerType: "webhook", displayName: "APEX webhook", domain: "notebook", description: "Zapier/n8n/manual JSON events while OAuth connectors are built.", scopes: ["events", "tasks"] },
+];
+
 const DOMAIN_ICONS = {
   command: "M8 2.5 3.5 9h4L5.5 17.5 14 7h-4l2-4.5Z",
   academy: "M2.5 7.5 10 3.5l7.5 4-7.5 4-7.5-4ZM5.5 10v3.2c1.5 1.5 7.5 1.5 9 0V10",
@@ -97,6 +108,7 @@ function defaultSnapshot() {
     notifications: [],
     notificationPanelOpen: false,
     notificationStatus: "local",
+    integrations: clone(CONNECTOR_TEMPLATES).map((item) => ({ ...item, status: "disconnected", lastSyncedAt: null, nextSyncAt: null, lastError: "", metadata: {} })),
     noteSearch: "",
     activeNoteId: NOTES[0]?.id || null,
     notes: clone(NOTES),
@@ -157,6 +169,7 @@ function loadState() {
       notifications: Array.isArray(saved.notifications) ? saved.notifications : defaults.notifications,
       notificationPanelOpen: Boolean(saved.notificationPanelOpen),
       notificationStatus: saved.notificationStatus || defaults.notificationStatus,
+      integrations: Array.isArray(saved.integrations) ? saved.integrations : defaults.integrations,
       noteSearch: saved.noteSearch || "",
       activeNoteId: saved.activeNoteId ?? defaults.activeNoteId,
       notes: Array.isArray(saved.notes) ? saved.notes : defaults.notes,
@@ -250,6 +263,7 @@ function saveState() {
       notifications: state.notifications,
       notificationPanelOpen: state.notificationPanelOpen,
       notificationStatus: state.notificationStatus,
+      integrations: state.integrations,
       noteSearch: state.noteSearch,
       activeNoteId: state.activeNoteId,
       notes: state.notes,
@@ -277,6 +291,7 @@ function userWorkspaceState() {
     workspace: state.workspace,
     notifications: state.notifications,
     notificationStatus: state.notificationStatus,
+    integrations: state.integrations,
     noteSearch: state.noteSearch,
     activeNoteId: state.activeNoteId,
     notes: state.notes,
@@ -304,6 +319,7 @@ function applyWorkspaceState(workspace) {
   state.notifications = Array.isArray(workspace?.notifications) ? workspace.notifications : base.notifications;
   state.notificationStatus = workspace?.notificationStatus || base.notificationStatus;
   state.notificationPanelOpen = Boolean(workspace?.notificationPanelOpen);
+  state.integrations = Array.isArray(workspace?.integrations) ? workspace.integrations : base.integrations;
   state.noteSearch = workspace?.noteSearch || "";
   state.activeNoteId = workspace?.activeNoteId ?? null;
   state.notes = Array.isArray(workspace?.notes) ? workspace.notes : [];
@@ -463,6 +479,38 @@ function parseTags(value) {
     .map((tag) => tag.trim().replace(/^#/, ""))
     .filter(Boolean)
     .slice(0, 12);
+}
+
+function normalizeIntegration(record) {
+  const provider = record.provider;
+  const template = CONNECTOR_TEMPLATES.find((item) => item.provider === provider) || {};
+  const metadata = record.metadata || {};
+  return {
+    id: record.id || localId("integration"),
+    provider,
+    providerType: record.providerType || record.provider_type || template.providerType || "webhook",
+    displayName: record.displayName || metadata.displayName || template.displayName || provider,
+    domain: record.domain || metadata.domain || template.domain || "command",
+    description: record.description || metadata.description || template.description || "External source connection.",
+    status: record.status || "disconnected",
+    scopes: Array.isArray(record.scopes) && record.scopes.length ? record.scopes : clone(template.scopes || []),
+    tokenRef: record.tokenRef || record.token_ref || null,
+    lastSyncedAt: record.lastSyncedAt || record.last_synced_at || null,
+    nextSyncAt: record.nextSyncAt || record.next_sync_at || metadata.nextSyncAt || null,
+    lastError: record.lastError || record.last_error || "",
+    metadata,
+    createdAt: record.createdAt || record.created_at || new Date().toISOString(),
+    updatedAt: record.updatedAt || record.updated_at || new Date().toISOString(),
+    local: Boolean(record.local),
+  };
+}
+
+function mergeIntegrationTemplates(records = state.integrations) {
+  const byProvider = new Map(records.map((item) => [item.provider, normalizeIntegration(item)]));
+  for (const template of CONNECTOR_TEMPLATES) {
+    if (!byProvider.has(template.provider)) byProvider.set(template.provider, normalizeIntegration({ ...template, status: "disconnected", local: true }));
+  }
+  return [...byProvider.values()];
 }
 
 function buildSyllabusDraft(upload) {
@@ -718,6 +766,103 @@ async function updateActiveNote(patch, { syncCloud = false } = {}) {
   if (syncCloud && updatedNote) await syncNoteIfCloud(updatedNote);
 }
 
+async function persistIntegration(integration) {
+  if (!state.workspace.phase2Enabled || !state.workspace.id || !state.auth.client) return;
+  try {
+    const saved = normalizeIntegration(await upsertIntegrationRecord(state.auth.client, state.workspace.id, {
+      ...integration,
+      metadata: {
+        ...(integration.metadata || {}),
+        displayName: integration.displayName,
+        domain: integration.domain,
+        description: integration.description,
+      },
+    }));
+    state.integrations = mergeIntegrationTemplates(state.integrations.map((item) => item.provider === saved.provider ? saved : item));
+    saveState();
+    renderShellStatus();
+  } catch (error) {
+    state.workspace = {
+      ...state.workspace,
+      error: error instanceof Error ? error.message : "Integration sync unavailable.",
+    };
+    saveState();
+  }
+}
+
+async function updateIntegration(provider, patch, { toast = false } = {}) {
+  const current = mergeIntegrationTemplates().find((item) => item.provider === provider);
+  if (!current) return;
+  const updated = normalizeIntegration({
+    ...current,
+    ...patch,
+    updatedAt: new Date().toISOString(),
+    local: current.local,
+  });
+  state.integrations = mergeIntegrationTemplates(state.integrations.map((item) => item.provider === provider ? updated : item));
+  saveState();
+  renderApp();
+  await persistIntegration(updated);
+  if (toast) {
+    notifyUser({
+      type: "integration_update",
+      title: `${updated.displayName} ${updated.status}`,
+      body: updated.lastError || "Connector status updated.",
+      severity: updated.status === "error" ? "warning" : "info",
+      sourceEntityType: "integration",
+      sourceEntityId: isUuid(updated.id) ? updated.id : null,
+    });
+  }
+}
+
+async function syncIntegration(provider) {
+  const integration = mergeIntegrationTemplates().find((item) => item.provider === provider);
+  if (!integration) return;
+  const now = new Date().toISOString();
+  if (integration.status !== "connected" && provider !== "apex_webhook") {
+    await updateIntegration(provider, {
+      status: "needs_reauth",
+      lastError: "Connect this provider before running a live sync.",
+    }, { toast: true });
+    return;
+  }
+
+  const endpoint = provider === "google_calendar"
+    ? "/api/connectors/calendar?refresh=1"
+    : provider === "canvas"
+      ? "/api/connectors/lms?refresh=1"
+      : provider === "apex_webhook"
+        ? "/api/source/live"
+        : "";
+
+  if (!endpoint) {
+    await updateIntegration(provider, {
+      status: "needs_reauth",
+      lastError: "OAuth for this provider is not implemented yet. The connector record is ready for the real flow.",
+      lastSyncedAt: now,
+    }, { toast: true });
+    return;
+  }
+
+  await updateIntegration(provider, { status: "connected", lastError: "Syncing...", lastSyncedAt: now });
+  try {
+    const response = await fetch(endpoint, { headers: { Accept: "application/json" }, cache: "no-store" });
+    if (!response.ok) throw new Error(`Connector returned ${response.status}`);
+    await updateIntegration(provider, {
+      status: "connected",
+      lastSyncedAt: new Date().toISOString(),
+      nextSyncAt: new Date(Date.now() + 60 * 60 * 1000).toISOString(),
+      lastError: "",
+    }, { toast: true });
+  } catch (error) {
+    await updateIntegration(provider, {
+      status: "error",
+      lastSyncedAt: now,
+      lastError: error instanceof Error ? error.message : "Connector sync failed.",
+    }, { toast: true });
+  }
+}
+
 async function markNotificationRead(notificationId) {
   const now = new Date().toISOString();
   state.notifications = state.notifications.map((item) => item.id === notificationId ? { ...item, read_at: item.read_at || now } : item);
@@ -891,12 +1036,19 @@ function renderSourcePanel() {
   return `<article class="panel span-6" style="--accent:${TOKENS.notebook};"><div class="panel-label">live data sources</div><div class="source-shell"><label class="field-shell"><div class="field-row"><span>Remote JSON URL</span><strong>${source.lastSyncStatus}</strong></div><input class="search-input" type="url" value="${escapeHtml(source.remoteUrl)}" placeholder="https://example.com/apex.json" data-source-url /></label><div class="source-actions"><button class="surface-action" data-use-local-source>Use local live source</button>${pill("/api/source/live", TOKENS.command)}</div><div class="field-row"><span>Auto-sync every minute</span><button class="toggle-chip ${source.autoSync ? "is-active" : ""}" data-source-toggle="autoSync" style="--accent:${TOKENS.command};"><strong>${source.autoSync ? "On" : "Off"}</strong></button></div><div class="source-actions"><button class="primary-action" data-sync-source>Sync now</button><button class="surface-action" data-reset-source>Status reset</button>${pill(source.lastSyncStatus, statusTone(source.lastSyncStatus))}</div><div class="meta-grid"><div class="metric-stack"><span>Last sync</span><strong>${formatTimestamp(source.lastSyncAt)}</strong></div><div class="metric-stack"><span>Error</span><strong>${escapeHtml(source.lastError || "None")}</strong></div></div><label class="field-shell"><div class="field-row"><span>Manual payload</span><strong>JSON merge</strong></div><textarea class="brain-dump source-draft" placeholder='{"tasks":[...],"constraints":{"soft":{"keepEveningLight":7}}}' data-source-draft>${escapeHtml(source.draftPayload)}</textarea></label><div class="source-actions"><button class="primary-action" data-apply-source>Apply payload</button></div></div><div class="footer-note">Supported keys: <code>tasks</code>, <code>courses</code>, <code>schedule</code>, <code>bills</code>, <code>budget</code>, <code>paychecks</code>, <code>checkin</code>, and <code>constraints</code>. The bundled local server also exposes calendar, LMS, and webhook routes behind this source path.</div></article>`;
 }
 
+function renderConnectorPanel() {
+  const connectors = mergeIntegrationTemplates();
+  return `<article class="panel span-6" style="--accent:${TOKENS.command};"><div class="panel-label">connector framework</div><h3 class="empty-title">Integration status is now explicit.</h3><p class="row-subtitle">These records separate connector state from one-off webhook payloads: connect, test, sync, disconnect, last sync, and last error all live in one place.</p><div class="connector-grid">${connectors.map((item) => `<div class="connector-card" style="--accent:${colorFor(item.domain)};"><div class="connector-card__head"><div class="row-badge">${iconSvg(item.domain, item.displayName)}</div><div><strong>${escapeHtml(item.displayName)}</strong><small>${escapeHtml(item.providerType)} &middot; ${escapeHtml(item.status)}</small></div></div><p>${escapeHtml(item.description)}</p><div class="inline-chips">${item.scopes.slice(0, 3).map((scope) => pill(scope, colorFor(item.domain))).join("")}${pill(item.local ? "local" : "cloud", item.local ? TOKENS.warn : TOKENS.ok)}</div><div class="meta-grid"><div class="metric-stack"><span>Last sync</span><strong>${formatTimestamp(item.lastSyncedAt)}</strong></div><div class="metric-stack"><span>Next</span><strong>${formatTimestamp(item.nextSyncAt)}</strong></div></div>${item.lastError ? `<div class="connector-error">${escapeHtml(item.lastError)}</div>` : ""}<div class="source-actions"><button class="surface-action surface-action--small" data-integration-connect="${escapeHtml(item.provider)}">${item.status === "connected" ? "Reconnect" : "Connect stub"}</button><button class="surface-action surface-action--small" data-integration-sync="${escapeHtml(item.provider)}">Sync/test</button><button class="surface-action surface-action--small" data-integration-disconnect="${escapeHtml(item.provider)}">Disconnect</button></div></div>`).join("")}</div><div class="footer-note">Canvas, Google Calendar, and APEX webhook can call local endpoints now. Plaid, Deputy, and Health are framework records until real OAuth/native connectors are added.</div></article>`;
+}
+
 function renderSetupChecklist() {
+  const connectors = mergeIntegrationTemplates();
+  const isConnected = (providers) => connectors.some((item) => providers.includes(item.provider) && item.status === "connected");
   const items = [
     { title: "Upload Syllabus Files", text: "Attach syllabi, PDFs, or assignment sheets.", domain: "notebook", done: state.uploadedFiles.length > 0, action: "Open Notebook" },
-    { title: "Connect School Accounts", text: "Bring in courses, assignments, and grade signals.", domain: "academy", done: state.courses.length > 0, action: "Open Academy" },
-    { title: "Connect Calendar & Work", text: "Sync shifts, events, and project commitments.", domain: "works", done: state.schedule.length > 0, action: "Open Works" },
-    { title: "Connect Finance", text: "Add bills or connect finance sources when ready.", domain: "life", done: state.bills.length > 0, action: "Open Life" },
+    { title: "Connect School Accounts", text: "Bring in courses, assignments, and grade signals.", domain: "academy", done: state.courses.length > 0 || isConnected(["canvas"]), action: "Open Academy" },
+    { title: "Connect Calendar & Work", text: "Sync shifts, events, and project commitments.", domain: "works", done: state.schedule.length > 0 || isConnected(["google_calendar", "deputy"]), action: "Open Works" },
+    { title: "Connect Finance", text: "Add bills or connect finance sources when ready.", domain: "life", done: state.bills.length > 0 || isConnected(["plaid"]), action: "Open Life" },
     { title: "Tune Scheduler", text: "Set hard and soft constraints for the solver.", domain: "command", done: state.onboarding?.tutorialCompleted || state.onboarding?.tutorialSkipped, action: "Tune Constraints" },
   ];
   return `<article class="panel span-12 setup-panel" style="--accent:${TOKENS.command};"><div class="panel-label">first-time setup</div><div class="setup-list">${items.map((item) => `<button class="setup-item ${item.done ? "is-complete" : ""}" data-domain="${item.domain}" style="--accent:${colorFor(item.domain)};"><span class="setup-icon">${iconSvg(item.domain, item.title)}</span><span class="setup-copy"><strong>${item.title}</strong><small>${item.text}</small></span><span class="setup-status">${item.done ? "Ready" : "Not Started"}</span><span class="setup-action">${item.action}</span></button>`).join("")}</div></article>`;
@@ -906,7 +1058,7 @@ function renderCommand(intel) {
   const dayLabels = ["S", "M", "T", "W", "T", "F", "S"];
   const dayIndex = intel.generatedAt.getDay();
   const topCourse = intel.courseInsights.slice().sort((a, b) => b.riskScore - a.riskScore)[0];
-  return `<section class="section-shell">${heroBand(intel)}<div class="dashboard-grid">${renderSetupChecklist()}<article class="panel span-8" style="--accent:${TOKENS.command};"><div class="panel-label">intelligence briefing</div><div class="list-rows">${intel.topPriorities.map((task, index) => `<div class="row is-hot" style="--accent:${colorFor(task.domain)};"><div class="row-badge">${index + 1}</div><div class="row-copy"><div class="row-title">${task.title}</div><div class="row-subtitle">Due ${task.due} &middot; ${task.reason}</div></div>${pill(task.domain, colorFor(task.domain))}</div>`).join("")}</div><div class="system-note" style="margin-top:1rem;">This stack is now driven by live task scoring plus the current constraint profile. Change the rules, and these priorities recompute.</div></article><article class="panel span-4" style="--accent:${intel.solverSummary.unscheduledUrgentCount ? TOKENS.danger : TOKENS.ok};"><div class="panel-label">solver summary</div><div class="solver-grid"><div class="metric-stack"><span>Scheduled</span><strong>${intel.solverSummary.scheduledMinutes}m</strong></div><div class="metric-stack"><span>Capacity</span><strong>${intel.solverSummary.flexibleCapacityMinutes}m</strong></div><div class="metric-stack"><span>Urgent unscheduled</span><strong>${intel.solverSummary.unscheduledUrgentCount}</strong></div><div class="metric-stack"><span>Search score</span><strong>${intel.solverSummary.score}</strong></div></div><div class="footer-note">${intel.solverSummary.unscheduledMinutes ? `${intel.solverSummary.unscheduledMinutes} minutes remain unscheduled under the current rules.` : "Every active chunk currently fits inside the remaining day."}</div></article><article class="panel span-4" style="--accent:${TOKENS.command};"><div class="panel-label">capacity gauge</div>${gauge(intel.loadScore, TOKENS.command, "load index", intel.loadLabel === "stabilize" ? "stabilize plan active" : intel.loadLabel, intel.loadDisplay || `${intel.loadScore}%`)}<div class="footer-note" style="margin-top:0.9rem;">${intel.loadExplanation}</div><div class="mini-breakdown">${intel.domainLoads.map((item) => `<div><div class="label-row"><span>${item.label}</span><span>${item.pct}%</span></div>${meter(item.pct, colorFor(item.domain))}</div>`).join("")}</div></article><article class="panel span-4" style="--accent:${TOKENS.academy};"><div class="panel-label">gpa tracker</div><div class="kpi"><div class="kpi-value accent-text">3.47</div><div class="kpi-copy"><div>Current GPA</div><div class="${topCourse?.status === "at-risk" ? "trend-down" : "trend-up"}">${topCourse?.status === "at-risk" ? "Watch " : "Stable "}${topCourse?.name || "semester profile"}</div></div></div>${sparkBars(state.courses.map((course) => course.grade / 10), TOKENS.academy)}<div class="section-list" style="margin-top:0.95rem;">${intel.courseInsights.map((course) => `<div class="meta-row"><span>${course.name}</span><strong style="color:${course.status === "at-risk" ? TOKENS.danger : course.status === "watch" ? TOKENS.warn : TOKENS.ok};">${course.grade}%</strong></div>`).join("")}</div></article><article class="panel span-4" style="--accent:${TOKENS.danger};"><div class="panel-label">conflict engine</div><div class="stack-list">${intel.conflicts.map((conflict) => `<div class="row" style="--accent:${conflict.severity === "crit" ? TOKENS.danger : conflict.severity === "warn" ? TOKENS.warn : TOKENS.command}; align-items:flex-start;"><div class="row-badge">${conflict.severity === "crit" ? "!" : conflict.severity === "warn" ? "~" : "i"}</div><div class="row-copy"><div class="row-title">${conflict.title}</div><div class="row-subtitle">${conflict.text}</div></div><button class="small-action">${conflict.action}</button></div>`).join("")}</div></article><article class="panel span-4" style="--accent:${TOKENS.notebook};"><div class="panel-label">this week</div><div class="calendar-grid">${dayLabels.map((label, index) => { const day = intel.weeklyOutlook[index]; const level = day.level === "high" ? TOKENS.danger : day.level === "medium" ? TOKENS.warn : TOKENS.ok; return `<div class="day-card ${index === dayIndex ? "is-today" : ""}" style="--accent:${level};"><small class="muted">${label}</small><strong>${day.date.getDate()}</strong><div class="dot-stack"><span style="background:${level};"></span><span style="background:${level}; opacity:.65;"></span><span style="background:${level}; opacity:.35;"></span></div></div>`; }).join("")}</div><div class="footer-note" style="margin-top:0.95rem;">Peak pressure day: ${intel.hottestDay.date.toLocaleDateString("en-US", { weekday: "long", month: "short", day: "numeric" })}. The weekly view is driven by deadlines, exams, and bills.</div></article><article class="panel span-12" style="--accent:${TOKENS.future};"><div class="panel-label">next best moves</div><div class="courses-grid">${intel.recommendations.map((item) => `<article class="note-card"><h4>${item.title}</h4><p class="row-subtitle" style="margin-top:0.7rem;">${item.text}</p><div style="margin-top:0.8rem;">${pill(DOMAINS.find((domain) => domain.id === item.accent)?.label || item.accent, colorFor(item.accent))}</div></article>`).join("")}</div></article>${renderConstraintPanel(intel)}${renderSourcePanel()}<article class="panel span-12" style="--accent:${TOKENS.command};"><div class="panel-label">optimized schedule</div><div class="schedule-strip schedule-strip--solver">${intel.schedulePlan.map((item) => `<div class="schedule-block" style="--accent:${colorFor(item.domain)};"><div class="schedule-time">${item.time}</div><strong>${item.label}</strong><div class="row-subtitle" style="margin-top:0.45rem;">${item.note}</div><div style="margin-top:0.65rem;">${pill(item.status || item.kind, item.status === "locked" ? TOKENS.notebook : item.status === "assigned" ? colorFor(item.domain) : TOKENS.warn)}</div><div class="assignment-list">${item.assignments?.length ? item.assignments.map((assignment) => `<div class="assignment-pill"><span>${assignment.title}</span><strong>${assignment.minutes}m</strong></div>`).join("") : `<div class="empty-assignment">${item.status === "locked" ? "Reserved" : "No task assigned"}</div>`}</div><div class="row-subtitle">Remaining: ${item.remainingMinutes ?? 0}m</div></div>`).join("")}</div></article></div></section>`;
+  return `<section class="section-shell">${heroBand(intel)}<div class="dashboard-grid">${renderSetupChecklist()}<article class="panel span-8" style="--accent:${TOKENS.command};"><div class="panel-label">intelligence briefing</div><div class="list-rows">${intel.topPriorities.map((task, index) => `<div class="row is-hot" style="--accent:${colorFor(task.domain)};"><div class="row-badge">${index + 1}</div><div class="row-copy"><div class="row-title">${task.title}</div><div class="row-subtitle">Due ${task.due} &middot; ${task.reason}</div></div>${pill(task.domain, colorFor(task.domain))}</div>`).join("")}</div><div class="system-note" style="margin-top:1rem;">This stack is now driven by live task scoring plus the current constraint profile. Change the rules, and these priorities recompute.</div></article><article class="panel span-4" style="--accent:${intel.solverSummary.unscheduledUrgentCount ? TOKENS.danger : TOKENS.ok};"><div class="panel-label">solver summary</div><div class="solver-grid"><div class="metric-stack"><span>Scheduled</span><strong>${intel.solverSummary.scheduledMinutes}m</strong></div><div class="metric-stack"><span>Capacity</span><strong>${intel.solverSummary.flexibleCapacityMinutes}m</strong></div><div class="metric-stack"><span>Urgent unscheduled</span><strong>${intel.solverSummary.unscheduledUrgentCount}</strong></div><div class="metric-stack"><span>Search score</span><strong>${intel.solverSummary.score}</strong></div></div><div class="footer-note">${intel.solverSummary.unscheduledMinutes ? `${intel.solverSummary.unscheduledMinutes} minutes remain unscheduled under the current rules.` : "Every active chunk currently fits inside the remaining day."}</div></article><article class="panel span-4" style="--accent:${TOKENS.command};"><div class="panel-label">capacity gauge</div>${gauge(intel.loadScore, TOKENS.command, "load index", intel.loadLabel === "stabilize" ? "stabilize plan active" : intel.loadLabel, intel.loadDisplay || `${intel.loadScore}%`)}<div class="footer-note" style="margin-top:0.9rem;">${intel.loadExplanation}</div><div class="mini-breakdown">${intel.domainLoads.map((item) => `<div><div class="label-row"><span>${item.label}</span><span>${item.pct}%</span></div>${meter(item.pct, colorFor(item.domain))}</div>`).join("")}</div></article><article class="panel span-4" style="--accent:${TOKENS.academy};"><div class="panel-label">gpa tracker</div><div class="kpi"><div class="kpi-value accent-text">3.47</div><div class="kpi-copy"><div>Current GPA</div><div class="${topCourse?.status === "at-risk" ? "trend-down" : "trend-up"}">${topCourse?.status === "at-risk" ? "Watch " : "Stable "}${topCourse?.name || "semester profile"}</div></div></div>${sparkBars(state.courses.map((course) => course.grade / 10), TOKENS.academy)}<div class="section-list" style="margin-top:0.95rem;">${intel.courseInsights.map((course) => `<div class="meta-row"><span>${course.name}</span><strong style="color:${course.status === "at-risk" ? TOKENS.danger : course.status === "watch" ? TOKENS.warn : TOKENS.ok};">${course.grade}%</strong></div>`).join("")}</div></article><article class="panel span-4" style="--accent:${TOKENS.danger};"><div class="panel-label">conflict engine</div><div class="stack-list">${intel.conflicts.map((conflict) => `<div class="row" style="--accent:${conflict.severity === "crit" ? TOKENS.danger : conflict.severity === "warn" ? TOKENS.warn : TOKENS.command}; align-items:flex-start;"><div class="row-badge">${conflict.severity === "crit" ? "!" : conflict.severity === "warn" ? "~" : "i"}</div><div class="row-copy"><div class="row-title">${conflict.title}</div><div class="row-subtitle">${conflict.text}</div></div><button class="small-action">${conflict.action}</button></div>`).join("")}</div></article><article class="panel span-4" style="--accent:${TOKENS.notebook};"><div class="panel-label">this week</div><div class="calendar-grid">${dayLabels.map((label, index) => { const day = intel.weeklyOutlook[index]; const level = day.level === "high" ? TOKENS.danger : day.level === "medium" ? TOKENS.warn : TOKENS.ok; return `<div class="day-card ${index === dayIndex ? "is-today" : ""}" style="--accent:${level};"><small class="muted">${label}</small><strong>${day.date.getDate()}</strong><div class="dot-stack"><span style="background:${level};"></span><span style="background:${level}; opacity:.65;"></span><span style="background:${level}; opacity:.35;"></span></div></div>`; }).join("")}</div><div class="footer-note" style="margin-top:0.95rem;">Peak pressure day: ${intel.hottestDay.date.toLocaleDateString("en-US", { weekday: "long", month: "short", day: "numeric" })}. The weekly view is driven by deadlines, exams, and bills.</div></article><article class="panel span-12" style="--accent:${TOKENS.future};"><div class="panel-label">next best moves</div><div class="courses-grid">${intel.recommendations.map((item) => `<article class="note-card"><h4>${item.title}</h4><p class="row-subtitle" style="margin-top:0.7rem;">${item.text}</p><div style="margin-top:0.8rem;">${pill(DOMAINS.find((domain) => domain.id === item.accent)?.label || item.accent, colorFor(item.accent))}</div></article>`).join("")}</div></article>${renderConstraintPanel(intel)}${renderSourcePanel()}${renderConnectorPanel()}<article class="panel span-12" style="--accent:${TOKENS.command};"><div class="panel-label">optimized schedule</div><div class="schedule-strip schedule-strip--solver">${intel.schedulePlan.map((item) => `<div class="schedule-block" style="--accent:${colorFor(item.domain)};"><div class="schedule-time">${item.time}</div><strong>${item.label}</strong><div class="row-subtitle" style="margin-top:0.45rem;">${item.note}</div><div style="margin-top:0.65rem;">${pill(item.status || item.kind, item.status === "locked" ? TOKENS.notebook : item.status === "assigned" ? colorFor(item.domain) : TOKENS.warn)}</div><div class="assignment-list">${item.assignments?.length ? item.assignments.map((assignment) => `<div class="assignment-pill"><span>${assignment.title}</span><strong>${assignment.minutes}m</strong></div>`).join("") : `<div class="empty-assignment">${item.status === "locked" ? "Reserved" : "No task assigned"}</div>`}</div><div class="row-subtitle">Remaining: ${item.remainingMinutes ?? 0}m</div></div>`).join("")}</div></article></div></section>`;
 }
 
 function simpleListPanel(title, accent, rows) {
@@ -1160,6 +1312,12 @@ doc?.addEventListener("click", async (event) => {
   if (syllabusStart) { await startSyllabusReview(syllabusStart.dataset.syllabusStart); return; }
   const syllabusConfirm = target.closest("[data-syllabus-confirm]");
   if (syllabusConfirm) { await confirmSyllabusReview(syllabusConfirm.dataset.syllabusConfirm); return; }
+  const integrationConnect = target.closest("[data-integration-connect]");
+  if (integrationConnect) { await updateIntegration(integrationConnect.dataset.integrationConnect, { status: "connected", lastError: "", tokenRef: "stub_pending_oauth" }, { toast: true }); return; }
+  const integrationSync = target.closest("[data-integration-sync]");
+  if (integrationSync) { await syncIntegration(integrationSync.dataset.integrationSync); return; }
+  const integrationDisconnect = target.closest("[data-integration-disconnect]");
+  if (integrationDisconnect) { await updateIntegration(integrationDisconnect.dataset.integrationDisconnect, { status: "disconnected", tokenRef: null, lastError: "", nextSyncAt: null }, { toast: true }); return; }
   const score = target.closest("[data-score-field]");
   if (score) { state.checkin[score.dataset.scoreField] = Number(score.dataset.scoreValue); rerender(); return; }
   const toggle = target.closest("[data-constraint-toggle-key]");
@@ -1299,6 +1457,8 @@ async function loadRelationalWorkspaceForUser(user) {
     state.notificationStatus = "cloud";
     const notifications = await loadNotificationRecords(state.auth.client, workspace.id, user.id);
     state.notifications = notifications.map(normalizeNotification);
+    const integrations = await loadIntegrationRecords(state.auth.client, workspace.id);
+    state.integrations = mergeIntegrationTemplates(integrations.map(normalizeIntegration));
     const notes = await loadNoteRecords(state.auth.client, workspace.id);
     if (notes.length) {
       state.notes = notes.map(normalizeNote);
@@ -1400,6 +1560,7 @@ async function handleSignOut() {
     state.cloudSaveStatus = "idle";
     state.workspace = { id: null, name: "Local workspace", phase2Enabled: false, error: "" };
     state.notifications = [];
+    state.integrations = mergeIntegrationTemplates([]);
     state.notes = [];
     state.syllabusReviews = [];
     state.notificationPanelOpen = false;
@@ -1426,6 +1587,7 @@ win?.addEventListener("storage", (event) => {
   state.notifications = next.notifications;
   state.notificationPanelOpen = next.notificationPanelOpen;
   state.notificationStatus = next.notificationStatus;
+  state.integrations = next.integrations;
   state.noteSearch = next.noteSearch;
   state.activeNoteId = next.activeNoteId;
   state.notes = next.notes;

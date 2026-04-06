@@ -5,6 +5,7 @@ const NOTIFICATION_TABLE = "apex_notifications";
 const UPLOAD_TABLE = "apex_uploads";
 const SYLLABUS_TABLE = "apex_syllabi";
 const NOTE_TABLE = "apex_notes";
+const INTEGRATION_TABLE = "apex_integrations";
 
 export async function loadRuntimeConfig() {
   if (typeof fetch === "undefined") return { supabaseUrl: "", supabaseAnonKey: "" };
@@ -288,6 +289,57 @@ export async function updateNoteRecord(client, noteId, patch) {
     .update(update)
     .eq("id", noteId)
     .select("id, title, body, tags, domain, created_at, updated_at")
+    .single();
+  if (error) throw error;
+  return data;
+}
+
+const integrationColumns = "id, provider, provider_type, status, scopes, token_ref, last_synced_at, last_error, metadata, created_at, updated_at";
+
+export async function loadIntegrationRecords(client, workspaceId) {
+  const { data, error } = await client
+    .from(INTEGRATION_TABLE)
+    .select(integrationColumns)
+    .eq("workspace_id", workspaceId)
+    .order("provider_type", { ascending: true })
+    .order("provider", { ascending: true });
+  if (error) throw error;
+  return data || [];
+}
+
+export async function upsertIntegrationRecord(client, workspaceId, integration) {
+  const providerType = integration.providerType || integration.provider_type;
+  const payload = {
+      workspace_id: workspaceId,
+      provider: integration.provider,
+      provider_type: providerType,
+      status: integration.status || "disconnected",
+      scopes: Array.isArray(integration.scopes) ? integration.scopes : [],
+      token_ref: integration.tokenRef || integration.token_ref || null,
+      last_synced_at: integration.lastSyncedAt || integration.last_synced_at || null,
+      last_error: integration.lastError || integration.last_error || null,
+      metadata: {
+        ...(integration.metadata || {}),
+        nextSyncAt: integration.nextSyncAt || integration.next_sync_at || integration.metadata?.nextSyncAt || null,
+      },
+      updated_at: new Date().toISOString(),
+    };
+
+  const existing = await client
+    .from(INTEGRATION_TABLE)
+    .select("id")
+    .eq("workspace_id", workspaceId)
+    .eq("provider", integration.provider)
+    .eq("provider_type", providerType)
+    .maybeSingle();
+  if (existing.error) throw existing.error;
+
+  const query = existing.data
+    ? client.from(INTEGRATION_TABLE).update(payload).eq("id", existing.data.id)
+    : client.from(INTEGRATION_TABLE).insert(payload);
+
+  const { data, error } = await query
+    .select(integrationColumns)
     .single();
   if (error) throw error;
   return data;
