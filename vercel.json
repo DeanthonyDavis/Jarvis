@@ -2,7 +2,7 @@
   "crons": [
     {
       "path": "/api/ember/hourly-scan",
-      "schedule": "0 * * * *"
+      "schedule": "0 18 * * *"
     },
     {
       "path": "/api/ember/morning-brief",
