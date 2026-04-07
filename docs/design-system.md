@@ -10,6 +10,8 @@ This file defines the current product UI rules so new screens feel intentional i
 - Type scale: use `--type-xs`, `--type-sm`, `--type-md`, `--type-lg`, and `--type-xl`. Panel labels stay uppercase and small; section titles should be short and direct.
 - Radius scale: use `--radius-sm`, `--radius-md`, and `--radius-lg`. Routine rows use medium radius; panels and empty states use large radius.
 - Personalization classes: use `theme-*`, `density-*`, `text-*`, and `layout-*` on `.app-shell`. These are the bridge to saved layout profiles and a future widget system.
+- Brand system: Ember defaults to the Dawn-to-Dusk palette, moving from deep brown midnight through ember orange into warm cream. Do not use flat black as the primary background; use `--ember-midnight` and related palette stops instead.
+- Logo: use `.ember-logo-mark` for the flame identity mark. The outer stroke represents the world the user is navigating, the warm middle flame represents Ember's guidance, and the bright core represents the student.
 
 ## Patterns
 
@@ -56,7 +58,8 @@ This file defines the current product UI rules so new screens feel intentional i
 - Sources: empty notes, uploads, and syllabus review queue with upload and manual-source options.
 - Ingestion: source uploads show extraction status, parser method, preview text, and review confidence without scheduling unconfirmed data.
 - Personalization: Plan controls for theme, density, type scale, accent profile, and layout profile.
-- Appearance settings: curated Void, Retro, Floral, Solar, Arctic, Forest, Candy, and Midnight themes plus custom My Theme builder, surface opacity, blur, border style, motion, compact mode, and accent override.
+- Appearance settings: curated Dawn, Void, Retro, Floral, Solar, Arctic, Forest, Candy, and Midnight themes plus custom My Theme builder, surface opacity, blur, border style, motion, compact mode, and accent override.
+- Brand welcome: the auth surface uses the Dawn horizon scene as Ember's product poster. Keep it warm, mobile-first, and specific to school/work/money planning instead of turning it into a generic AI splash page.
 - Widgets: Plan layout controls for visible/hidden state, pinned priority, manual ordering, and profile-specific Guided/Operator/Focus layouts.
 - Activity: Plan audit panel for setup, upload, syllabus, note, and connector actions.
 - Navigation: app-wide command palette for sections, setup surfaces, uploads, connectors, notifications, and scheduler panels.

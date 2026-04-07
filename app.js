@@ -83,6 +83,26 @@ let emberSyncTimer = null;
 const clone = (value) => JSON.parse(JSON.stringify(value));
 
 const EMBER_THEMES = {
+  dawn: {
+    name: "Dawn",
+    vibe: "Dawn to Dusk, warm horizon",
+    personality: "A protective sunrise over a deep-brown base for calmer student planning.",
+    tokens: {
+      bg: "#0d0705",
+      surface: "#1a0e08",
+      surfaceStrong: "#2d1408",
+      border: "#b85520",
+      accent1: "#E07030",
+      accent2: "#f09050",
+      accent3: "#fde8c0",
+      text: "#fff8f0",
+      textSecondary: "#fde8c0",
+      textSoft: "#b88963",
+      gradientA: "radial-gradient(circle at 50% 16%, rgba(253, 232, 192, 0.28), transparent 18%), radial-gradient(circle at 52% 28%, rgba(224, 112, 48, 0.34), transparent 30%), linear-gradient(180deg, #0d0705 0%, #2d1408 38%, #7a3412 62%, #E07030 82%, #fff8f0 128%)",
+      gradientB: "linear-gradient(135deg, rgba(224, 112, 48, 0.22), rgba(240, 144, 80, 0.14), rgba(253, 232, 192, 0.08))",
+      glow: "rgba(224, 112, 48, 0.38)",
+    },
+  },
   void: {
     name: "Void",
     vibe: "Deep space, electric",
@@ -474,8 +494,8 @@ const DEFAULT_PREFERENCES = {
   density: "comfortable",
   fontScale: "standard",
   accentProfile: "domain",
-  themeFamily: "void",
-  gradientProfile: "study-neon",
+  themeFamily: "dawn",
+  gradientProfile: "dawn-to-dusk",
   layoutProfile: "guided",
   surfaceOpacity: 72,
   cardBlur: 24,
@@ -483,6 +503,7 @@ const DEFAULT_PREFERENCES = {
   animations: "on",
   compactMode: "off",
   accentOverride: "off",
+  brandRevision: "dawn-v1",
 };
 
 const PREFERENCE_OPTIONS = {
@@ -512,6 +533,7 @@ const PREFERENCE_OPTIONS = {
   ],
   themeFamily: Object.entries(EMBER_THEMES).map(([value, theme]) => [value, theme.name]),
   gradientProfile: [
+    ["dawn-to-dusk", "Dawn to Dusk"],
     ["study-neon", "Study Neon"],
     ["campus-sunrise", "Campus Sunrise"],
     ["library-blue", "Library Blue"],
@@ -543,6 +565,10 @@ const PREFERENCE_OPTIONS = {
 };
 
 const GRADIENT_PRESETS = {
+  "dawn-to-dusk": {
+    css: "radial-gradient(circle at 50% 16%, rgba(253, 232, 192, 0.28), transparent 18%), radial-gradient(circle at 52% 28%, rgba(224, 112, 48, 0.34), transparent 30%), linear-gradient(180deg, #0d0705 0%, #2d1408 38%, #7a3412 62%, #E07030 82%, #fff8f0 128%)",
+    soft: "linear-gradient(135deg, rgba(224, 112, 48, 0.22), rgba(240, 144, 80, 0.14), rgba(253, 232, 192, 0.08))",
+  },
   "study-neon": {
     css: "radial-gradient(circle at 18% 12%, rgba(56, 189, 248, 0.28), transparent 30%), radial-gradient(circle at 86% 18%, rgba(124, 109, 250, 0.28), transparent 30%), linear-gradient(145deg, #03040b 0%, #08091a 45%, #050508 100%)",
     soft: "linear-gradient(135deg, rgba(56, 189, 248, 0.18), rgba(124, 109, 250, 0.12), rgba(255, 255, 255, 0.025))",
@@ -830,6 +856,8 @@ const pill = (label, accent) => `<span class="pill" style="--pill:${accent};">${
 const tabButton = (group, value, active, accent, label = value) => `<button class="domain-tab ${active === value ? "is-active" : ""}" data-tab-group="${escapeHtml(group)}" data-tab-value="${escapeHtml(value)}" style="--accent:${accent};">${escapeHtml(label)}</button>`;
 const iconSvg = (id, label = "") =>
   `<svg class="ui-icon" viewBox="0 0 20 20" aria-hidden="${label ? "false" : "true"}" ${label ? `aria-label="${escapeHtml(label)}"` : ""}><path d="${DOMAIN_ICONS[id] || DOMAIN_ICONS.command}"></path></svg>`;
+const emberLogoMark = (label = "Ember") =>
+  `<svg class="ember-logo-mark" viewBox="0 0 36 36" role="img" aria-label="${escapeHtml(label)}"><path class="ember-logo-mark__outline" d="M18 3c4.9 4.1 9.1 9.1 9.8 15.2.8 7.1-3.7 13-9.8 14.8-6.1-1.8-10.6-7.7-9.8-14.8C8.9 12.1 13.1 7.1 18 3Z"></path><path class="ember-logo-mark__middle" d="M18 11.2c3.4 3 6 6.4 6 10.8 0 4.6-2.7 7.8-6 9-3.3-1.2-6-4.4-6-9 0-4.4 2.6-7.8 6-10.8Z"></path><path class="ember-logo-mark__core" d="M18 18.7c1.8 1.8 2.9 3.6 2.9 5.4 0 2.2-1.2 3.7-2.9 4.4-1.7-.7-2.9-2.2-2.9-4.4 0-1.8 1.1-3.6 2.9-5.4Z"></path></svg>`;
 const sparkBars = (values, accent) => {
   const max = Math.max(...values, 1);
   return `<div class="spark-bars">${values.map((value, index) => `<span style="height:${Math.max(14, (value / max) * 100)}%; --accent:${accent}; --index:${index + 1};"></span>`).join("")}</div>`;
@@ -947,13 +975,16 @@ function listOrEmpty(rows, emptyConfig) {
 function normalizePreferences(preferences = {}) {
   const isValid = (key, value) => PREFERENCE_OPTIONS[key]?.some(([option]) => option === value);
   const clampNumber = (value, fallback, min, max) => Math.max(min, Math.min(max, Number(value ?? fallback) || fallback));
+  const themeFamily = isValid("themeFamily", preferences.themeFamily) || preferences.themeFamily?.startsWith("custom:") ? preferences.themeFamily : DEFAULT_PREFERENCES.themeFamily;
+  const gradientProfile = isValid("gradientProfile", preferences.gradientProfile) ? preferences.gradientProfile : DEFAULT_PREFERENCES.gradientProfile;
+  const shouldMigrateDawn = !preferences.brandRevision && themeFamily === "void" && gradientProfile === "study-neon";
   return {
     theme: isValid("theme", preferences.theme) ? preferences.theme : DEFAULT_PREFERENCES.theme,
     density: isValid("density", preferences.density) ? preferences.density : DEFAULT_PREFERENCES.density,
     fontScale: isValid("fontScale", preferences.fontScale) ? preferences.fontScale : DEFAULT_PREFERENCES.fontScale,
     accentProfile: isValid("accentProfile", preferences.accentProfile) ? preferences.accentProfile : DEFAULT_PREFERENCES.accentProfile,
-    themeFamily: isValid("themeFamily", preferences.themeFamily) || preferences.themeFamily?.startsWith("custom:") ? preferences.themeFamily : DEFAULT_PREFERENCES.themeFamily,
-    gradientProfile: isValid("gradientProfile", preferences.gradientProfile) ? preferences.gradientProfile : DEFAULT_PREFERENCES.gradientProfile,
+    themeFamily: shouldMigrateDawn ? "dawn" : themeFamily,
+    gradientProfile: shouldMigrateDawn ? "dawn-to-dusk" : gradientProfile,
     layoutProfile: isValid("layoutProfile", preferences.layoutProfile) ? preferences.layoutProfile : DEFAULT_PREFERENCES.layoutProfile,
     surfaceOpacity: clampNumber(preferences.surfaceOpacity, DEFAULT_PREFERENCES.surfaceOpacity, 18, 96),
     cardBlur: clampNumber(preferences.cardBlur, DEFAULT_PREFERENCES.cardBlur, 0, 42),
@@ -961,6 +992,7 @@ function normalizePreferences(preferences = {}) {
     animations: isValid("animations", preferences.animations) ? preferences.animations : DEFAULT_PREFERENCES.animations,
     compactMode: isValid("compactMode", preferences.compactMode) ? preferences.compactMode : DEFAULT_PREFERENCES.compactMode,
     accentOverride: isValid("accentOverride", preferences.accentOverride) ? preferences.accentOverride : DEFAULT_PREFERENCES.accentOverride,
+    brandRevision: preferences.brandRevision || DEFAULT_PREFERENCES.brandRevision,
   };
 }
 
@@ -1039,8 +1071,8 @@ function saveCustomThemes() {
   storage.setItem(CUSTOM_THEMES_KEY, JSON.stringify(state.customThemes || []));
 }
 
-function defaultThemeDraft(base = EMBER_THEMES.void) {
-  const tokens = base.tokens || EMBER_THEMES.void.tokens;
+function defaultThemeDraft(base = EMBER_THEMES.dawn) {
+  const tokens = base.tokens || EMBER_THEMES.dawn.tokens;
   return {
     name: "My Ember Theme",
     background: tokens.bg,
@@ -1094,9 +1126,9 @@ function currentThemeDefinition() {
   const prefs = normalizePreferences(state.preferences);
   if (String(prefs.themeFamily).startsWith("custom:")) {
     const id = prefs.themeFamily.replace("custom:", "");
-    return state.customThemes.find((theme) => theme.id === id) || EMBER_THEMES.void;
+    return state.customThemes.find((theme) => theme.id === id) || EMBER_THEMES.dawn;
   }
-  return EMBER_THEMES[prefs.themeFamily] || EMBER_THEMES.void;
+  return EMBER_THEMES[prefs.themeFamily] || EMBER_THEMES.dawn;
 }
 
 function hexToRgba(hex, opacity = 1) {
@@ -1113,7 +1145,7 @@ function applyTheme(theme = currentThemeDefinition()) {
   const root = doc?.documentElement;
   if (!root) return;
   const prefs = normalizePreferences(state.preferences);
-  const tokens = theme.tokens || EMBER_THEMES.void.tokens;
+  const tokens = theme.tokens || EMBER_THEMES.dawn.tokens;
   const opacity = prefs.surfaceOpacity / 100;
   const domain = prefs.accentOverride === "on"
     ? {
@@ -3240,6 +3272,10 @@ function taskMarkup(task) {
   return `<button class="task-item ${task.done ? "is-done" : ""} ${task.urgent && !task.done ? "is-urgent" : ""}" data-task-id="${task.id}" style="--accent:${colorFor(task.domain)};"><span class="check">${task.done ? "&#10003;" : ""}</span><span class="task-copy"><span class="task-title">${task.title}</span><span class="task-due">${task.due}${task.course ? ` &middot; ${task.course}` : ""}</span></span>${task.urgent && !task.done ? pill("urgent", TOKENS.danger) : ""}</button>`;
 }
 
+function renderEmberSplashScene() {
+  return `<div class="ember-splash-scene" role="img" aria-label="Ember dawn horizon"><div class="ember-splash-sky"></div><div class="ember-sun" aria-hidden="true"></div><div class="ember-horizon-glow" aria-hidden="true"></div><svg class="ember-treeline" viewBox="0 0 320 88" aria-hidden="true"><path d="M0 76h320v12H0V76Zm5 0 18-32 14 32h12l18-46 20 46h16l17-34 13 34h16l28-56 30 56h14l18-38 17 38h17l16-30 16 30h14v12H0V76Z"></path></svg><div class="ember-reflection" aria-hidden="true"></div><div class="ember-ground" aria-hidden="true"></div><div class="ember-wordmark">${emberLogoMark("Ember")}<span>Ember</span><small>School, work, money, and energy in one morning plan.</small></div><div class="dawn-palette-strip" role="img" aria-label="Dawn to Dusk palette"><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span></div><div class="ember-tap-hint"><span></span><small>sign in to enter</small></div></div>`;
+}
+
 function renderAuthShell() {
   const modeLabel = state.auth.mode === "sign-up" ? "Create account" : "Sign in";
   const altLabel = state.auth.mode === "sign-up" ? "Already have an account? Sign in" : "Create your first account";
@@ -3248,7 +3284,7 @@ function renderAuthShell() {
     : !state.auth.enabled
       ? `<div class="auth-card"><div class="panel-label">supabase setup required</div><h1>Connect Supabase to unlock first-user testing.</h1><p>${escapeHtml(state.auth.error || "Add SUPABASE_URL and SUPABASE_ANON_KEY in Vercel and your local .env file, then run the Supabase schema.")}</p><div class="auth-hint"><strong>Next:</strong> run <code>supabase/schema.sql</code> in Supabase SQL Editor, then redeploy or restart the local server.</div></div>`
       : `<form class="auth-card" data-auth-form><div class="panel-label">private beta login</div><h1>${modeLabel} to Ember</h1><p>New accounts start with a clean workspace: no demo classes, no preset tasks, and no inherited connector state.</p><label class="field-shell"><div class="field-row"><span>Email</span></div><input class="search-input" type="email" autocomplete="email" value="${escapeHtml(state.auth.email)}" data-auth-email /></label><label class="field-shell"><div class="field-row"><span>Password</span></div><input class="search-input" type="password" autocomplete="${state.auth.mode === "sign-up" ? "new-password" : "current-password"}" value="${escapeHtml(state.auth.password)}" data-auth-password /></label>${state.auth.error ? `<div class="auth-error">${escapeHtml(state.auth.error)}</div>` : ""}${state.auth.message ? `<div class="auth-hint">${escapeHtml(state.auth.message)}</div>` : ""}<div class="hero-actions"><button class="primary-action" type="submit">${modeLabel}</button><button class="surface-action" type="button" data-auth-toggle>${altLabel}</button></div></form>`;
-  app.innerHTML = `<div class="auth-shell"><div class="ambient"><div class="orb orb--one"></div><div class="orb orb--two"></div><div class="orb orb--three"></div></div><div class="auth-poster"><div class="eyebrow">${iconSvg("command")}<span>Ember</span></div><h2>Your Life OS starts empty, then learns from your actual sources.</h2><p>Log in, take the guided first run, and connect files, LMS, calendar, and webhook data only when you're ready.</p></div>${body}</div>`;
+  app.innerHTML = `<div class="auth-shell auth-shell--dawn"><div class="ambient"><div class="orb orb--one"></div><div class="orb orb--two"></div><div class="orb orb--three"></div></div><div class="auth-poster">${renderEmberSplashScene()}<div class="auth-poster-copy"><div class="eyebrow">${emberLogoMark("Ember")}<span>Dawn to Dusk</span></div><h2>Keep school, work, and money from colliding.</h2><p>Ember starts with manual entry, then gets smarter as you add syllabi, calendars, shifts, and real sources.</p></div></div>${body}</div>`;
 }
 
 function connectorIsConnected(providers, connectors = mergeIntegrationTemplates()) {
@@ -3878,7 +3914,7 @@ function emberActionButton(label, action, className = "primary-action") {
 function renderEmberHomePanel(ember) {
   const priorities = ember.topThree.map((task) => `<div class="ember-priority"><div><strong>${escapeHtml(task.title)}</strong><span>${escapeHtml(task.due || "Today")} &middot; ${escapeHtml(task.course || task.domain || "task")}</span></div>${pill(task.urgent ? "high" : "today", task.urgent ? TOKENS.warn : TOKENS.command)}</div>`).join("");
   const states = ember.states.slice(0, 3).map((item) => `<span>${escapeHtml(item.stateKey.replace(/_/g, " "))}</span>`).join("");
-  return `<article class="panel span-8 ember-home-card" data-ember-home style="--accent:${TOKENS.command};"><div class="ember-card-head"><div class="ember-avatar">${iconSvg("command", "Ember")}</div><div><div class="panel-label">EMBER</div><h3>${escapeHtml(ember.dashboard.title)}</h3></div></div><p class="ember-message">${escapeHtml(ember.dashboard.body)}</p><div class="ember-card-actions">${emberActionButton(ember.dashboard.ctaLabel, ember.dashboard.ctaAction?.type || "open_plan")}${emberActionButton("Why Ember said this", "why_ember", "surface-action")}</div><p class="footer-note">${escapeHtml(ember.dashboard.note)}</p><div class="ember-state-strip">${states}</div>${priorities ? `<div class="ember-priority-list"><div class="panel-label">what actually matters today</div>${priorities}</div>` : ""}</article>`;
+  return `<article class="panel span-8 ember-home-card" data-ember-home style="--accent:${TOKENS.command};"><div class="ember-card-head"><div class="ember-avatar">${emberLogoMark("Ember")}</div><div><div class="panel-label">EMBER</div><h3>${escapeHtml(ember.dashboard.title)}</h3></div></div><p class="ember-message">${escapeHtml(ember.dashboard.body)}</p><div class="ember-card-actions">${emberActionButton(ember.dashboard.ctaLabel, ember.dashboard.ctaAction?.type || "open_plan")}${emberActionButton("Why Ember said this", "why_ember", "surface-action")}</div><p class="footer-note">${escapeHtml(ember.dashboard.note)}</p><div class="ember-state-strip">${states}</div>${priorities ? `<div class="ember-priority-list"><div class="panel-label">what actually matters today</div>${priorities}</div>` : ""}</article>`;
 }
 
 function renderEmberPlannerPanel(ember) {
@@ -4075,7 +4111,7 @@ function renderApp() {
   const prefs = normalizePreferences(state.preferences);
   const shellClass = `theme-${prefs.theme} density-${prefs.compactMode === "on" ? "compact" : prefs.density} text-${prefs.fontScale} layout-${prefs.layoutProfile}`;
   const gradient = currentThemeDefinition().tokens;
-  app.innerHTML = `<div class="app-shell ${shellClass}" style="--accent:${selectedAccent(domain.id)}; --student-gradient:${gradient.gradientA}; --student-gradient-soft:${gradient.gradientB};"><a class="skip-link" href="#main-content">Skip to content</a><div class="ambient"><div class="orb orb--one"></div><div class="orb orb--two"></div><div class="orb orb--three"></div></div><aside class="sidebar ${state.sidebarCollapsed ? "is-collapsed" : ""}"><div class="brand"><div class="brand-mark">${iconSvg("command")}</div><div class="brand-copy"><h1>Ember</h1><p>Universal 2.0</p></div></div><nav class="sidebar-nav" aria-label="Primary sections">${DOMAINS.map((item) => `<button class="nav-button ${state.activeDomain === item.id ? "is-active" : ""}" data-domain="${item.id}" style="--accent:${colorFor(item.id)};" aria-current="${state.activeDomain === item.id ? "page" : "false"}"><span class="nav-icon">${iconSvg(item.id, item.label)}</span><span class="nav-copy"><strong>${item.label}</strong><span>${item.blurb}</span></span></button>`).join("")}</nav><div class="sidebar-footer"><button class="collapse-button" data-collapse-sidebar aria-label="${state.sidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"}"><span>${state.sidebarCollapsed ? "&#9654;" : "&#9664;"}</span><span>${state.sidebarCollapsed ? "Expand" : "Collapse"}</span></button></div></aside><main class="main" id="main-content"><header class="topbar"><div class="topbar-title"><div class="topbar-icon">${iconSvg(domain.id, domain.label)}</div><div class="topbar-copy"><h2>Ember ${domain.label}</h2><p>${formatToday()} &middot; ${state.auth.user.email}</p></div></div><div class="topbar-metrics"><button class="mobile-menu-trigger" data-mobile-nav-open aria-label="Open mobile menu"><span>${iconSvg(domain.id, "Mobile menu")}</span><strong>Menu</strong></button><button class="command-trigger" data-command-open aria-label="Open command palette"><span>${iconSvg("command", "Command palette")}</span><strong>Search</strong><kbd>Ctrl K</kbd></button><div class="metric-pill"><span class="metric-dot"></span><span>Load</span><strong data-shell-load>${intel.loadDisplay || `${intel.loadScore}%`}</strong></div><div class="metric-pill"><span class="metric-dot" style="background:${TOKENS.command};"></span><span>Cloud</span><strong data-shell-cloud>${state.cloudSaveStatus}</strong></div><div class="metric-pill"><span class="metric-dot" data-shell-source-dot style="background:${statusTone(state.sourceConfig.lastSyncStatus)};"></span><span>Source</span><strong data-shell-source>${state.sourceConfig.lastSyncStatus}</strong></div><button class="metric-pill metric-button ${unreadNotifications().length ? "has-unread" : ""}" data-notification-toggle type="button" aria-label="Open notification center"><span class="metric-dot" data-shell-notification-dot style="background:${unreadNotifications().length ? TOKENS.warn : TOKENS.ok};"></span><span>Alerts</span><strong data-shell-notifications>${unreadNotifications().length}</strong></button><button class="upgrade-trigger ${subscriptionTier() === "free" ? "" : "is-active"}" data-paywall-open>${subscriptionTier() === "free" ? "Upgrade" : subscriptionTier() === "pro_plus" ? "Pro+" : "Pro"}</button><button class="surface-action" data-domain="command" data-scroll-personalization>Personalize</button><button class="surface-action" data-auth-signout>Sign Out</button><div class="mini-domain-rail" aria-label="Quick sections">${DOMAINS.filter((item) => item.id !== "command").map((item) => `<button class="stat-dot-button ${item.id === state.activeDomain ? "is-active" : ""}" data-domain="${item.id}" style="--dot:${colorFor(item.id)};" title="${item.label}" aria-label="Open ${item.label}"></button>`).join("")}</div></div></header><div class="content">${renderContent(intel)}</div></main>${renderOnboarding()}${renderSectionHelp()}</div>`;
+  app.innerHTML = `<div class="app-shell ${shellClass}" style="--accent:${selectedAccent(domain.id)}; --student-gradient:${gradient.gradientA}; --student-gradient-soft:${gradient.gradientB};"><a class="skip-link" href="#main-content">Skip to content</a><div class="ambient"><div class="orb orb--one"></div><div class="orb orb--two"></div><div class="orb orb--three"></div></div><aside class="sidebar ${state.sidebarCollapsed ? "is-collapsed" : ""}"><div class="brand"><div class="brand-mark">${emberLogoMark("Ember")}</div><div class="brand-copy"><h1>Ember</h1><p>Dawn OS</p></div></div><nav class="sidebar-nav" aria-label="Primary sections">${DOMAINS.map((item) => `<button class="nav-button ${state.activeDomain === item.id ? "is-active" : ""}" data-domain="${item.id}" style="--accent:${colorFor(item.id)};" aria-current="${state.activeDomain === item.id ? "page" : "false"}"><span class="nav-icon">${iconSvg(item.id, item.label)}</span><span class="nav-copy"><strong>${item.label}</strong><span>${item.blurb}</span></span></button>`).join("")}</nav><div class="sidebar-footer"><button class="collapse-button" data-collapse-sidebar aria-label="${state.sidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"}"><span>${state.sidebarCollapsed ? "&#9654;" : "&#9664;"}</span><span>${state.sidebarCollapsed ? "Expand" : "Collapse"}</span></button></div></aside><main class="main" id="main-content"><header class="topbar"><div class="topbar-title"><div class="topbar-icon">${iconSvg(domain.id, domain.label)}</div><div class="topbar-copy"><h2>Ember ${domain.label}</h2><p>${formatToday()} &middot; ${state.auth.user.email}</p></div></div><div class="topbar-metrics"><button class="mobile-menu-trigger" data-mobile-nav-open aria-label="Open mobile menu"><span>${iconSvg(domain.id, "Mobile menu")}</span><strong>Menu</strong></button><button class="command-trigger" data-command-open aria-label="Open command palette"><span>${iconSvg("command", "Command palette")}</span><strong>Search</strong><kbd>Ctrl K</kbd></button><div class="metric-pill"><span class="metric-dot"></span><span>Load</span><strong data-shell-load>${intel.loadDisplay || `${intel.loadScore}%`}</strong></div><div class="metric-pill"><span class="metric-dot" style="background:${TOKENS.command};"></span><span>Cloud</span><strong data-shell-cloud>${state.cloudSaveStatus}</strong></div><div class="metric-pill"><span class="metric-dot" data-shell-source-dot style="background:${statusTone(state.sourceConfig.lastSyncStatus)};"></span><span>Source</span><strong data-shell-source>${state.sourceConfig.lastSyncStatus}</strong></div><button class="metric-pill metric-button ${unreadNotifications().length ? "has-unread" : ""}" data-notification-toggle type="button" aria-label="Open notification center"><span class="metric-dot" data-shell-notification-dot style="background:${unreadNotifications().length ? TOKENS.warn : TOKENS.ok};"></span><span>Alerts</span><strong data-shell-notifications>${unreadNotifications().length}</strong></button><button class="upgrade-trigger ${subscriptionTier() === "free" ? "" : "is-active"}" data-paywall-open>${subscriptionTier() === "free" ? "Upgrade" : subscriptionTier() === "pro_plus" ? "Pro+" : "Pro"}</button><button class="surface-action" data-domain="command" data-scroll-personalization>Personalize</button><button class="surface-action" data-auth-signout>Sign Out</button><div class="mini-domain-rail" aria-label="Quick sections">${DOMAINS.filter((item) => item.id !== "command").map((item) => `<button class="stat-dot-button ${item.id === state.activeDomain ? "is-active" : ""}" data-domain="${item.id}" style="--dot:${colorFor(item.id)};" title="${item.label}" aria-label="Open ${item.label}"></button>`).join("")}</div></div></header><div class="content">${renderContent(intel)}</div></main>${renderOnboarding()}${renderSectionHelp()}</div>`;
   state.lastPlanSnapshot = nextPlanSnapshot;
   persistPlanSnapshotOnly();
   renderToast();

@@ -79,9 +79,9 @@ You can still open `index.html` directly for a static-only pass, but the local s
 - Empty states across Plan, School, Work, Money, Path, Recovery, and Sources so missing data feels intentional
 - Personalization controls for theme, density, font scale, accent profile, and layout profile
 - Bottom-right Appearance Settings panel with live CSS-variable theme switching, card blur, surface opacity, animation, compact mode, border personality, and accent override controls
-- Curated Ember themes: Void, Retro, Floral, Solar, Arctic, Forest, Candy, and Midnight
+- Curated Ember themes: Dawn, Void, Retro, Floral, Solar, Arctic, Forest, Candy, and Midnight
 - "My Theme" builder for custom background, surface, text, accent, gradient, and preview settings saved locally under `ember_themes`
-- Student optimizer visual direction with selectable gradient profiles: Study Neon, Campus Sunrise, Library Blue, Focus Lime, and Exam Ember
+- Dawn-to-Dusk brand system with a warm horizon default, flame app mark, animated auth welcome surface, and selectable gradient profiles including Dawn to Dusk, Study Neon, Campus Sunrise, Library Blue, Focus Lime, and Exam Ember
 - A more student-planner visual direction with desk-board language, notebook-line texture, quieter surfaces, and less generic AI-dashboard glow
 - Plan widget controls for pinning, hiding, restoring, manual ordering, and resetting the dashboard layout
 - Profile-specific widget layouts for Guided, Operator, and Focus Plan views
