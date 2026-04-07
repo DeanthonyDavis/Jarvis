@@ -1766,6 +1766,25 @@ textarea:focus-visible {
   font-size: 0.78rem;
   color: var(--text-soft);
   line-height: 1.5;
+  max-width: 100%;
+  overflow-wrap: anywhere;
+}
+
+.source-file-row,
+.review-card,
+.extraction-list,
+.upload-sheet-row {
+  contain: layout paint;
+}
+
+.source-file-row .row-copy,
+.review-card,
+.review-grid,
+.extraction-list,
+.upload-sheet-row > div {
+  min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
 }
 
 .pill {
@@ -2707,6 +2726,12 @@ textarea:focus-visible {
   border: 1px solid rgba(255, 255, 255, 0.06);
 }
 
+.extraction-list {
+  max-height: min(46vh, 32rem);
+  overflow: auto;
+  overscroll-behavior: contain;
+}
+
 .review-grid {
   grid-template-columns: max-content minmax(0, 1fr);
 }
@@ -2729,8 +2754,10 @@ textarea:focus-visible {
 .review-grid strong,
 .extraction-list strong {
   min-width: 0;
+  max-width: 100%;
   line-height: 1.45;
   overflow-wrap: anywhere;
+  word-break: break-word;
   text-align: right;
 }
 
@@ -3172,6 +3199,8 @@ textarea:focus-visible {
 .note-content,
 .footer-note,
 .system-note {
+  min-width: 0;
+  max-width: 100%;
   padding: 1rem;
   border-radius: 20px;
   background: rgba(255, 255, 255, 0.03);
@@ -3179,6 +3208,15 @@ textarea:focus-visible {
   color: var(--text-muted);
   line-height: 1.7;
   font-size: 0.86rem;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+.footer-note--clamped {
+  display: -webkit-box;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 4;
 }
 
 .toast {
@@ -3576,7 +3614,9 @@ textarea:focus-visible {
 .upload-sheet-row strong,
 .upload-sheet-row span {
   min-width: 0;
+  max-width: 100%;
   overflow-wrap: anywhere;
+  word-break: break-word;
 }
 
 .upload-sheet-row span {
