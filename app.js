@@ -4651,40 +4651,83 @@ function simpleListPanel(title, accent, rows, emptyConfig = null) {
   return `<article class="panel span-12" style="--accent:${accent};"><div class="panel-label">${title}</div><div class="section-list">${body}</div></article>`;
 }
 
+function estimatedTaskMinutes(task = {}) {
+  const explicit = Number(task.estimatedMinutes || task.estimated_minutes || task.minutes || task.mins);
+  if (Number.isFinite(explicit) && explicit > 0) return explicit;
+  const text = `${task.title || ""} ${task.type || ""}`.toLowerCase();
+  if (/exam|test|midterm|final/.test(text)) return 120;
+  if (/lab|report|project|paper/.test(text)) return 90;
+  if (/quiz/.test(text)) return 45;
+  if (/read|discussion|note/.test(text)) return 40;
+  return task.urgent ? 75 : 50;
+}
+
+function coursePlanBlocks(course, assignments = [], intel = getIntel()) {
+  const courseNeedles = [course.code, course.name].map((value) => String(value || "").trim().toLowerCase()).filter(Boolean);
+  const assignmentTitles = new Set(assignments.map((task) => normalizedKey(task.title)));
+  return (intel.schedulePlan || []).filter((block) => {
+    if (block.domain !== "academy") return false;
+    const blockText = `${block.label || ""} ${block.note || ""}`.toLowerCase();
+    if (courseNeedles.some((needle) => needle && blockText.includes(needle))) return true;
+    return (block.assignments || []).some((assignment) => assignmentTitles.has(normalizedKey(assignment.title)));
+  });
+}
+
+function renderCourseWorkspace(intel, activeCourse, periods) {
+  const course = normalizeCourseRecord(activeCourse, periods);
+  const assignments = courseTasks(activeCourse);
+  const openTasks = assignments.filter((task) => !task.done);
+  const doneTasks = assignments.filter((task) => task.done);
+  const urgentTasks = openTasks.filter((task) => task.urgent);
+  const sourceReview = activeCourse.sourceReviewId
+    ? state.syllabusReviews.map(normalizeSyllabusReview).find((review) => String(review.id) === String(activeCourse.sourceReviewId))
+    : null;
+  const sourceUpload = activeCourse.sourceUploadId
+    ? state.uploadedFiles.map(normalizeUpload).find((upload) => String(upload.id) === String(activeCourse.sourceUploadId))
+    : null;
+  const studyMinutes = openTasks.reduce((sum, task) => sum + estimatedTaskMinutes(task), 0);
+  const weeklyTarget = openTasks.length ? Math.max(1, Math.ceil(studyMinutes / 60)) : 0;
+  const planBlocks = coursePlanBlocks(course, assignments, intel);
+  const plannedMinutes = planBlocks.reduce((sum, block) => sum + (Number(block.mins || block.minutes || 0) || 0), 0);
+  const sourceCopy = sourceUpload
+    ? `${sourceUpload.name} - ${sourceReview?.parseStatus || "review"}`
+    : activeCourse.sourceStatus === "source_removed"
+      ? "The syllabus file was removed. Manual assignments can still be added here."
+      : "Manual class or connector-backed class.";
+  const emberNote = !openTasks.length
+    ? `${course.name} is clean right now. Add new work here when the class gives you something real.`
+    : urgentTasks.length
+      ? `${urgentTasks[0].title} is the class item I would protect first. Keep this course page focused until that is handled.`
+      : plannedMinutes < studyMinutes
+        ? `${course.name} needs about ${weeklyTarget} focused hour${weeklyTarget === 1 ? "" : "s"} this week. I only see ${Math.round(plannedMinutes / 60)} hour${Math.round(plannedMinutes / 60) === 1 ? "" : "s"} planned so far.`
+        : `${course.name} has a workable study shape right now. Keep the next block tied to the earliest open assignment.`;
+  const periodMoves = periods.map((period) => `<button class="surface-action surface-action--small ${String(course.academicPeriodId) === String(period.id) ? "is-active" : ""}" data-course-move="${escapeHtml(course.id)}" data-period-id="${escapeHtml(period.id)}">${escapeHtml(period.name)}</button>`).join("");
+  const lifecycleActions = course.status === "archived"
+    ? `<button class="primary-action" data-course-status="${escapeHtml(course.id)}" data-status-value="active">Restore</button><button class="surface-action danger-action" data-course-delete="${escapeHtml(course.id)}">Delete permanently</button>`
+    : `<button class="surface-action" data-course-status="${escapeHtml(course.id)}" data-status-value="completed">Complete</button><button class="surface-action" data-course-status="${escapeHtml(course.id)}" data-status-value="dropped">Drop</button><button class="surface-action" data-course-status="${escapeHtml(course.id)}" data-status-value="archived">Archive</button>`;
+  const statCards = [
+    ["Open work", openTasks.length],
+    ["Urgent", urgentTasks.length],
+    ["Study target", `${weeklyTarget}h`],
+    ["Planned", plannedMinutes ? `${Math.round(plannedMinutes / 60)}h` : "0h"],
+  ].map(([label, value]) => `<div><span>${escapeHtml(label)}</span><strong>${escapeHtml(String(value))}</strong></div>`).join("");
+  const openRows = openTasks.map((task) => taskMarkup(task)).join("");
+  const doneRows = doneTasks.map((task) => taskMarkup(task)).join("");
+  const planRows = planBlocks.map((block) => `<div class="class-plan-block" style="--accent:${TOKENS.academy};"><span>${escapeHtml(block.time || "Study")}</span><strong>${escapeHtml(block.label || "Study block")}</strong><small>${escapeHtml(block.note || "Class-linked planner block")}</small></div>`).join("");
+  const sourceRows = [
+    sourceUpload ? `<div class="row" style="--accent:${TOKENS.notebook};"><div class="row-copy"><div class="row-title">${escapeHtml(sourceUpload.name)}</div><div class="row-subtitle">${escapeHtml(sourceReview?.parseStatus || sourceUpload.extractionStatus || "attached")}</div></div><button class="surface-action surface-action--small" data-upload-remove="${escapeHtml(sourceUpload.id)}">Remove</button></div>` : "",
+    activeCourse.sourceStatus === "source_removed" ? stateNotice("warning", "Syllabus source removed", "Generated assignments from that syllabus were removed; manual work stays here.", "academy") : "",
+  ].filter(Boolean).join("");
+  return `<section class="section-shell class-page-shell">${heroBand(intel)}<article class="class-page-hero" style="--accent:${course.color || TOKENS.academy};"><button class="surface-action surface-action--small" data-course-close>&larr; All classes</button><div class="class-page-hero__main"><div><div class="panel-label">class workspace</div><h3>${escapeHtml(course.name)}</h3><p>${escapeHtml(course.code || "Manual class")} &middot; ${escapeHtml(sourceCopy)}</p></div><div class="class-page-actions"><button class="primary-action" data-manual-entry="assignment">Add assignment</button><button class="surface-action" data-manual-entry="exam">Add exam</button></div></div><div class="course-detail-stats">${statCards}</div></article><div class="class-workspace-grid"><article class="panel class-focus-panel" style="--accent:${TOKENS.command};"><div class="panel-label">Ember for this class</div><h3>${escapeHtml(openTasks[0]?.title || "No class fire right now")}</h3><p>${escapeHtml(emberNote)}</p><div class="class-study-meter"><span style="width:${Math.min(100, Math.round((plannedMinutes / Math.max(60, studyMinutes)) * 100))}%;"></span></div><div class="footer-note">${plannedMinutes} of ${studyMinutes} estimated study minutes planned.</div></article><article class="panel class-assignments-panel" style="--accent:${TOKENS.academy};"><div class="panel-label">open assignments</div><div class="section-list">${openRows || emptyState({ domain: "academy", title: "No open assignments in this class.", body: "Add one manually, upload a syllabus, or confirm extracted dates from Sources.", primaryLabel: "Add assignment", primaryDomain: "manual:assignment", secondaryLabel: "Upload syllabus", secondaryDomain: "upload", compact: true })}</div></article><article class="panel class-plan-panel" style="--accent:${TOKENS.future};"><div class="panel-label">dedicated study plan</div>${planRows || stateNotice("loading", "No dedicated blocks yet", "Add assignments or run the planner so this course gets protected hours.", "academy")}<div class="hero-actions"><button class="surface-action" data-domain="command">Open planner</button><button class="surface-action" data-manual-entry="time_block">Add time block</button></div></article><article class="panel class-source-panel" style="--accent:${TOKENS.notebook};"><div class="panel-label">sources and notes</div><div class="section-list">${sourceRows || stateNotice("loading", "No class source attached", "Upload a syllabus or add a note so this class has evidence.", "notebook")}</div><div class="hero-actions"><button class="surface-action" data-upload-sheet-open>Upload syllabus</button><button class="surface-action" data-manual-entry="note">Write note</button></div></article><article class="panel class-completed-panel" style="--accent:${TOKENS.ok};"><div class="panel-label">completed work</div><div class="section-list">${doneRows || stateNotice("loading", "Nothing completed yet", "Finished work will collect here for this class.", "academy")}</div></article><article class="panel class-manage-panel" style="--accent:${TOKENS.warn};"><div class="panel-label">class management</div><div class="course-action-row"><div><div class="subtle-label">Lifecycle</div><div class="row-actions">${lifecycleActions}</div></div><div><div class="subtle-label">Move to term</div><div class="row-actions">${periodMoves}</div></div></div></article></div></section>`;
+}
+
 function renderAcademy(intel) {
   const tab = state.subTabs.academy;
   const periods = normalizeAcademicPeriods(state.academicPeriods);
   const activePeriod = periods.find((period) => String(period.id) === String(state.activeAcademicPeriodId)) || periods.find((period) => period.status === "current") || periods[0];
   const activeCourse = state.courses.find((course) => String(course.id) === String(state.activeCourseId));
   if (activeCourse) {
-    const course = normalizeCourseRecord(activeCourse, periods);
-    const assignments = courseTasks(activeCourse);
-    const openTasks = assignments.filter((task) => !task.done);
-    const doneTasks = assignments.filter((task) => task.done);
-    const sourceReview = activeCourse.sourceReviewId
-      ? state.syllabusReviews.map(normalizeSyllabusReview).find((review) => String(review.id) === String(activeCourse.sourceReviewId))
-      : null;
-    const sourceUpload = activeCourse.sourceUploadId
-      ? state.uploadedFiles.map(normalizeUpload).find((upload) => String(upload.id) === String(activeCourse.sourceUploadId))
-      : null;
-    const periodMoves = periods.map((period) => `<button class="surface-action surface-action--small ${String(course.academicPeriodId) === String(period.id) ? "is-active" : ""}" data-course-move="${escapeHtml(course.id)}" data-period-id="${escapeHtml(period.id)}">${escapeHtml(period.name)}</button>`).join("");
-    const lifecycleActions = course.status === "archived"
-      ? `<button class="primary-action" data-course-status="${escapeHtml(course.id)}" data-status-value="active">Restore</button><button class="surface-action danger-action" data-course-delete="${escapeHtml(course.id)}">Delete permanently</button>`
-      : `<button class="surface-action" data-course-status="${escapeHtml(course.id)}" data-status-value="completed">Complete</button><button class="surface-action" data-course-status="${escapeHtml(course.id)}" data-status-value="dropped">Drop</button><button class="surface-action" data-course-status="${escapeHtml(course.id)}" data-status-value="archived">Archive</button>`;
-    const statCards = [
-      ["Open", openTasks.length],
-      ["Done", doneTasks.length],
-      ["Urgent", openTasks.filter((task) => task.urgent).length],
-      ["Status", course.status],
-    ].map(([label, value]) => `<div><span>${escapeHtml(label)}</span><strong>${escapeHtml(String(value))}</strong></div>`).join("");
-    const openRows = openTasks.map((task) => taskMarkup(task)).join("");
-    const doneRows = doneTasks.map((task) => taskMarkup(task)).join("");
-    const sourceCopy = sourceUpload
-      ? `${sourceUpload.name} - ${sourceReview?.parseStatus || "review"}`
-      : activeCourse.sourceStatus === "source_removed"
-        ? "The syllabus file was removed. Manual assignments can still be added here."
-        : "Manual class or connector-backed class.";
-    return `<section class="section-shell">${heroBand(intel)}<article class="panel course-detail-panel" style="--accent:${course.color || TOKENS.academy};"><button class="surface-action surface-action--small" data-course-close>&larr; All classes</button><div class="course-detail-hero"><div><div class="panel-label">class workspace</div><h3>${escapeHtml(course.name)}</h3><p>${escapeHtml(course.code || "Manual class")} &middot; ${escapeHtml(sourceCopy)}</p></div><button class="primary-action" data-manual-entry="assignment">Add assignment</button></div><div class="course-detail-stats">${statCards}</div><div class="course-action-row"><div><div class="panel-label">lifecycle</div><div class="row-actions">${lifecycleActions}</div></div><div><div class="panel-label">move to term</div><div class="row-actions">${periodMoves}</div></div></div></article><div class="dashboard-grid"><article class="panel span-8" style="--accent:${TOKENS.academy};"><div class="panel-label">assignments for this class</div><div class="section-list">${openRows || emptyState({ domain: "academy", title: "No open assignments in this class.", body: "Add one manually, upload a syllabus, or confirm extracted dates from Sources.", primaryLabel: "Add assignment", primaryDomain: "manual:assignment", secondaryLabel: "Upload syllabus", secondaryDomain: "upload", compact: true })}</div></article><article class="panel span-4" style="--accent:${TOKENS.ok};"><div class="panel-label">completed</div><div class="section-list">${doneRows || stateNotice("loading", "Nothing completed yet", "Finished work will collect here for this class.", "academy")}</div></article></div></section>`;
+    return renderCourseWorkspace(intel, activeCourse, periods);
   }
   const periodTabs = periods.map((period) => `<button class="period-chip ${String(activePeriod?.id) === String(period.id) ? "is-active" : ""}" data-academic-period="${escapeHtml(period.id)}"><strong>${escapeHtml(period.name)}</strong><span>${escapeHtml(period.status)}</span></button>`).join("");
   const progress = academicProgressSummary();
@@ -4864,7 +4907,7 @@ function renderApp() {
   const prefs = normalizePreferences(state.preferences);
   const shellClass = `theme-${prefs.theme} density-${prefs.compactMode === "on" ? "compact" : prefs.density} text-${prefs.fontScale} layout-${prefs.layoutProfile} domain-${domain.id}`;
   const contentHtml = renderContentSafely(intel);
-  app.innerHTML = `<div class="app-shell ${shellClass}" style="--accent:${selectedAccent(domain.id)};"><a class="skip-link" href="#main-content">Skip to content</a><div class="ambient"><div class="orb orb--one"></div><div class="orb orb--two"></div><div class="orb orb--three"></div></div><aside class="sidebar ${state.sidebarCollapsed ? "is-collapsed" : ""}"><div class="brand"><div class="brand-mark">${emberLogoMark("Ember")}</div><div class="brand-copy"><h1>Ember</h1><p>Dawn OS</p></div></div><nav class="sidebar-nav" aria-label="Primary sections">${DOMAINS.map((item) => `<button class="nav-button ${state.activeDomain === item.id ? "is-active" : ""}" data-domain="${item.id}" style="--accent:${colorFor(item.id)};" aria-current="${state.activeDomain === item.id ? "page" : "false"}"><span class="nav-icon">${iconSvg(item.id, item.label)}</span><span class="nav-copy"><strong>${item.label}</strong><span>${item.blurb}</span></span></button>`).join("")}</nav><div class="sidebar-footer"><button class="collapse-button" data-collapse-sidebar aria-label="${state.sidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"}"><span>${state.sidebarCollapsed ? "&#9654;" : "&#9664;"}</span><span>${state.sidebarCollapsed ? "Expand" : "Collapse"}</span></button></div></aside><main class="main" id="main-content"><header class="topbar topbar--toolbelt"><div class="topbar-title"><div class="topbar-icon">${emberLogoMark("Ember")}</div><div class="topbar-copy"><div class="topbar-heading-row"><h2>Ember</h2><span class="topbar-mode">${escapeHtml(domain.label)}</span><span class="dawn-os-chip">Academic overrides v13</span></div><p>${escapeHtml(domain.blurb)} &middot; ${formatToday()}</p></div></div><div class="topbar-metrics"><button class="mobile-menu-trigger" data-mobile-nav-open aria-label="Open mobile menu"><span>${iconSvg(domain.id, "Mobile menu")}</span><strong>Menu</strong></button><button class="command-trigger" data-command-open aria-label="Open command palette"><span>${iconSvg("command", "Command palette")}</span><strong>Search</strong><kbd>Ctrl K</kbd></button><div class="metric-pill"><span class="metric-dot"></span><span>Load</span><strong data-shell-load>${intel.loadDisplay || `${intel.loadScore}%`}</strong></div><div class="metric-pill"><span class="metric-dot" style="background:${TOKENS.command};"></span><span>Cloud</span><strong data-shell-cloud>${state.cloudSaveStatus}</strong></div><div class="metric-pill"><span class="metric-dot" data-shell-source-dot style="background:${statusTone(state.sourceConfig.lastSyncStatus)};"></span><span>Source</span><strong data-shell-source>${state.sourceConfig.lastSyncStatus}</strong></div><button class="metric-pill metric-button ${unreadNotifications().length ? "has-unread" : ""}" data-notification-toggle type="button" aria-label="Open notification center"><span class="metric-dot" data-shell-notification-dot style="background:${unreadNotifications().length ? TOKENS.warn : TOKENS.ok};"></span><span>Alerts</span><strong data-shell-notifications>${unreadNotifications().length}</strong></button><button class="upgrade-trigger ${subscriptionTier() === "free" ? "" : "is-active"}" data-paywall-open>${subscriptionTier() === "free" ? "Upgrade" : subscriptionTier() === "pro_plus" ? "Pro+" : "Pro"}</button><button class="surface-action" data-domain="command" data-scroll-personalization>Personalize</button><button class="surface-action" data-auth-signout>Sign Out</button><div class="mini-domain-rail" aria-label="Quick sections">${DOMAINS.filter((item) => item.id !== "command").map((item) => `<button class="stat-dot-button ${item.id === state.activeDomain ? "is-active" : ""}" data-domain="${item.id}" style="--dot:${colorFor(item.id)};" title="${item.label}" aria-label="Open ${item.label}"></button>`).join("")}</div></div></header><div class="content">${contentHtml}</div></main>${renderEmberDock()}${renderOnboarding()}${renderSectionHelp()}</div>`;
+  app.innerHTML = `<div class="app-shell ${shellClass}" style="--accent:${selectedAccent(domain.id)};"><a class="skip-link" href="#main-content">Skip to content</a><div class="ambient"><div class="orb orb--one"></div><div class="orb orb--two"></div><div class="orb orb--three"></div></div><aside class="sidebar ${state.sidebarCollapsed ? "is-collapsed" : ""}"><div class="brand"><div class="brand-mark">${emberLogoMark("Ember")}</div><div class="brand-copy"><h1>Ember</h1><p>Dawn OS</p></div></div><nav class="sidebar-nav" aria-label="Primary sections">${DOMAINS.map((item) => `<button class="nav-button ${state.activeDomain === item.id ? "is-active" : ""}" data-domain="${item.id}" style="--accent:${colorFor(item.id)};" aria-current="${state.activeDomain === item.id ? "page" : "false"}"><span class="nav-icon">${iconSvg(item.id, item.label)}</span><span class="nav-copy"><strong>${item.label}</strong><span>${item.blurb}</span></span></button>`).join("")}</nav><div class="sidebar-footer"><button class="collapse-button" data-collapse-sidebar aria-label="${state.sidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"}"><span>${state.sidebarCollapsed ? "&#9654;" : "&#9664;"}</span><span>${state.sidebarCollapsed ? "Expand" : "Collapse"}</span></button></div></aside><main class="main" id="main-content"><header class="topbar topbar--toolbelt"><div class="topbar-title"><div class="topbar-icon">${emberLogoMark("Ember")}</div><div class="topbar-copy"><div class="topbar-heading-row"><h2>Ember</h2><span class="topbar-mode">${escapeHtml(domain.label)}</span><span class="dawn-os-chip">Class workspace v14</span></div><p>${escapeHtml(domain.blurb)} &middot; ${formatToday()}</p></div></div><div class="topbar-metrics"><button class="mobile-menu-trigger" data-mobile-nav-open aria-label="Open mobile menu"><span>${iconSvg(domain.id, "Mobile menu")}</span><strong>Menu</strong></button><button class="command-trigger" data-command-open aria-label="Open command palette"><span>${iconSvg("command", "Command palette")}</span><strong>Search</strong><kbd>Ctrl K</kbd></button><div class="metric-pill"><span class="metric-dot"></span><span>Load</span><strong data-shell-load>${intel.loadDisplay || `${intel.loadScore}%`}</strong></div><div class="metric-pill"><span class="metric-dot" style="background:${TOKENS.command};"></span><span>Cloud</span><strong data-shell-cloud>${state.cloudSaveStatus}</strong></div><div class="metric-pill"><span class="metric-dot" data-shell-source-dot style="background:${statusTone(state.sourceConfig.lastSyncStatus)};"></span><span>Source</span><strong data-shell-source>${state.sourceConfig.lastSyncStatus}</strong></div><button class="metric-pill metric-button ${unreadNotifications().length ? "has-unread" : ""}" data-notification-toggle type="button" aria-label="Open notification center"><span class="metric-dot" data-shell-notification-dot style="background:${unreadNotifications().length ? TOKENS.warn : TOKENS.ok};"></span><span>Alerts</span><strong data-shell-notifications>${unreadNotifications().length}</strong></button><button class="upgrade-trigger ${subscriptionTier() === "free" ? "" : "is-active"}" data-paywall-open>${subscriptionTier() === "free" ? "Upgrade" : subscriptionTier() === "pro_plus" ? "Pro+" : "Pro"}</button><button class="surface-action" data-domain="command" data-scroll-personalization>Personalize</button><button class="surface-action" data-auth-signout>Sign Out</button><div class="mini-domain-rail" aria-label="Quick sections">${DOMAINS.filter((item) => item.id !== "command").map((item) => `<button class="stat-dot-button ${item.id === state.activeDomain ? "is-active" : ""}" data-domain="${item.id}" style="--dot:${colorFor(item.id)};" title="${item.label}" aria-label="Open ${item.label}"></button>`).join("")}</div></div></header><div class="content">${contentHtml}</div></main>${renderEmberDock()}${renderOnboarding()}${renderSectionHelp()}</div>`;
   state.lastPlanSnapshot = nextPlanSnapshot;
   persistPlanSnapshotOnly();
   renderToast();

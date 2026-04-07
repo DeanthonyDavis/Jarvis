@@ -1,4 +1,4 @@
-const BUILD_ID = "academic-overrides-13";
+const BUILD_ID = "class-workspace-14";
 
 export default function handler(_req, res) {
   res.status(200).json({
@@ -10,6 +10,6 @@ export default function handler(_req, res) {
     repo: process.env.VERCEL_GIT_REPO_SLUG || "",
     deploymentUrl: process.env.VERCEL_URL || "",
     checkedAt: new Date().toISOString(),
-    markers: ["Academic overrides v13", "ember-dock", "styles.css?v=academic-overrides-13", "app.js?v=academic-overrides-13"],
+    markers: ["Class workspace v14", "ember-dock", "styles.css?v=class-workspace-14", "app.js?v=class-workspace-14"],
   });
 }
