@@ -1136,6 +1136,17 @@ function selectedGradient(profile = state.preferences?.gradientProfile || DEFAUL
   return GRADIENT_PRESETS[profile] || GRADIENT_PRESETS[DEFAULT_PREFERENCES.gradientProfile];
 }
 
+function activeBackdrop(theme = currentThemeDefinition(), preferences = state.preferences) {
+  const prefs = normalizePreferences(preferences);
+  const tokens = theme.tokens || EMBER_THEMES.dawn.tokens;
+  const preset = selectedGradient(prefs.gradientProfile);
+  const usesDefaultGradient = prefs.gradientProfile === DEFAULT_PREFERENCES.gradientProfile;
+  return {
+    css: usesDefaultGradient ? tokens.gradientA : preset.css,
+    soft: usesDefaultGradient ? tokens.gradientB : preset.soft,
+  };
+}
+
 function loadCustomThemes() {
   try {
     const parsed = JSON.parse(storage.getItem(CUSTOM_THEMES_KEY) || "[]");
@@ -1224,6 +1235,7 @@ function applyTheme(theme = currentThemeDefinition()) {
   if (!root) return;
   const prefs = normalizePreferences(state.preferences);
   const tokens = theme.tokens || EMBER_THEMES.dawn.tokens;
+  const backdrop = activeBackdrop(theme, prefs);
   const opacity = prefs.surfaceOpacity / 100;
   const domain = prefs.accentOverride === "on"
     ? {
@@ -1260,8 +1272,8 @@ function applyTheme(theme = currentThemeDefinition()) {
     "mind": domain.mind,
     "note": domain.note,
     "theme-glow": tokens.glow,
-    "student-gradient": tokens.gradientA,
-    "student-gradient-soft": tokens.gradientB,
+    "student-gradient": backdrop.css,
+    "student-gradient-soft": backdrop.soft,
     "card-blur": `${prefs.cardBlur}px`,
     "theme-border-radius": prefs.borderStyle === "sharp" ? "18px" : prefs.borderStyle === "glow" ? "34px" : "28px",
     "theme-transition": prefs.animations === "on" ? "background 300ms ease, color 300ms ease, border-color 300ms ease, box-shadow 300ms ease" : "none",
@@ -1274,7 +1286,8 @@ function syncShellPreferenceClasses() {
   const shell = doc?.querySelector(".app-shell");
   if (!shell) return;
   const prefs = normalizePreferences(state.preferences);
-  shell.className = `app-shell theme-${prefs.theme} density-${prefs.compactMode === "on" ? "compact" : prefs.density} text-${prefs.fontScale} layout-${prefs.layoutProfile}`;
+  const domain = activeDomain();
+  shell.className = `app-shell theme-${prefs.theme} density-${prefs.compactMode === "on" ? "compact" : prefs.density} text-${prefs.fontScale} layout-${prefs.layoutProfile} domain-${domain.id}`;
 }
 
 function saveState() {
@@ -3759,7 +3772,11 @@ function renderAppearanceSettings() {
 function updateAppearancePreference(key, value) {
   const fontScaleValues = ["standard", "large", "xl"];
   const nextValue = key === "fontScale" && /^\d+$/.test(String(value)) ? fontScaleValues[Number(value)] || "standard" : value;
-  state.preferences = normalizePreferences({ ...(state.preferences || DEFAULT_PREFERENCES), [key]: nextValue });
+  state.preferences = normalizePreferences({
+    ...(state.preferences || DEFAULT_PREFERENCES),
+    [key]: nextValue,
+    ...(key === "themeFamily" ? { gradientProfile: DEFAULT_PREFERENCES.gradientProfile } : {}),
+  });
   applyTheme();
   syncShellPreferenceClasses();
   saveState();
@@ -4220,9 +4237,8 @@ function renderApp() {
   intel.planChanges = state.lastPlanChanges || latestPlanChanges;
   const prefs = normalizePreferences(state.preferences);
   const shellClass = `theme-${prefs.theme} density-${prefs.compactMode === "on" ? "compact" : prefs.density} text-${prefs.fontScale} layout-${prefs.layoutProfile} domain-${domain.id}`;
-  const gradient = currentThemeDefinition().tokens;
   const contentHtml = renderContentSafely(intel);
-  app.innerHTML = `<div class="app-shell ${shellClass}" style="--accent:${selectedAccent(domain.id)}; --student-gradient:${gradient.gradientA}; --student-gradient-soft:${gradient.gradientB};"><a class="skip-link" href="#main-content">Skip to content</a><div class="ambient"><div class="orb orb--one"></div><div class="orb orb--two"></div><div class="orb orb--three"></div></div><aside class="sidebar ${state.sidebarCollapsed ? "is-collapsed" : ""}"><div class="brand"><div class="brand-mark">${emberLogoMark("Ember")}</div><div class="brand-copy"><h1>Ember</h1><p>Dawn OS</p></div></div><nav class="sidebar-nav" aria-label="Primary sections">${DOMAINS.map((item) => `<button class="nav-button ${state.activeDomain === item.id ? "is-active" : ""}" data-domain="${item.id}" style="--accent:${colorFor(item.id)};" aria-current="${state.activeDomain === item.id ? "page" : "false"}"><span class="nav-icon">${iconSvg(item.id, item.label)}</span><span class="nav-copy"><strong>${item.label}</strong><span>${item.blurb}</span></span></button>`).join("")}</nav><div class="sidebar-footer"><button class="collapse-button" data-collapse-sidebar aria-label="${state.sidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"}"><span>${state.sidebarCollapsed ? "&#9654;" : "&#9664;"}</span><span>${state.sidebarCollapsed ? "Expand" : "Collapse"}</span></button></div></aside><main class="main" id="main-content"><header class="topbar"><div class="topbar-title"><div class="topbar-icon">${emberLogoMark("Ember")}</div><div class="topbar-copy"><div class="topbar-heading-row"><h2>${escapeHtml(domain.label)}</h2><span class="dawn-os-chip">Full rework v5</span></div><p>${formatToday()} &middot; ${state.auth.user.email}</p></div></div><div class="topbar-metrics"><button class="mobile-menu-trigger" data-mobile-nav-open aria-label="Open mobile menu"><span>${iconSvg(domain.id, "Mobile menu")}</span><strong>Menu</strong></button><button class="command-trigger" data-command-open aria-label="Open command palette"><span>${iconSvg("command", "Command palette")}</span><strong>Search</strong><kbd>Ctrl K</kbd></button><div class="metric-pill"><span class="metric-dot"></span><span>Load</span><strong data-shell-load>${intel.loadDisplay || `${intel.loadScore}%`}</strong></div><div class="metric-pill"><span class="metric-dot" style="background:${TOKENS.command};"></span><span>Cloud</span><strong data-shell-cloud>${state.cloudSaveStatus}</strong></div><div class="metric-pill"><span class="metric-dot" data-shell-source-dot style="background:${statusTone(state.sourceConfig.lastSyncStatus)};"></span><span>Source</span><strong data-shell-source>${state.sourceConfig.lastSyncStatus}</strong></div><button class="metric-pill metric-button ${unreadNotifications().length ? "has-unread" : ""}" data-notification-toggle type="button" aria-label="Open notification center"><span class="metric-dot" data-shell-notification-dot style="background:${unreadNotifications().length ? TOKENS.warn : TOKENS.ok};"></span><span>Alerts</span><strong data-shell-notifications>${unreadNotifications().length}</strong></button><button class="upgrade-trigger ${subscriptionTier() === "free" ? "" : "is-active"}" data-paywall-open>${subscriptionTier() === "free" ? "Upgrade" : subscriptionTier() === "pro_plus" ? "Pro+" : "Pro"}</button><button class="surface-action" data-domain="command" data-scroll-personalization>Personalize</button><button class="surface-action" data-auth-signout>Sign Out</button><div class="mini-domain-rail" aria-label="Quick sections">${DOMAINS.filter((item) => item.id !== "command").map((item) => `<button class="stat-dot-button ${item.id === state.activeDomain ? "is-active" : ""}" data-domain="${item.id}" style="--dot:${colorFor(item.id)};" title="${item.label}" aria-label="Open ${item.label}"></button>`).join("")}</div></div></header><div class="content">${contentHtml}</div></main>${renderEmberDock()}${renderOnboarding()}${renderSectionHelp()}</div>`;
+  app.innerHTML = `<div class="app-shell ${shellClass}" style="--accent:${selectedAccent(domain.id)};"><a class="skip-link" href="#main-content">Skip to content</a><div class="ambient"><div class="orb orb--one"></div><div class="orb orb--two"></div><div class="orb orb--three"></div></div><aside class="sidebar ${state.sidebarCollapsed ? "is-collapsed" : ""}"><div class="brand"><div class="brand-mark">${emberLogoMark("Ember")}</div><div class="brand-copy"><h1>Ember</h1><p>Dawn OS</p></div></div><nav class="sidebar-nav" aria-label="Primary sections">${DOMAINS.map((item) => `<button class="nav-button ${state.activeDomain === item.id ? "is-active" : ""}" data-domain="${item.id}" style="--accent:${colorFor(item.id)};" aria-current="${state.activeDomain === item.id ? "page" : "false"}"><span class="nav-icon">${iconSvg(item.id, item.label)}</span><span class="nav-copy"><strong>${item.label}</strong><span>${item.blurb}</span></span></button>`).join("")}</nav><div class="sidebar-footer"><button class="collapse-button" data-collapse-sidebar aria-label="${state.sidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"}"><span>${state.sidebarCollapsed ? "&#9654;" : "&#9664;"}</span><span>${state.sidebarCollapsed ? "Expand" : "Collapse"}</span></button></div></aside><main class="main" id="main-content"><header class="topbar"><div class="topbar-title"><div class="topbar-icon">${emberLogoMark("Ember")}</div><div class="topbar-copy"><div class="topbar-heading-row"><h2>${escapeHtml(domain.label)}</h2><span class="dawn-os-chip">Full rework v6</span></div><p>${formatToday()} &middot; ${state.auth.user.email}</p></div></div><div class="topbar-metrics"><button class="mobile-menu-trigger" data-mobile-nav-open aria-label="Open mobile menu"><span>${iconSvg(domain.id, "Mobile menu")}</span><strong>Menu</strong></button><button class="command-trigger" data-command-open aria-label="Open command palette"><span>${iconSvg("command", "Command palette")}</span><strong>Search</strong><kbd>Ctrl K</kbd></button><div class="metric-pill"><span class="metric-dot"></span><span>Load</span><strong data-shell-load>${intel.loadDisplay || `${intel.loadScore}%`}</strong></div><div class="metric-pill"><span class="metric-dot" style="background:${TOKENS.command};"></span><span>Cloud</span><strong data-shell-cloud>${state.cloudSaveStatus}</strong></div><div class="metric-pill"><span class="metric-dot" data-shell-source-dot style="background:${statusTone(state.sourceConfig.lastSyncStatus)};"></span><span>Source</span><strong data-shell-source>${state.sourceConfig.lastSyncStatus}</strong></div><button class="metric-pill metric-button ${unreadNotifications().length ? "has-unread" : ""}" data-notification-toggle type="button" aria-label="Open notification center"><span class="metric-dot" data-shell-notification-dot style="background:${unreadNotifications().length ? TOKENS.warn : TOKENS.ok};"></span><span>Alerts</span><strong data-shell-notifications>${unreadNotifications().length}</strong></button><button class="upgrade-trigger ${subscriptionTier() === "free" ? "" : "is-active"}" data-paywall-open>${subscriptionTier() === "free" ? "Upgrade" : subscriptionTier() === "pro_plus" ? "Pro+" : "Pro"}</button><button class="surface-action" data-domain="command" data-scroll-personalization>Personalize</button><button class="surface-action" data-auth-signout>Sign Out</button><div class="mini-domain-rail" aria-label="Quick sections">${DOMAINS.filter((item) => item.id !== "command").map((item) => `<button class="stat-dot-button ${item.id === state.activeDomain ? "is-active" : ""}" data-domain="${item.id}" style="--dot:${colorFor(item.id)};" title="${item.label}" aria-label="Open ${item.label}"></button>`).join("")}</div></div></header><div class="content">${contentHtml}</div></main>${renderEmberDock()}${renderOnboarding()}${renderSectionHelp()}</div>`;
   state.lastPlanSnapshot = nextPlanSnapshot;
   persistPlanSnapshotOnly();
   renderToast();
@@ -4264,6 +4280,7 @@ function updatePreference(key, value) {
     ...(state.preferences || DEFAULT_PREFERENCES),
     [key]: value,
   });
+  applyTheme();
   rerender();
 }
 
