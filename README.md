@@ -59,6 +59,7 @@ You can still open `index.html` directly for a static-only pass, but the local s
 - Text extraction and AI-style parsing through `/api/ingest` for source uploads, with plain text support, optional PDF/DOCX packages, optional OpenAI/external parser, and Tesseract OCR fallback for images
 - User-created Notebook notes with editable title, body, tags, and domain, plus optional Supabase-backed `apex_notes` records
 - Syllabus review queue that turns an upload into a safe `needs_review -> confirmed` workflow, then creates Academy course/task records only after confirmation
+- Uploaded source removal from Notebook and the global upload sheet, including Supabase upload/review cleanup when Phase 2 tables are active
 - Domain switching with a collapsible sidebar
 - Command Center driven by computed priorities, conflicts, load, weekly heat, and a real slot-assignment solver pass
 - Phase 5 schedule modes (`Balanced`, `Focus Week`, `Light Recovery`, `Finals Mode`, `Work-Heavy`, `Catch-Up`) that overlay solver weights without deleting custom constraints
@@ -75,6 +76,7 @@ You can still open `index.html` directly for a static-only pass, but the local s
 - Curated Ember themes: Void, Retro, Floral, Solar, Arctic, Forest, Candy, and Midnight
 - "My Theme" builder for custom background, surface, text, accent, gradient, and preview settings saved locally under `ember_themes`
 - Student optimizer visual direction with selectable gradient profiles: Study Neon, Campus Sunrise, Library Blue, Focus Lime, and Exam Ember
+- A more student-planner visual direction with desk-board language, notebook-line texture, quieter surfaces, and less generic AI-dashboard glow
 - Command Center widget controls for pinning, hiding, restoring, manual ordering, and resetting the dashboard layout
 - Profile-specific widget layouts for Guided, Operator, and Focus Command Center views
 - App-wide command palette with `Ctrl`/`Cmd` + `K`, search, keyboard navigation, deep links into setup/widgets/connectors/notifications, and upload opening that keeps the current section in place

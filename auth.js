@@ -221,6 +221,15 @@ export async function updateUploadExtractionRecord(client, uploadId, extraction)
   return data;
 }
 
+export async function deleteUploadRecord(client, uploadId) {
+  const { error } = await client
+    .from(UPLOAD_TABLE)
+    .delete()
+    .eq("id", uploadId);
+  if (error) throw error;
+  return { id: uploadId };
+}
+
 export async function loadSyllabusRecords(client, workspaceId) {
   const { data, error } = await client
     .from(SYLLABUS_TABLE)
@@ -247,6 +256,15 @@ export async function createSyllabusRecord(client, workspaceId, syllabus) {
     .single();
   if (error) throw error;
   return data;
+}
+
+export async function deleteSyllabusRecordsForUpload(client, uploadId) {
+  const { error } = await client
+    .from(SYLLABUS_TABLE)
+    .delete()
+    .eq("upload_id", uploadId);
+  if (error) throw error;
+  return { uploadId };
 }
 
 export async function updateSyllabusRecord(client, syllabusId, patch) {

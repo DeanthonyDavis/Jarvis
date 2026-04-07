@@ -212,7 +212,7 @@ textarea:focus-visible {
   display: flex;
   overflow: hidden;
   background:
-    linear-gradient(180deg, rgba(5, 5, 10, 0.38), rgba(5, 5, 10, 0.88)),
+    linear-gradient(180deg, rgba(5, 5, 10, 0.24), rgba(5, 5, 10, 0.82)),
     var(--student-gradient);
   font-size: 1rem;
 }
@@ -224,11 +224,11 @@ textarea:focus-visible {
   z-index: 0;
   pointer-events: none;
   background:
-    linear-gradient(rgba(255,255,255,0.035) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(255,255,255,0.035) 1px, transparent 1px);
-  background-size: 42px 42px;
-  mask-image: radial-gradient(circle at 50% 10%, black, transparent 72%);
-  opacity: 0.32;
+    repeating-linear-gradient(0deg, rgba(255,255,255,0.028) 0 1px, transparent 1px 2.05rem),
+    linear-gradient(90deg, rgba(255,255,255,0.026) 1px, transparent 1px);
+  background-size: 100% 2.05rem, 4.8rem 100%;
+  mask-image: radial-gradient(circle at 50% 14%, black, transparent 76%);
+  opacity: 0.42;
 }
 
 .app-shell.theme-contrast {
@@ -333,8 +333,9 @@ textarea:focus-visible {
 .orb {
   position: absolute;
   border-radius: 50%;
-  filter: blur(14px);
-  animation: floatOrb 14s ease-in-out infinite;
+  filter: blur(28px);
+  animation: floatOrb 18s ease-in-out infinite;
+  opacity: 0.48;
 }
 
 .orb--one {
@@ -342,7 +343,7 @@ textarea:focus-visible {
   left: -10rem;
   width: 44rem;
   height: 44rem;
-  background: radial-gradient(circle, rgba(124, 109, 250, 0.2), transparent 68%);
+  background: radial-gradient(circle, color-mix(in srgb, var(--cmd) 20%, transparent), transparent 68%);
 }
 
 .orb--two {
@@ -351,7 +352,7 @@ textarea:focus-visible {
   width: 34rem;
   height: 34rem;
   animation-delay: 4s;
-  background: radial-gradient(circle, rgba(244, 114, 182, 0.18), transparent 68%);
+  background: radial-gradient(circle, color-mix(in srgb, var(--mind) 16%, transparent), transparent 68%);
 }
 
 .orb--three {
@@ -360,7 +361,7 @@ textarea:focus-visible {
   width: 22rem;
   height: 22rem;
   animation-delay: 7s;
-  background: radial-gradient(circle, rgba(56, 189, 248, 0.14), transparent 68%);
+  background: radial-gradient(circle, color-mix(in srgb, var(--acad) 12%, transparent), transparent 68%);
 }
 
 .sidebar {
@@ -715,24 +716,28 @@ textarea:focus-visible {
   border-radius: var(--theme-border-radius);
   border: 1px solid color-mix(in srgb, var(--accent) 34%, var(--border));
   background:
-    radial-gradient(circle at 0% 0%, color-mix(in srgb, var(--accent) 24%, transparent), transparent 36%),
-    var(--student-gradient-soft),
-    rgba(255, 255, 255, 0.036);
+    linear-gradient(90deg, color-mix(in srgb, var(--accent) 12%, transparent), transparent 44%),
+    repeating-linear-gradient(0deg, rgba(255,255,255,0.035) 0 1px, transparent 1px 1.85rem),
+    color-mix(in srgb, var(--panel) 88%, transparent);
   box-shadow:
-    0 32px 110px rgba(0, 0, 0, 0.62),
-    0 0 52px color-mix(in srgb, var(--theme-glow) 42%, transparent),
-    inset 0 1px 0 rgba(255, 255, 255, 0.12);
+    0 18px 58px rgba(0, 0, 0, 0.48),
+    0 0 28px color-mix(in srgb, var(--theme-glow) 20%, transparent),
+    inset 0 1px 0 rgba(255, 255, 255, 0.11);
 }
 
 .hero-band::after {
   content: "";
   position: absolute;
-  inset: auto -18% -60% auto;
-  width: 22rem;
-  height: 22rem;
-  border-radius: 50%;
-  background: radial-gradient(circle, color-mix(in srgb, var(--accent) 30%, transparent), transparent 70%);
-  filter: blur(2px);
+  inset: 1rem 1rem auto auto;
+  width: 5.5rem;
+  height: 5.5rem;
+  border: 1px solid color-mix(in srgb, var(--accent) 28%, var(--border));
+  border-radius: 22px;
+  background:
+    linear-gradient(90deg, transparent 0 42%, color-mix(in srgb, var(--accent) 30%, transparent) 42% 47%, transparent 47%),
+    repeating-linear-gradient(0deg, rgba(255,255,255,0.1) 0 1px, transparent 1px 0.72rem);
+  opacity: 0.5;
+  transform: rotate(3deg);
   pointer-events: none;
 }
 
@@ -806,6 +811,15 @@ textarea:focus-visible {
   font-size: 0.76rem;
 }
 
+.danger-action {
+  border-color: color-mix(in srgb, var(--danger) 38%, var(--border));
+  color: color-mix(in srgb, var(--danger) 76%, white 18%);
+}
+
+.danger-action:hover {
+  background: color-mix(in srgb, var(--danger) 14%, transparent);
+}
+
 .surface-action:disabled,
 .small-action:disabled {
   transform: none;
@@ -861,13 +875,13 @@ textarea:focus-visible {
   border-radius: var(--theme-border-radius);
   border: 1px solid color-mix(in srgb, var(--accent, rgba(255,255,255,.12)) 20%, var(--border));
   background:
-    radial-gradient(circle at 0% 0%, color-mix(in srgb, var(--accent, white) 8%, transparent), transparent 34%),
-    linear-gradient(180deg, rgba(255, 255, 255, 0.058), rgba(255, 255, 255, 0.024)),
-    rgba(255, 255, 255, 0.025);
+    linear-gradient(90deg, color-mix(in srgb, var(--accent, white) 7%, transparent), transparent 38%),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.046), rgba(255, 255, 255, 0.018)),
+    rgba(255, 255, 255, 0.018);
   backdrop-filter: blur(var(--card-blur));
   box-shadow:
-    0 18px 70px rgba(0, 0, 0, 0.38),
-    0 0 34px color-mix(in srgb, var(--theme-glow) 18%, transparent),
+    0 14px 46px rgba(0, 0, 0, 0.34),
+    0 0 20px color-mix(in srgb, var(--theme-glow) 10%, transparent),
     inset 0 1px 0 rgba(255, 255, 255, 0.08);
 }
 
@@ -2827,10 +2841,18 @@ textarea:focus-visible {
 
 .upload-sheet-row {
   min-width: 0;
-  display: grid;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
   gap: 0.22rem;
   padding: 0.65rem 0;
   border-top: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.upload-sheet-row > div {
+  min-width: 0;
+  display: grid;
+  gap: 0.22rem;
 }
 
 .upload-sheet-row strong,

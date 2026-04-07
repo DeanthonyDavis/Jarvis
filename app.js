@@ -11,6 +11,8 @@ import {
   createNoteRecord,
   createSyllabusRecord,
   createUploadRecord,
+  deleteSyllabusRecordsForUpload,
+  deleteUploadRecord,
   dismissNotificationRecord,
   ensureUserWorkspace,
   initAuthClient,
@@ -1697,6 +1699,63 @@ async function attachSourceFiles(files) {
   }
 }
 
+async function removeUploadedFile(uploadId) {
+  const upload = state.uploadedFiles.map(normalizeUpload).find((item) => item.id === uploadId);
+  if (!upload) return;
+  const confirmedLinkedReviews = state.syllabusReviews
+    .map(normalizeSyllabusReview)
+    .filter((review) => review.uploadId === uploadId && review.parseStatus === "confirmed");
+  const message = confirmedLinkedReviews.length
+    ? `Remove ${upload.name}? The file and its review card will disappear, but any Academy tasks already created from it will stay.`
+    : `Remove ${upload.name}? The file and any review card created from it will disappear.`;
+  if (win?.confirm && !win.confirm(message)) return;
+
+  const beforeUploads = state.uploadedFiles;
+  const beforeReviews = state.syllabusReviews;
+  state.uploadedFiles = state.uploadedFiles.filter((item) => item.id !== uploadId);
+  state.syllabusReviews = state.syllabusReviews.filter((review) => review.uploadId !== uploadId);
+  saveState();
+  renderApp();
+  void notifyUser({
+    type: "upload_removed",
+    title: "Source removed",
+    body: `${upload.name} was removed from your uploaded files.`,
+    severity: "info",
+    sourceEntityType: "upload",
+    sourceEntityId: isUuid(uploadId) ? uploadId : null,
+  });
+  void logActivity({
+    entityType: "upload",
+    entityId: isUuid(uploadId) ? uploadId : null,
+    actionType: "removed",
+    beforeState: { title: upload.name, textStatus: upload.textStatus },
+    afterState: { summary: `${upload.name} removed from source uploads.` },
+  });
+
+  if (!state.workspace.phase2Enabled || !state.auth.client || !isUuid(uploadId)) return;
+  try {
+    await deleteSyllabusRecordsForUpload(state.auth.client, uploadId);
+    await deleteUploadRecord(state.auth.client, uploadId);
+  } catch (error) {
+    state.uploadedFiles = beforeUploads;
+    state.syllabusReviews = beforeReviews;
+    state.workspace = {
+      ...state.workspace,
+      error: error instanceof Error ? error.message : "Upload removal unavailable.",
+    };
+    saveState();
+    renderApp();
+    void notifyUser({
+      type: "upload_remove_error",
+      title: "Could not remove source",
+      body: "Ember restored the upload because Supabase could not delete the source record.",
+      severity: "warning",
+      sourceEntityType: "upload",
+      sourceEntityId: uploadId,
+    });
+  }
+}
+
 async function startSyllabusReview(uploadId) {
   const upload = state.uploadedFiles.map(normalizeUpload).find((item) => item.id === uploadId);
   if (!upload) return;
@@ -2561,7 +2620,7 @@ function renderUploadSheet() {
   const domain = activeDomain();
   const uploads = state.uploadedFiles.map(normalizeUpload).slice(0, 5);
   const reviews = state.syllabusReviews.map(normalizeSyllabusReview).slice(0, 4);
-  const uploadRows = uploads.map((file) => `<div class="upload-sheet-row"><strong>${escapeHtml(file.name)}</strong><span>${escapeHtml(file.textStatus)}${file.extractionMethod ? ` via ${escapeHtml(file.extractionMethod)}` : ""}</span></div>`).join("");
+  const uploadRows = uploads.map((file) => `<div class="upload-sheet-row"><div><strong>${escapeHtml(file.name)}</strong><span>${escapeHtml(file.textStatus)}${file.extractionMethod ? ` via ${escapeHtml(file.extractionMethod)}` : ""}</span></div><button class="surface-action surface-action--small danger-action" data-upload-remove="${escapeHtml(file.id)}" aria-label="Remove ${escapeHtml(file.name)}">Remove</button></div>`).join("");
   const reviewRows = reviews.map((review) => `<div class="upload-sheet-row"><strong>${escapeHtml(review.title)}</strong><span>${escapeHtml(review.parseStatus.replace(/_/g, " "))} | ${Math.round((review.confidence || 0) * 100)}% confidence</span></div>`).join("");
   panel.className = `upload-sheet theme-${prefs.theme} text-${prefs.fontScale}`;
   panel.innerHTML = `<div class="upload-sheet__scrim" data-upload-sheet-close></div><div class="upload-sheet__panel" role="dialog" aria-modal="true" aria-label="Upload source files"><div class="mobile-nav-grabber"></div><div class="upload-sheet__head"><div><div class="panel-label">source upload</div><h4>Upload without leaving ${escapeHtml(domain?.label || "this section")}</h4><p>Ember will extract text, run syllabus parsing, and create a review card in the background. You stay right where you are.</p></div><button class="surface-action surface-action--small" data-upload-sheet-close aria-label="Close upload">Close</button></div><label class="upload-zone upload-zone--sheet"><input type="file" multiple data-file-upload /><span>Choose syllabus, notes, PDFs, DOCX, TXT, or images</span><small>Parsed results stay in review until you confirm them.</small></label><div class="upload-sheet__stats"><article><div class="panel-label">recent files</div>${uploadRows || `<p class="row-subtitle">No files uploaded yet.</p>`}</article><article><div class="panel-label">review queue</div>${reviewRows || `<p class="row-subtitle">No review cards yet.</p>`}</article></div><div class="footer-note">Tip: confirming a syllabus now creates an Academy course and extracted assignment or exam tasks when the parser finds them.</div></div>`;
@@ -2656,15 +2715,15 @@ function heroBand(intel) {
   const loadValue = intel.loadDisplay || `${intel.loadScore}%`;
   const loadMode = intel.loadLabel === "setup" ? "setup mode" : intel.loadScore >= 70 ? "stabilize mode" : "balanced mode";
   const titles = {
-    command: ["Student optimizer", "Boost your day plan without overloading your brain."],
-    academy: ["Academic optimizer", "Turn syllabi, grades, and deadlines into a cleaner study plan."],
-    works: ["Work optimizer", "Protect shifts and income before they collide with school."],
-    life: ["Life optimizer", "Keep bills and routines visible without making them louder than class."],
-    future: ["Career optimizer", "Convert long-range goals into the next small move."],
-    mind: ["Recovery optimizer", "Let energy and focus tune the schedule before burnout stacks up."],
-    notebook: ["Source optimizer", "Upload class material and turn it into reviewed action."],
+    command: ["today desk", "What needs your attention before the day gets loud."],
+    academy: ["class board", "Syllabi, grades, and deadlines without the LMS scavenger hunt."],
+    works: ["shift board", "Keep work hours visible before they collide with school."],
+    life: ["home board", "Bills and routines, kept calm and out in the open."],
+    future: ["path board", "Turn bigger goals into the next move you can actually do."],
+    mind: ["recovery board", "Let energy shape the plan before burnout stacks up."],
+    notebook: ["source tray", "Drop school material here, then review what Ember found."],
   }[domain.id];
-  return `<section class="hero-band" style="--accent:${colorFor(domain.id)};"><div class="hero-copy"><div class="eyebrow">${iconSvg(domain.id)}<span>${titles[0]}</span></div><h3>${titles[1]}</h3><p>Ember treats overwhelm like a performance problem for student life: fewer scattered decisions, clearer constraints, and a plan that adapts when real sources change.</p><div class="hero-actions"><button class="primary-action" data-focus-top>Optimize Next Block</button><button class="surface-action" data-upload-sheet-open>Add Source</button>${pill(loadMode, intel.loadScore >= 70 ? TOKENS.warn : colorFor(domain.id))}</div></div><div class="hero-stats"><div class="hero-stat"><span>Load Index</span><strong>${loadValue}</strong></div><div class="hero-stat"><span>Urgent Open</span><strong>${intel.openUrgentCount}</strong></div><div class="hero-stat"><span>Solver Fit</span><strong>${intel.solverSummary.scheduledMinutes}m</strong></div><div class="hero-stat"><span>Guardrails</span><strong>${intel.solverSummary.hardGuardrails}</strong></div></div></section>`;
+  return `<section class="hero-band" style="--accent:${colorFor(domain.id)};"><div class="hero-copy"><div class="eyebrow">${iconSvg(domain.id)}<span>${titles[0]}</span></div><h3>${titles[1]}</h3><p>A student-first workspace for classes, shifts, money, sources, and recovery. No fake urgency. No mystery AI feed. Just the next honest move.</p><div class="hero-actions"><button class="primary-action" data-focus-top>Plan next block</button><button class="surface-action" data-upload-sheet-open>Add school source</button>${pill(loadMode, intel.loadScore >= 70 ? TOKENS.warn : colorFor(domain.id))}</div></div><div class="hero-stats"><div class="hero-stat"><span>Load</span><strong>${loadValue}</strong></div><div class="hero-stat"><span>Due soon</span><strong>${intel.openUrgentCount}</strong></div><div class="hero-stat"><span>Planned</span><strong>${intel.solverSummary.scheduledMinutes}m</strong></div><div class="hero-stat"><span>Rules kept</span><strong>${intel.solverSummary.hardGuardrails}</strong></div></div></section>`;
 }
 
 function renderConstraintPanel(intel) {
@@ -2889,7 +2948,7 @@ function renderNotebook(intel) {
   const uploadRows = uploads.map((file) => {
     const hasReview = reviews.some((review) => review.uploadId === file.id);
     const extractionCopy = file.extractionMethod ? ` via ${file.extractionMethod}` : "";
-    return `<div class="row" style="--accent:${TOKENS.notebook};"><div class="row-badge">${iconSvg("notebook", "Source file")}</div><div class="row-copy"><div class="row-title">${escapeHtml(file.name)}</div><div class="row-subtitle">${escapeHtml(file.type)} &middot; ${Math.max(1, Math.round(file.size / 1024))} KB &middot; ${escapeHtml(file.uploadStatus)} / ${escapeHtml(file.textStatus)}${escapeHtml(extractionCopy)}</div>${file.textPreview ? `<div class="footer-note">${escapeHtml(file.textPreview.slice(0, 160))}</div>` : ""}</div><div class="row-actions">${pill(file.local ? "local" : "cloud", file.local ? TOKENS.warn : TOKENS.ok)}<button class="surface-action surface-action--small" data-syllabus-start="${escapeHtml(file.id)}" ${hasReview ? "disabled" : ""}>${hasReview ? "In review" : "Review as syllabus"}</button></div></div>`;
+    return `<div class="row source-file-row" style="--accent:${TOKENS.notebook};"><div class="row-badge">${iconSvg("notebook", "Source file")}</div><div class="row-copy"><div class="row-title">${escapeHtml(file.name)}</div><div class="row-subtitle">${escapeHtml(file.type)} &middot; ${Math.max(1, Math.round(file.size / 1024))} KB &middot; ${escapeHtml(file.uploadStatus)} / ${escapeHtml(file.textStatus)}${escapeHtml(extractionCopy)}</div>${file.textPreview ? `<div class="footer-note">${escapeHtml(file.textPreview.slice(0, 160))}</div>` : ""}</div><div class="row-actions">${pill(file.local ? "local" : "cloud", file.local ? TOKENS.warn : TOKENS.ok)}<button class="surface-action surface-action--small" data-syllabus-start="${escapeHtml(file.id)}" ${hasReview ? "disabled" : ""}>${hasReview ? "In review" : "Review as syllabus"}</button><button class="surface-action surface-action--small danger-action" data-upload-remove="${escapeHtml(file.id)}" aria-label="Remove ${escapeHtml(file.name)}">Remove</button></div></div>`;
   }).join("");
   const reviewRows = reviews.map((review) => {
     const summary = review.parsedSummary || {};
@@ -3175,6 +3234,8 @@ doc?.addEventListener("click", async (event) => {
   if (target.matches("[data-mobile-nav-close]") || target.closest(".mobile-nav-sheet__scrim")) { closeMobileNavSheet(); return; }
   if (target.closest("[data-upload-sheet-open]")) { state.uploadSheetOpen = true; renderUploadSheet(); return; }
   if (target.matches("[data-upload-sheet-close]") || target.closest(".upload-sheet__scrim")) { closeUploadSheet(); return; }
+  const uploadRemove = target.closest("[data-upload-remove]");
+  if (uploadRemove) { await removeUploadedFile(uploadRemove.dataset.uploadRemove); return; }
   if (target.closest("[data-command-open]")) { if (shouldCloseMobileNav) state.mobileNavOpen = false; openCommandPalette(); renderMobileNavSheet(); return; }
   if (target.closest("[data-command-close]")) { closeCommandPalette(); return; }
   const commandAction = target.closest("[data-command-action]");
