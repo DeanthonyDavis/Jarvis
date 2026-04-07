@@ -273,7 +273,8 @@ function normalizeEventType(text = "", sectionType = "") {
 
 function chapterTitle(text = "", type = "homework") {
   const explicit = String(text).match(/\bch(?:apter)?\.?\s*(\d{1,2})\b/i)?.[1];
-  const chapter = explicit || String(text).replace(/\bweek\s+\d{1,2}\b/ig, "").match(/\b(\d{1,2})\b/i)?.[1];
+  const hwShorthand = type === "homework" ? String(text).match(/\b(\d{1,2})\s*hw\b|\bhw\s*(\d{1,2})\b/i) : null;
+  const chapter = explicit || hwShorthand?.[1] || hwShorthand?.[2] || "";
   if (!chapter) return "";
   const label = type === "quiz" ? "Quiz" : type === "homework" ? "Homework" : "";
   return label ? `Chapter ${chapter} ${label}` : "";
@@ -281,14 +282,15 @@ function chapterTitle(text = "", type = "homework") {
 
 function cleanEventTitle(text = "", type = "info") {
   const value = String(text)
+    .replace(/\bweek\s+\d{1,2}\b/ig, " ")
     .replace(/\b(?:due|opens?|closes?|date|week)\b[:\s]*/ig, " ")
+    .replace(/^\d{1,2}\s+(?=module|unit|topic|chapter|quiz|lab|homework)/i, " ")
     .replace(new RegExp(`${MONTH_PATTERN}\\.?\\s+\\d{1,2}(?:\\s*(?:-|–|—|to)\\s*(?:(?:${MONTH_PATTERN})\\.?\\s+)?\\d{1,2})?(?:,\\s*20\\d{2})?`, "ig"), " ")
     .replace(/\b\d{1,2}\/\d{1,2}(?:\/\d{2,4})?(?:\s*(?:-|–|—|to)\s*(?:\d{1,2}\/)?\d{1,2}(?:\/\d{2,4})?)?/g, " ")
     .replace(/\s+/g, " ")
     .replace(/^[|:\-–—,\s]+|[|:\-–—,\s]+$/g, "")
     .trim();
-  if (type === "break" && /spring\s+break/i.test(text)) return "Spring Break";
-  if (type === "holiday" && /spring\s+holiday/i.test(text)) return "Spring Holiday";
+  if (type === "break") return value || "Academic Break";
   if (type === "holiday" && /holiday/i.test(text)) return value || "Holiday";
   if (type === "final_exam") return value || "Final Exam";
   if (type === "homework" || type === "quiz") return chapterTitle(text, type) || value.replace(/\bHW\b/ig, "Homework") || (type === "quiz" ? "Quiz" : "Homework");
