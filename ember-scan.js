@@ -43,9 +43,14 @@ function messageForSurface(ember, surface) {
   return ember.dashboard;
 }
 
-function buildMessagePayload(ember, surface = "dashboard") {
+function dateKey(now = new Date()) {
+  return now.toISOString().slice(0, 10);
+}
+
+function buildMessagePayload(ember, surface = "dashboard", { briefingType = "hourly", now = new Date() } = {}) {
   const primary = ember.primaryState || ember.states?.[0] || { stateKey: "steady", severity: "low", context: {} };
   const message = messageForSurface(ember, surface);
+  const cadenceSuffix = briefingType === "hourly" ? "" : `:${briefingType}:${dateKey(now)}`;
   return {
     surface,
     state: {
@@ -68,11 +73,11 @@ function buildMessagePayload(ember, surface = "dashboard") {
         note: message.note || "",
       },
     },
-    eventKey: `${surface}:${primary.stateKey || primary.state_key || "steady"}`,
+    eventKey: `${surface}:${primary.stateKey || primary.state_key || "steady"}${cadenceSuffix}`,
   };
 }
 
-export function buildEmberHourlyScan({ userId = null, workspaceId = null, state, now = new Date(), surface = "dashboard" }) {
+export function buildEmberHourlyScan({ userId = null, workspaceId = null, state, now = new Date(), surface = "dashboard", briefingType = "hourly" }) {
   const normalized = normalizedWorkspaceState(state);
   const intel = buildCommandCenterIntelligence({
     now,
@@ -86,11 +91,12 @@ export function buildEmberHourlyScan({ userId = null, workspaceId = null, state,
     paychecks: normalized.paychecks,
   });
   const ember = buildEmberIntelligence({ state: normalized, intel, now });
-  const payload = buildMessagePayload(ember, surface);
+  const payload = buildMessagePayload(ember, surface, { briefingType, now });
   return {
     userId,
     workspaceId,
     surface,
+    briefingType,
     generatedAt: now.toISOString(),
     primaryState: ember.primaryState,
     states: ember.states,
@@ -149,11 +155,11 @@ async function recentEventExists(userId, eventKey, hours = 6) {
   return Boolean(rows?.length);
 }
 
-async function persistScanResult(scan) {
+async function persistScanResult(scan, { cooldownHours = 6 } = {}) {
   const userId = scan.userId;
   if (!userId) throw new Error("userId is required to persist Ember scan results.");
   const eventKey = scan.persist.eventKey;
-  if (await recentEventExists(userId, eventKey, 6)) {
+  if (await recentEventExists(userId, eventKey, cooldownHours)) {
     return { skipped: true, reason: "recent_event_guardrail", eventKey };
   }
 
@@ -182,6 +188,7 @@ async function persistScanResult(scan) {
       status: "sent",
       metadata: {
         surface: scan.surface,
+        briefingType: scan.briefingType,
         severity: scan.persist.state.severity,
         stateKey: scan.persist.state.state_key,
       },
@@ -205,13 +212,13 @@ export function scanIsAuthorized(req) {
   return authorization === `Bearer ${secret}` || headerSecret === secret;
 }
 
-export async function runEmberHourlyScan({ state = null, userId = null, workspaceId = null, surface = "dashboard", persist = false, limit = 25, now = new Date() } = {}) {
+export async function runEmberHourlyScan({ state = null, userId = null, workspaceId = null, surface = "dashboard", persist = false, limit = 25, now = new Date(), briefingType = "hourly", cooldownHours = 6 } = {}) {
   if (state) {
-    const scan = buildEmberHourlyScan({ userId, workspaceId, state, now, surface });
+    const scan = buildEmberHourlyScan({ userId, workspaceId, state, now, surface, briefingType });
     return {
-      mode: persist ? "single-persist" : "single-dry-run",
+      mode: persist ? `single-${briefingType}-persist` : `single-${briefingType}-dry-run`,
       scanned: 1,
-      results: [{ ...scan, persistence: persist ? await persistScanResult(scan) : { skipped: true, reason: "dry_run" } }],
+      results: [{ ...scan, persistence: persist ? await persistScanResult(scan, { cooldownHours }) : { skipped: true, reason: "dry_run" } }],
     };
   }
 
@@ -224,8 +231,9 @@ export async function runEmberHourlyScan({ state = null, userId = null, workspac
       state: row.state || {},
       now,
       surface,
+      briefingType,
     });
-    results.push({ ...scan, persistence: persist ? await persistScanResult(scan) : { skipped: true, reason: "dry_run" } });
+    results.push({ ...scan, persistence: persist ? await persistScanResult(scan, { cooldownHours }) : { skipped: true, reason: "dry_run" } });
   }
-  return { mode: persist ? "batch-persist" : "batch-dry-run", scanned: results.length, results };
+  return { mode: persist ? `batch-${briefingType}-persist` : `batch-${briefingType}-dry-run`, scanned: results.length, results };
 }

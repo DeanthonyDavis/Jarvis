@@ -3,6 +3,10 @@
     {
       "path": "/api/ember/hourly-scan",
       "schedule": "0 * * * *"
+    },
+    {
+      "path": "/api/ember/morning-brief",
+      "schedule": "30 12 * * *"
     }
   ]
 }

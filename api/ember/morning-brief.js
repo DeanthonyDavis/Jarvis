@@ -18,7 +18,7 @@ export default async function handler(req, res) {
 
   const persistRequested = req.method === "GET" || req.query?.persist === "1";
   if (persistRequested && !scanIsAuthorized(req)) {
-    res.status(401).json({ error: "Unauthorized Ember scan. Set EMBER_SCAN_SECRET or CRON_SECRET and send it as a bearer token." });
+    res.status(401).json({ error: "Unauthorized Ember morning brief. Set EMBER_SCAN_SECRET or CRON_SECRET and send it as a bearer token." });
     return;
   }
 
@@ -28,16 +28,16 @@ export default async function handler(req, res) {
       state: payload.state || null,
       userId: payload.userId || null,
       workspaceId: payload.workspaceId || null,
-      surface: payload.surface || req.query?.surface || "dashboard",
+      surface: "dashboard",
       persist: Boolean(payload.persist ?? persistRequested),
       limit: Number(payload.limit || req.query?.limit || 25),
       now: payload.now ? new Date(payload.now) : new Date(),
-      briefingType: payload.briefingType || req.query?.briefingType || "hourly",
-      cooldownHours: Number(payload.cooldownHours || req.query?.cooldownHours || 6),
+      briefingType: "morning",
+      cooldownHours: Number(payload.cooldownHours || req.query?.cooldownHours || 26),
     });
     res.status(200).json(result);
   } catch (error) {
-    console.error("ember-hourly-scan failed", error);
-    res.status(500).json({ error: error instanceof Error ? error.message : "Ember scan failed." });
+    console.error("ember-morning-brief failed", error);
+    res.status(500).json({ error: error instanceof Error ? error.message : "Ember morning brief failed." });
   }
 }

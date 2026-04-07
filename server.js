@@ -428,11 +428,40 @@ const server = http.createServer(async (req, res) => {
         persist: Boolean(payload.persist ?? persistRequested),
         limit: Number(payload.limit || url.searchParams.get("limit") || 25),
         now: payload.now ? new Date(payload.now) : new Date(),
+        briefingType: payload.briefingType || url.searchParams.get("briefingType") || "hourly",
+        cooldownHours: Number(payload.cooldownHours || url.searchParams.get("cooldownHours") || 6),
       });
       sendJson(res, 200, result);
     } catch (error) {
       console.error("ember-hourly-scan failed", error);
       sendJson(res, 500, { error: error instanceof Error ? error.message : "Ember scan failed." });
+    }
+    return;
+  }
+
+  if (pathname === "/api/ember/morning-brief" && ["GET", "POST"].includes(req.method)) {
+    const persistRequested = req.method === "GET" || url.searchParams.get("persist") === "1";
+    if (persistRequested && !scanIsAuthorized(req)) {
+      sendJson(res, 401, { error: "Unauthorized Ember morning brief. Set EMBER_SCAN_SECRET or CRON_SECRET and send it as a bearer token." });
+      return;
+    }
+    try {
+      const payload = req.method === "POST" ? await readJson(req) : {};
+      const result = await runEmberHourlyScan({
+        state: payload.state || null,
+        userId: payload.userId || null,
+        workspaceId: payload.workspaceId || null,
+        surface: "dashboard",
+        persist: Boolean(payload.persist ?? persistRequested),
+        limit: Number(payload.limit || url.searchParams.get("limit") || 25),
+        now: payload.now ? new Date(payload.now) : new Date(),
+        briefingType: "morning",
+        cooldownHours: Number(payload.cooldownHours || url.searchParams.get("cooldownHours") || 26),
+      });
+      sendJson(res, 200, result);
+    } catch (error) {
+      console.error("ember-morning-brief failed", error);
+      sendJson(res, 500, { error: error instanceof Error ? error.message : "Ember morning brief failed." });
     }
     return;
   }
