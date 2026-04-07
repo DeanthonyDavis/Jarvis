@@ -12,13 +12,13 @@ export const TOKENS = {
 };
 
 export const DOMAINS = [
-  { id: "command", label: "Command", icon: "&#9889;", blurb: "Kernel + conflict engine" },
-  { id: "academy", label: "Academy", icon: "&#127891;", blurb: "Grades, exams, study flow" },
-  { id: "works", label: "Works", icon: "&#128188;", blurb: "Shifts, hiring, pay" },
-  { id: "life", label: "Life", icon: "&#127968;", blurb: "Budget, bills, home" },
-  { id: "future", label: "Future", icon: "&#128640;", blurb: "Career path + goals" },
-  { id: "mind", label: "Mind", icon: "&#129504;", blurb: "Check-ins + burnout guardrails" },
-  { id: "notebook", label: "Notebook", icon: "&#128211;", blurb: "Source-grounded notes" },
+  { id: "command", label: "Plan", icon: "&#9889;", blurb: "Next block + conflicts" },
+  { id: "academy", label: "School", icon: "&#127891;", blurb: "Classes, due dates, exams" },
+  { id: "works", label: "Work", icon: "&#128188;", blurb: "Shifts, hours, pay" },
+  { id: "life", label: "Money", icon: "&#127968;", blurb: "Bills, income, spend" },
+  { id: "future", label: "Path", icon: "&#128640;", blurb: "Goals, skills, next steps" },
+  { id: "mind", label: "Recovery", icon: "&#129504;", blurb: "Energy, focus, rest" },
+  { id: "notebook", label: "Sources", icon: "&#128211;", blurb: "Files, notes, review" },
 ];
 
 export const COURSES = [

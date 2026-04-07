@@ -22,13 +22,13 @@ Ember is mobile-first. Build and review new product surfaces for phone-sized flo
 
 ## Dashboards
 
-- Command Center
-- Academy
-- Works
-- Life
-- Future
-- Mind
-- Notebook
+- Plan
+- School
+- Work / Shift Board
+- Money
+- Path
+- Recovery
+- Sources
 
 ## Open it
 
@@ -50,45 +50,47 @@ You can still open `index.html` directly for a static-only pass, but the local s
 - Fresh first-run workspace with no preset demo data after signup
 - Guided onboarding tutorial with Back, Next, Skip, and visible setup progress
 - Contextual section guide boxes that can be dismissed after each section is understood
-- Command Center first-time setup checklist for uploading syllabi and connecting school, work/calendar, and finance sources
+- Plan first-time setup checklist for uploading syllabi and connecting school, work/calendar, and finance sources
 - Consistent SVG domain icon system across navigation, topbar, help, and setup surfaces
 - Notification center with read/dismiss state, local fallback, and optional Supabase-backed records from the Phase 2 schema
 - Connector framework panel with provider type, auth state, webhook status, sync status, last/next sync, token refresh state, error count, last result, event logs, local fallback, and optional Supabase-backed `apex_integrations` records
 - Activity log widget with local fallback plus optional Supabase-backed `apex_activity_log` audit records for uploads, syllabus reviews, notes, and connector events
-- Global source upload sheet that can be opened from any section without navigating to Notebook, plus the Notebook source panel for deeper review
+- Global source upload sheet that can be opened from any section without navigating to Sources, plus the Sources panel for deeper review
 - Text extraction and AI-style parsing through `/api/ingest` for source uploads, with plain text support, optional PDF/DOCX packages, optional OpenAI/external parser, and Tesseract OCR fallback for images
-- User-created Notebook notes with editable title, body, tags, and domain, plus optional Supabase-backed `apex_notes` records
+- User-created Sources notes with editable title, body, tags, and domain, plus optional Supabase-backed `apex_notes` records
 - Syllabus review queue that turns an upload into a safe `needs_review -> confirmed` workflow, then creates Academy course/task records only after confirmation
 - Structured parser stages for section detection, schedule/table rows, important dates, exams, labs, homework, quizzes, breaks, holidays, confidence scoring, and dedupe
-- Uploaded source removal from Notebook and the global upload sheet, including Supabase upload/review cleanup when Phase 2 tables are active
+- Uploaded source removal from Sources and the global upload sheet, including Supabase upload/review cleanup when Phase 2 tables are active
 - Domain switching with a collapsible sidebar
-- Command Center driven by computed priorities, conflicts, load, weekly heat, and a real slot-assignment solver pass
+- Plan driven by computed priorities, conflicts, load, weekly heat, and a real slot-assignment solver pass
 - Phase 5 schedule modes (`Balanced`, `Focus Week`, `Light Recovery`, `Finals Mode`, `Work-Heavy`, `Catch-Up`) that overlay solver weights without deleting custom constraints
 - Mode preview before apply, with best-use context, tradeoffs, watch-outs, and planner deltas
 - Scheduler explanation text on assigned blocks so users can see why work landed in a given time window
-- Command Center "Why this plan?" panel with constraints, tradeoffs, confidence, and unscheduled carryover
+- Plan "Why this plan?" panel with constraints, tradeoffs, confidence, and unscheduled carryover
 - Local "What changed since last plan" schedule-run comparison for plan deltas after recalculation
 - Human override rules for earliest/latest scheduling windows, max deep-work blocks, and reserved dayparts
 - Outcome-focused onboarding with setup-state progress, completion feedback, unlocked value, and missing next steps
+- Section-specific page identity for Plan, School, Work, Money, Path, Recovery, and Sources, with different purpose copy, primary metrics, and default actions
+- First-class manual entry across the app: add classes, assignments, exams, shifts, work tasks, bills, income, weekly targets, goals, notes, sources, rest blocks, and time blocks without requiring an integration
 - Design-system primitives for icon sizing, spacing, typography, cards, form states, inline notices, loading placeholders, and empty states
-- Empty states across Command Center, Academy, Works, Life, Future, Mind, and Notebook so missing data feels intentional
+- Empty states across Plan, School, Work, Money, Path, Recovery, and Sources so missing data feels intentional
 - Personalization controls for theme, density, font scale, accent profile, and layout profile
 - Bottom-right Appearance Settings panel with live CSS-variable theme switching, card blur, surface opacity, animation, compact mode, border personality, and accent override controls
 - Curated Ember themes: Void, Retro, Floral, Solar, Arctic, Forest, Candy, and Midnight
 - "My Theme" builder for custom background, surface, text, accent, gradient, and preview settings saved locally under `ember_themes`
 - Student optimizer visual direction with selectable gradient profiles: Study Neon, Campus Sunrise, Library Blue, Focus Lime, and Exam Ember
 - A more student-planner visual direction with desk-board language, notebook-line texture, quieter surfaces, and less generic AI-dashboard glow
-- Command Center widget controls for pinning, hiding, restoring, manual ordering, and resetting the dashboard layout
-- Profile-specific widget layouts for Guided, Operator, and Focus Command Center views
+- Plan widget controls for pinning, hiding, restoring, manual ordering, and resetting the dashboard layout
+- Profile-specific widget layouts for Guided, Operator, and Focus Plan views
 - App-wide command palette with `Ctrl`/`Cmd` + `K`, search, keyboard navigation, deep links into setup/widgets/connectors/notifications, and upload opening that keeps the current section in place
 - Mobile bottom-sheet navigation with section links plus Search, Personalize, and Upload actions
 - Mobile web app metadata for home-screen usage, safe-area viewport behavior, and mobile status-bar treatment
 - Mobile app manifest and SVG app icon for installable home-screen testing
 - Mobile shell rules that hide the desktop sidebar on phone/tablet widths and rely on bottom-sheet navigation instead
-- Interactive tasks across Academy, Works, and Life
-- Academy and Works sub-tabs
-- Mind daily check-in with burnout recalculation
-- Notebook search and brain-dump routing
+- Interactive tasks across School, Work, and Money
+- School and Work sub-tabs
+- Recovery daily check-in with burnout recalculation
+- Sources search and brain-dump routing
 - User-adjustable hard and soft scheduling constraints, persisted in local storage
 - Live JSON source syncing through manual payloads, remote fetch, and cross-tab storage updates
 - Local connector routes:
@@ -142,7 +144,7 @@ $body = @{ name = "Dean"; role = "Founder beta user" } | ConvertTo-Json
 Invoke-RestMethod -Uri "http://127.0.0.1:4173/api/user/first" -Method Post -ContentType "application/json" -Body $body
 ```
 
-4. In the app, use Command Center -> Live Data Sources -> Use local live source -> Sync now.
+4. In the app, use Plan -> Live Data Sources -> Use local live source -> Sync now.
 5. Use Ember like a real beta user: change constraints, complete tasks, submit a Mind check-in, add a Brain Dump, and post webhook payloads for calendar/LMS changes.
 
 ## Next step

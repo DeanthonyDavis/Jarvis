@@ -18,6 +18,8 @@ This file defines the current product UI rules so new screens feel intentional i
 - Forms: use `.field-shell` for grouped labels and inputs. Add `.is-success`, `.is-error`, or `.is-loading` when a field has a clear state.
 - Alerts: use `.state-notice` for inline success, error, and loading states. Toasts should mirror real records, not act as source of truth.
 - Empty states: use `.empty-state` whenever a section has no real user data. Always include what is missing and the next useful action.
+- Section identity: every primary section needs a distinct job, main metric, primary action, and empty-state path. Plan combines domains; School, Work, Money, Path, Recovery, and Sources should feel like separate tools.
+- Manual entry: never hide manual entry behind connector setup. If a section can import or connect, it should also offer a side-by-side manual action.
 - Loading states: use `.skeleton-line` when a future fetch needs a visible placeholder instead of a blank surface.
 - Preferences: use `.preference-chip` inside `.preference-grid`; chips should use `aria-pressed` when selectable.
 - Widget layout: use `.widget-manager-panel`, `.widget-manager-list`, and `.widget-manager-row` for dashboard module visibility/order controls. Pin, hide, and move controls must have labels and disabled states. Profile-specific layouts should explain which profile is being edited.
@@ -37,21 +39,22 @@ This file defines the current product UI rules so new screens feel intentional i
 - Say why it matters: "Ember will not invent grade data."
 - Offer the next action: "Upload syllabus" or "Open connectors."
 - Keep the tone calm and operational. Avoid marketing copy in app surfaces.
+- Prefer "Connected when possible. Manual when needed." over "connect everything first."
 
 ## Current Coverage
 
-- Command Center: empty briefing, GPA, conflict, recommendation, load, and schedule states.
-- Academy: empty classes, study plan, and academic deadlines.
-- Works: empty shifts, work tasks, and career pipeline.
-- Life: empty budget, bills, and life tasks.
-- Future: empty goals and milestones.
-- Mind: empty wellness signal and Mind insight states.
-- Notebook: empty notes, uploads, and syllabus review queue.
+- Plan: empty briefing, school signal, conflict, recommendation, load, and schedule states.
+- School: empty classes, study plan, and academic deadlines, each with add/upload/connect options.
+- Work / Shift Board: empty shifts, work tasks, and career pipeline, each with manual shift/task options.
+- Money: empty safe-to-spend, next bills, and life admin states with manual bill/income/target options.
+- Path: empty goals and milestones with manual goal/note options.
+- Recovery: empty recovery signal and insight states with check-in/rest-block options.
+- Sources: empty notes, uploads, and syllabus review queue with upload and manual-source options.
 - Ingestion: source uploads show extraction status, parser method, preview text, and review confidence without scheduling unconfirmed data.
-- Personalization: Command Center controls for theme, density, type scale, accent profile, and layout profile.
+- Personalization: Plan controls for theme, density, type scale, accent profile, and layout profile.
 - Appearance settings: curated Void, Retro, Floral, Solar, Arctic, Forest, Candy, and Midnight themes plus custom My Theme builder, surface opacity, blur, border style, motion, compact mode, and accent override.
-- Widgets: Command Center layout controls for visible/hidden state, pinned priority, manual ordering, and profile-specific Guided/Operator/Focus layouts.
-- Activity: Command Center audit panel for setup, upload, syllabus, note, and connector actions.
+- Widgets: Plan layout controls for visible/hidden state, pinned priority, manual ordering, and profile-specific Guided/Operator/Focus layouts.
+- Activity: Plan audit panel for setup, upload, syllabus, note, and connector actions.
 - Navigation: app-wide command palette for sections, setup surfaces, uploads, connectors, notifications, and scheduler panels.
 - Mobile: bottom-sheet navigation for sections plus Search, Personalize, and Upload actions.
 - Mobile install: web app manifest, theme color, safe-area viewport behavior, and SVG app icon for home-screen testing.

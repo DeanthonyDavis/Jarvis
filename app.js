@@ -234,13 +234,65 @@ const EMBER_THEMES = {
 };
 
 const HELP_COPY = {
-  command: ["Command Center", "Start here. Tune constraints, review setup progress, and sync sources before trusting the schedule."],
-  academy: ["Academy", "Add courses or connect an LMS. If you have a syllabus, upload it from any section so deadlines can become reviewed tasks."],
-  works: ["Works", "Connect shifts, project tasks, or job-search reminders so work pressure is blocked before it collides with school."],
-  life: ["Life", "Add bills and finance sources only when you are ready. Ember treats this as sensitive, opt-in data."],
-  future: ["Future", "Turn goals into scheduled action. Start with one target, then connect portfolio and learning sources."],
-  mind: ["Mind", "Use check-ins as scheduler signals. Low energy should change the plan, not become another failure point."],
-  notebook: ["Notebook", "Review notes and uploaded sources here. You can upload from any section without being moved out of your current flow."],
+  command: ["Plan", "Decide the next realistic block from school, work, money, sources, and recovery signals."],
+  academy: ["School", "Add classes, assignments, exams, and syllabi manually or through school sources."],
+  works: ["Work", "Track shifts, hours, conflicts, and paycheck impact without waiting for a connector."],
+  life: ["Money", "Keep income, bills, and safe spending separate from the planner until they matter."],
+  future: ["Path", "Turn goals, skills, and portfolio work into visible next steps."],
+  mind: ["Recovery", "Use energy and focus as planning inputs, not another productivity score."],
+  notebook: ["Sources", "Bring in files, notes, and manual context so Ember has real evidence to work from."],
+};
+
+const SECTION_IDENTITY = {
+  command: {
+    eyebrow: "Plan",
+    title: "Keep school, work, and deadlines from colliding.",
+    body: "Turn classes, shifts, deadlines, and energy into the next realistic block.",
+    actions: [["Plan next block", "focus"], ["Switch mode", "modes"], ["Add time block", "manual:time_block"]],
+    stats: ["Load", "Conflicts", "Planned", "Rules kept"],
+  },
+  academy: {
+    eyebrow: "School",
+    title: "Know what is due and what matters this week.",
+    body: "Track assignments, exams, and reading by class without digging through five LMS tabs.",
+    actions: [["Add class", "manual:course"], ["Upload syllabus", "upload"], ["Enter assignment", "manual:assignment"]],
+    stats: ["Classes", "Due soon", "Study plan", "Exams"],
+  },
+  works: {
+    eyebrow: "Shift Board",
+    title: "See work hours, conflicts, and paycheck impact fast.",
+    body: "Add shifts manually or import them later so work never surprises the school plan.",
+    actions: [["Add shift", "manual:shift"], ["Import schedule", "connectors"], ["Add work task", "manual:work_task"]],
+    stats: ["Shifts", "Work tasks", "Planned", "Pay"],
+  },
+  life: {
+    eyebrow: "Money",
+    title: "Know what is coming in, going out, and safe to spend.",
+    body: "Add bills and income manually first. Connect finance later only if you want to.",
+    actions: [["Add bill", "manual:bill"], ["Add income", "manual:income"], ["Set weekly target", "manual:budget"]],
+    stats: ["Cash view", "Bills", "Income", "Buffer"],
+  },
+  future: {
+    eyebrow: "Path",
+    title: "Turn long-range goals into the next concrete move.",
+    body: "Track goals, portfolio work, applications, and skills as actions you can schedule.",
+    actions: [["Add goal", "manual:goal"], ["Create note", "manual:future_note"], ["Upload proof", "upload"]],
+    stats: ["Goals", "Milestones", "Skills", "Next step"],
+  },
+  mind: {
+    eyebrow: "Recovery",
+    title: "Let energy shape the plan before burnout stacks up.",
+    body: "A quick check-in can soften the schedule without treating wellness like a grade.",
+    actions: [["Start check-in", "mind_checkin"], ["Add rest block", "manual:rest_block"], ["Open plan", "command"]],
+    stats: ["Energy", "Risk", "Rest", "Load"],
+  },
+  notebook: {
+    eyebrow: "Sources",
+    title: "Bring in the information Ember should trust.",
+    body: "Upload files, write notes, or enter source details yourself when nothing connects cleanly.",
+    actions: [["Upload file", "upload"], ["Write note", "manual:note"], ["Manual source", "manual:source"]],
+    stats: ["Files", "Reviews", "Notes", "Evidence"],
+  },
 };
 
 const CONNECTOR_TEMPLATES = [
@@ -353,12 +405,12 @@ const PREFERENCE_OPTIONS = {
   ],
   accentProfile: [
     ["domain", "Domain"],
-    ["command", "Command"],
-    ["academy", "Academy"],
-    ["works", "Works"],
-    ["life", "Life"],
-    ["future", "Future"],
-    ["mind", "Mind"],
+    ["command", "Plan"],
+    ["academy", "School"],
+    ["works", "Work"],
+    ["life", "Money"],
+    ["future", "Path"],
+    ["mind", "Recovery"],
   ],
   themeFamily: Object.entries(EMBER_THEMES).map(([value, theme]) => [value, theme.name]),
   gradientProfile: [
@@ -653,7 +705,7 @@ const formatToday = () => new Date().toLocaleDateString("en-US", { weekday: "lon
 const escapeHtml = (value) => String(value ?? "").replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;").replaceAll('"', "&quot;");
 const meter = (percent, accent) => `<div class="meter"><div class="meter-fill" style="width:${percent}%; --accent:${accent};"></div></div>`;
 const pill = (label, accent) => `<span class="pill" style="--pill:${accent};">${label}</span>`;
-const tabButton = (group, value, active, accent) => `<button class="domain-tab ${active === value ? "is-active" : ""}" data-tab-group="${group}" data-tab-value="${value}" style="--accent:${accent};">${value}</button>`;
+const tabButton = (group, value, active, accent, label = value) => `<button class="domain-tab ${active === value ? "is-active" : ""}" data-tab-group="${escapeHtml(group)}" data-tab-value="${escapeHtml(value)}" style="--accent:${accent};">${escapeHtml(label)}</button>`;
 const iconSvg = (id, label = "") =>
   `<svg class="ui-icon" viewBox="0 0 20 20" aria-hidden="${label ? "false" : "true"}" ${label ? `aria-label="${escapeHtml(label)}"` : ""}><path d="${DOMAIN_ICONS[id] || DOMAIN_ICONS.command}"></path></svg>`;
 const sparkBars = (values, accent) => {
@@ -665,14 +717,15 @@ function gauge(value, accent, label, subtitle = "", displayValue = `${value}%`) 
   return `<div class="gauge"><div class="gauge-ring" style="--value:${value}; --accent:${accent};"><strong>${displayValue}</strong></div><div class="gauge-copy"><span>${label}</span>${subtitle ? `<small class="muted">${subtitle}</small>` : ""}</div></div>`;
 }
 
-function emptyState({ domain = "command", title, body, primaryLabel = "Open setup", primaryDomain = "command", secondaryLabel = "", secondaryDomain = "notebook", compact = false } = {}) {
+function emptyState({ domain = "command", title, body, primaryLabel = "Open setup", primaryDomain = "command", secondaryLabel = "", secondaryDomain = "notebook", tertiaryLabel = "", tertiaryDomain = "command", compact = false } = {}) {
   const actionButton = (label, destination, className) => {
     if (!label) return "";
+    if (String(destination).startsWith("manual:")) return `<button class="${className}" data-manual-entry="${escapeHtml(String(destination).replace("manual:", ""))}">${escapeHtml(label)}</button>`;
     return destination === "upload"
       ? `<button class="${className}" data-upload-sheet-open>${escapeHtml(label)}</button>`
       : `<button class="${className}" data-domain="${escapeHtml(destination)}">${escapeHtml(label)}</button>`;
   };
-  return `<div class="empty-state ${compact ? "empty-state--compact" : ""}" style="--accent:${colorFor(domain)};"><div class="empty-state__icon">${iconSvg(domain, title || "Empty state")}</div><h3 class="empty-title">${escapeHtml(title || "Nothing here yet.")}</h3><p>${escapeHtml(body || "Add a source or complete setup to unlock this area.")}</p>${primaryLabel || secondaryLabel ? `<div class="empty-state__actions">${actionButton(primaryLabel, primaryDomain, "primary-action")}${actionButton(secondaryLabel, secondaryDomain, "surface-action")}</div>` : ""}</div>`;
+  return `<div class="empty-state ${compact ? "empty-state--compact" : ""}" style="--accent:${colorFor(domain)};"><div class="empty-state__icon">${iconSvg(domain, title || "Empty state")}</div><h3 class="empty-title">${escapeHtml(title || "Nothing here yet.")}</h3><p>${escapeHtml(body || "Add a source or complete setup to unlock this area.")}</p>${primaryLabel || secondaryLabel || tertiaryLabel ? `<div class="empty-state__actions">${actionButton(primaryLabel, primaryDomain, "primary-action")}${actionButton(secondaryLabel, secondaryDomain, "surface-action")}${actionButton(tertiaryLabel, tertiaryDomain, "surface-action")}</div>` : ""}</div>`;
 }
 
 function stateNotice(kind, title, body, domain = "command") {
@@ -1146,7 +1199,7 @@ function activityLabel(activity) {
     notification: "Notification",
     scheduler: "Scheduler",
     source: "Source",
-    mind: "Mind",
+    mind: "Recovery",
     task: "Task",
     onboarding: "Onboarding",
   };
@@ -1875,12 +1928,12 @@ async function confirmSyllabusReview(reviewId) {
   }
 }
 
-async function createNotebookNote() {
+async function createNotebookNote({ domain = "notebook", title = "Untitled note", tags = ["draft"] } = {}) {
   const note = normalizeNote({
     id: localId("note"),
-    title: "Untitled note",
-    domain: "notebook",
-    tags: ["draft"],
+    title,
+    domain,
+    tags,
     body: "",
     local: true,
   });
@@ -1920,6 +1973,152 @@ async function createNotebookNote() {
     };
     saveState();
   }
+}
+
+function promptText(message, fallback = "") {
+  if (!win?.prompt) return "";
+  return String(win.prompt(message, fallback) || "").trim();
+}
+
+function addManualTask({ domain, title, due = "Today", urgent = false, course = "" }) {
+  const task = {
+    id: nextNumericTaskId(),
+    title,
+    domain,
+    due,
+    urgent,
+    done: false,
+  };
+  if (course) task.course = course;
+  state.tasks = [task, ...state.tasks].slice(0, 200);
+  return task;
+}
+
+function addManualScheduleBlock({ domain, label, time = "9:00", mins = 60 }) {
+  const block = {
+    time,
+    label,
+    domain,
+    mins: Math.max(15, Number(mins) || 60),
+    manual: true,
+  };
+  state.schedule = [...state.schedule, block];
+  return block;
+}
+
+async function handleManualEntry(type) {
+  let created = null;
+  let notifyTitle = "Manual item added";
+  let notifyBody = "Ember updated from your manual entry.";
+
+  if (type === "note" || type === "future_note" || type === "source") {
+    const title = promptText(type === "source" ? "Source title" : "Note title", type === "future_note" ? "Career path note" : type === "source" ? "Manual source" : "Untitled note");
+    if (!title) return;
+    await createNotebookNote({
+      domain: type === "future_note" ? "future" : "notebook",
+      title,
+      tags: [type === "source" ? "manual-source" : "manual"],
+    });
+    return;
+  }
+
+  if (type === "course") {
+    const code = promptText("Class code (optional)", "MATH 101");
+    const name = promptText("Class name", code || "New class");
+    if (!name) return;
+    created = {
+      id: localId("course"),
+      name,
+      code: code || "Manual",
+      grade: null,
+      target: null,
+      trend: 0,
+      color: TOKENS.academy,
+      exam: null,
+      platform: "Manual entry",
+      hist: [],
+    };
+    state.courses = [created, ...state.courses];
+    state.subTabs.academy = "grades";
+    notifyTitle = "Class added";
+    notifyBody = `${name} is now available in School.`;
+  } else if (type === "assignment" || type === "exam") {
+    const fallbackCourse = state.courses[0]?.code || state.courses[0]?.name || "Manual";
+    const title = promptText(type === "exam" ? "Exam title" : "Assignment title", type === "exam" ? "Exam" : "Assignment");
+    if (!title) return;
+    const due = promptText(type === "exam" ? "Exam date" : "Due date", "Today");
+    created = addManualTask({
+      domain: "academy",
+      title,
+      due: due || "Today",
+      urgent: /today|tomorrow|exam/i.test(`${due} ${type}`),
+      course: fallbackCourse,
+    });
+    state.subTabs.academy = "courses";
+    notifyTitle = type === "exam" ? "Exam added" : "Assignment added";
+    notifyBody = `${title} now appears in School deadlines.`;
+  } else if (type === "shift" || type === "time_block" || type === "rest_block") {
+    const domain = type === "shift" ? "works" : type === "rest_block" ? "mind" : "command";
+    const label = promptText(type === "shift" ? "Shift label" : type === "rest_block" ? "Rest block label" : "Time block label", type === "shift" ? "Work shift" : type === "rest_block" ? "Recovery block" : "Manual block");
+    if (!label) return;
+    const time = promptText("Start time", "9:00");
+    const mins = promptText("Minutes", type === "shift" ? "240" : "60");
+    created = addManualScheduleBlock({ domain, label, time: time || "9:00", mins });
+    if (type === "shift") state.subTabs.works = "shifts";
+    notifyTitle = type === "shift" ? "Shift added" : "Time block added";
+    notifyBody = `${label} is now part of the planner context.`;
+  } else if (type === "work_task" || type === "personal_task" || type === "goal") {
+    const domain = type === "work_task" ? "works" : type === "goal" ? "future" : "life";
+    const title = promptText(type === "goal" ? "Goal or milestone" : "Task title", type === "goal" ? "New goal" : "New task");
+    if (!title) return;
+    const due = promptText("Target date or due date", "This week");
+    created = addManualTask({ domain, title, due: due || "This week", urgent: false });
+    if (type === "work_task") state.subTabs.works = "tasks";
+    notifyTitle = type === "goal" ? "Goal added" : "Task added";
+    notifyBody = `${title} now appears in ${DOMAINS.find((domainItem) => domainItem.id === domain)?.label || "Ember"}.`;
+  } else if (type === "bill") {
+    const name = promptText("Bill name", "Rent");
+    if (!name) return;
+    const amount = promptText("Amount", "100");
+    const due = promptText("Due date", "This week");
+    created = { name, amount: String(amount || "").startsWith("$") ? amount : `$${amount || 0}`, due: due || "This week", soon: false, manual: true };
+    state.bills = [created, ...state.bills];
+    notifyTitle = "Bill added";
+    notifyBody = `${name} is now part of Money and load context.`;
+  } else if (type === "income") {
+    const label = promptText("Income label", "Paycheck");
+    if (!label) return;
+    const amount = Number(promptText("Amount", "100")) || 0;
+    const date = promptText("Expected date", "This week");
+    created = { label, amount, date: date || "This week", manual: true };
+    state.paychecks = [created, ...state.paychecks];
+    state.budget = { ...state.budget, income: Number(state.budget.income || 0) + amount, left: Number(state.budget.left || 0) + amount };
+    notifyTitle = "Income added";
+    notifyBody = `${label} now helps Ember estimate bill coverage.`;
+  } else if (type === "budget") {
+    const amount = Number(promptText("Weekly spending target", "75")) || 0;
+    if (!amount) return;
+    created = { weeklyTarget: amount };
+    state.budget = { ...state.budget, weeklyTarget: amount, left: Number(state.budget.left || 0) || amount };
+    notifyTitle = "Weekly target set";
+    notifyBody = `Money now uses a $${amount} weekly target.`;
+  }
+
+  if (!created) return;
+  saveState();
+  rerender();
+  await notifyUser({
+    type: "manual_entry",
+    title: notifyTitle,
+    body: notifyBody,
+    severity: "success",
+    sourceEntityType: type,
+  });
+  logActivity({
+    entityType: type,
+    actionType: "manual_created",
+    afterState: created,
+  });
 }
 
 async function syncNoteIfCloud(note) {
@@ -2383,7 +2582,7 @@ function buildSetupGuideItems() {
       headline: "Upload your syllabus",
       text: "Upload your syllabus so due dates can auto-populate after review.",
       domain: "notebook",
-      action: "Upload in Notebook",
+      action: "Upload in Sources",
       unlocked: "Ember can start a review queue for course dates, policies, and assignment hints.",
       checks: [
         { label: "Upload a syllabus or assignment file", done: state.uploadedFiles.length > 0 },
@@ -2395,7 +2594,7 @@ function buildSetupGuideItems() {
       headline: "Connect school tools",
       text: "Connect school tools so assignments, courses, and grade context can sync automatically.",
       domain: "academy",
-      action: "Open Academy",
+      action: "Open School",
       unlocked: "Academic risk, priorities, and study blocks become grounded in real class context.",
       checks: [
         { label: "Add or import courses", done: state.courses.length > 0 },
@@ -2409,7 +2608,7 @@ function buildSetupGuideItems() {
       headline: "Connect calendar and shifts",
       text: "Connect calendar or work sources so study plans avoid conflicts before they happen.",
       domain: "works",
-      action: "Open Works",
+      action: "Open Work",
       unlocked: "The solver can protect shifts, meetings, and fixed commitments as hard constraints.",
       checks: [
         { label: "Add schedule blocks", done: state.schedule.length > 0 },
@@ -2423,7 +2622,7 @@ function buildSetupGuideItems() {
       headline: "Add bills or finance",
       text: "Add bills so your schedule reflects financial pressure too.",
       domain: "life",
-      action: "Open Life",
+      action: "Open Money",
       unlocked: "Bill timing can influence warnings, weekly pressure, and next-best-move recommendations.",
       checks: [
         { label: "Add bills", done: state.bills.length > 0 },
@@ -2500,7 +2699,7 @@ function commandPaletteItems() {
   return [
     ...domainItems,
     { id: "personalization", title: "Open Personalization", subtitle: "Theme, density, type scale, accent, and layout profile.", domain: "command", scrollSelector: "[data-personalization-panel]", widgetId: "personalization", keywords: "theme density font scale accent layout profile personalize" },
-    { id: "widgets", title: "Open Widget Layout", subtitle: "Pin, hide, restore, and reorder Command Center widgets.", domain: "command", scrollSelector: "[data-widget-manager-panel]", keywords: "widgets layout pin hide order dashboard customize" },
+    { id: "widgets", title: "Open Widget Layout", subtitle: "Pin, hide, restore, and reorder Plan widgets.", domain: "command", scrollSelector: "[data-widget-manager-panel]", keywords: "widgets layout pin hide order dashboard customize" },
     { id: "connectors", title: "Open Connector Framework", subtitle: "Inspect auth, sync, webhooks, and provider lifecycle state.", domain: "command", scrollSelector: "[data-connector-panel]", widgetId: "connectors", keywords: "connect accounts canvas google calendar plaid deputy health webhook integrations" },
     { id: "activity", title: "Open Activity Log", subtitle: "Review setup, upload, connector, and review audit events.", domain: "command", scrollSelector: "[data-activity-panel]", widgetId: "activity", keywords: "activity log audit history events trace debugging" },
     { id: "sources", title: "Open Live Data Sources", subtitle: "Sync local JSON, manual payloads, and webhook-fed source data.", domain: "command", scrollSelector: "[data-source-panel]", widgetId: "sources", keywords: "live data sources json sync payload webhook" },
@@ -2711,20 +2910,35 @@ function saveThemeDraft() {
   void notifyUser({ type: "theme_saved", title: "Theme saved", body: `${theme.name} is now available in My Themes.`, severity: "success" });
 }
 
+function heroActionButton([label, action], index) {
+  const className = index === 0 ? "primary-action" : "surface-action";
+  if (String(action).startsWith("manual:")) return `<button class="${className}" data-manual-entry="${escapeHtml(action.replace("manual:", ""))}">${escapeHtml(label)}</button>`;
+  if (action === "upload") return `<button class="${className}" data-upload-sheet-open>${escapeHtml(label)}</button>`;
+  if (action === "connectors") return `<button class="${className}" data-domain="command" data-scroll-connectors>${escapeHtml(label)}</button>`;
+  if (action === "modes") return `<button class="${className}" data-domain="command" data-scroll-modes>${escapeHtml(label)}</button>`;
+  if (action === "focus") return `<button class="${className}" data-focus-top>${escapeHtml(label)}</button>`;
+  if (action === "mind_checkin") return `<button class="${className}" data-domain="mind">${escapeHtml(label)}</button>`;
+  return `<button class="${className}" data-domain="${escapeHtml(action)}">${escapeHtml(label)}</button>`;
+}
+
 function heroBand(intel) {
   const domain = activeDomain();
+  const identity = SECTION_IDENTITY[domain.id] || SECTION_IDENTITY.command;
   const loadValue = intel.loadDisplay || `${intel.loadScore}%`;
   const loadMode = intel.loadLabel === "setup" ? "setup mode" : intel.loadScore >= 70 ? "stabilize mode" : "balanced mode";
-  const titles = {
-    command: ["today desk", "What needs your attention before the day gets loud."],
-    academy: ["class board", "Syllabi, grades, and deadlines without the LMS scavenger hunt."],
-    works: ["shift board", "Keep work hours visible before they collide with school."],
-    life: ["home board", "Bills and routines, kept calm and out in the open."],
-    future: ["path board", "Turn bigger goals into the next move you can actually do."],
-    mind: ["recovery board", "Let energy shape the plan before burnout stacks up."],
-    notebook: ["source tray", "Drop school material here, then review what Ember found."],
-  }[domain.id];
-  return `<section class="hero-band" style="--accent:${colorFor(domain.id)};"><div class="hero-copy"><div class="eyebrow">${iconSvg(domain.id)}<span>${titles[0]}</span></div><h3>${titles[1]}</h3><p>A student-first workspace for classes, shifts, money, sources, and recovery. No fake urgency. No mystery AI feed. Just the next honest move.</p><div class="hero-actions"><button class="primary-action" data-focus-top>Plan next block</button><button class="surface-action" data-upload-sheet-open>Add school source</button>${pill(loadMode, intel.loadScore >= 70 ? TOKENS.warn : colorFor(domain.id))}</div></div><div class="hero-stats"><div class="hero-stat"><span>Load</span><strong>${loadValue}</strong></div><div class="hero-stat"><span>Due soon</span><strong>${intel.openUrgentCount}</strong></div><div class="hero-stat"><span>Planned</span><strong>${intel.solverSummary.scheduledMinutes}m</strong></div><div class="hero-stat"><span>Rules kept</span><strong>${intel.solverSummary.hardGuardrails}</strong></div></div></section>`;
+  const importedShiftCount = connectorIsConnected(["deputy"]) ? SHIFTS.length : 0;
+  const importedShiftPay = connectorIsConnected(["deputy"]) ? SHIFTS.reduce((sum, shift) => sum + Number(shift.pay || 0), 0) : 0;
+  const hasFutureContext = state.tasks.some((task) => task.domain === "future") || state.notes.some((note) => normalizeNote(note).domain === "future");
+  const statValues = {
+    command: [loadValue, intel.conflicts.length, `${intel.solverSummary.scheduledMinutes}m`, intel.solverSummary.hardGuardrails],
+    academy: [state.courses.length, state.tasks.filter((task) => task.domain === "academy" && !task.done).length, `${intel.solverSummary.scheduledMinutes}m`, intel.courseInsights.filter((course) => course.exam).length],
+    works: [state.schedule.filter((item) => item.domain === "works").length + importedShiftCount, state.tasks.filter((task) => task.domain === "works" && !task.done).length, `${intel.solverSummary.scheduledMinutes}m`, importedShiftPay ? `$${importedShiftPay}` : "--"],
+    life: [`$${state.budget.left || 0}`, state.bills.length, state.paychecks.length, state.bills.filter((bill) => bill.soon).length],
+    future: [hasFutureContext ? GOALS.length : 0, hasFutureContext ? MILESTONES.length : 0, hasFutureContext ? CAREER_SKILLS.length : 0, state.tasks.filter((task) => task.domain === "future" && !task.done).length],
+    mind: [state.checkin.energy || "--", burnoutRisk(intel), state.schedule.filter((item) => item.domain === "mind").length, loadValue],
+    notebook: [state.uploadedFiles.length, state.syllabusReviews.length, state.notes.length, state.syllabusReviews.filter((review) => review.parseStatus === "needs_review").length],
+  }[domain.id] || [loadValue, intel.openUrgentCount, `${intel.solverSummary.scheduledMinutes}m`, intel.solverSummary.hardGuardrails];
+  return `<section class="hero-band hero-band--${domain.id}" style="--accent:${colorFor(domain.id)};"><div class="hero-copy"><div class="eyebrow">${iconSvg(domain.id)}<span>${escapeHtml(identity.eyebrow)}</span></div><h3>${escapeHtml(identity.title)}</h3><p>${escapeHtml(identity.body)}</p><div class="hero-actions">${identity.actions.map(heroActionButton).join("")}${pill(loadMode, intel.loadScore >= 70 ? TOKENS.warn : colorFor(domain.id))}</div></div><div class="hero-stats">${identity.stats.map((label, index) => `<div class="hero-stat"><span>${escapeHtml(label)}</span><strong>${escapeHtml(statValues[index] ?? "--")}</strong></div>`).join("")}</div></section>`;
 }
 
 function renderConstraintPanel(intel) {
@@ -2873,7 +3087,7 @@ function renderCommand(intel) {
     briefing: `<article class="panel span-8" style="--accent:${TOKENS.command};"><div class="panel-label">intelligence briefing</div><div class="list-rows">${listOrEmpty(priorities, { domain: "command", title: "Not enough data for a briefing yet.", body: "Add tasks, classes, bills, or a calendar source so Ember can rank what matters first.", primaryLabel: "Review setup", primaryDomain: "command", secondaryLabel: "Upload files", secondaryDomain: "upload" })}</div><div class="system-note" style="margin-top:1rem;">This stack is driven by live task scoring plus the current constraint profile. Change the rules, and these priorities recompute.</div></article>`,
     solver: `<article class="panel span-4" style="--accent:${intel.solverSummary.unscheduledUrgentCount ? TOKENS.danger : TOKENS.ok};"><div class="panel-label">solver summary</div><div class="solver-grid"><div class="metric-stack"><span>Scheduled</span><strong>${intel.solverSummary.scheduledMinutes}m</strong></div><div class="metric-stack"><span>Capacity</span><strong>${intel.solverSummary.flexibleCapacityMinutes}m</strong></div><div class="metric-stack"><span>Urgent unscheduled</span><strong>${intel.solverSummary.unscheduledUrgentCount}</strong></div><div class="metric-stack"><span>Search score</span><strong>${intel.solverSummary.score}</strong></div></div><div class="footer-note">${intel.solverSummary.unscheduledMinutes ? `${intel.solverSummary.unscheduledMinutes} minutes remain unscheduled under the current rules.` : "Every active chunk currently fits inside the remaining day."}</div></article>`,
     capacity: `<article class="panel span-4" style="--accent:${TOKENS.command};"><div class="panel-label">capacity gauge</div>${gauge(intel.loadScore, TOKENS.command, "load index", intel.loadLabel === "stabilize" ? "stabilize plan active" : intel.loadLabel, intel.loadDisplay || `${intel.loadScore}%`)}<div class="footer-note" style="margin-top:0.9rem;">${intel.loadExplanation}</div><div class="mini-breakdown">${listOrEmpty(domainLoads, { domain: "command", title: "Setup mode is active.", body: "Ember will show real domain load once you add source data.", primaryLabel: "Review setup", primaryDomain: "command" })}</div></article>`,
-    gpa: `<article class="panel span-4" style="--accent:${TOKENS.academy};"><div class="panel-label">gpa tracker</div>${state.courses.length ? `<div class="kpi"><div class="kpi-value accent-text">${hasAnyGrade ? "3.47" : "--"}</div><div class="kpi-copy"><div>${hasAnyGrade ? "Current GPA" : "Grade sync pending"}</div><div class="${topCourse?.status === "at-risk" ? "trend-down" : "trend-up"}">${topCourse?.status === "at-risk" ? "Watch " : "Stable "}${escapeHtml(topCourse?.name || "semester profile")}</div></div></div>${sparkBars(state.courses.map((course) => Number(course.grade) ? Number(course.grade) / 10 : 1), TOKENS.academy)}<div class="section-list" style="margin-top:0.95rem;">${listOrEmpty(courses, { domain: "academy", title: "No classes imported yet.", body: "Upload a syllabus or connect school tools so grades and deadlines can show here.", primaryLabel: "Upload syllabus", primaryDomain: "upload" })}</div>` : emptyState({ domain: "academy", title: "No classes imported yet.", body: "Upload a syllabus or connect Canvas when ready. Ember will not invent grade data.", primaryLabel: "Upload syllabus", primaryDomain: "upload", secondaryLabel: "Open connectors", secondaryDomain: "command", compact: true })}</article>`,
+    gpa: `<article class="panel span-4" style="--accent:${TOKENS.academy};"><div class="panel-label">school signal</div>${state.courses.length ? `<div class="kpi"><div class="kpi-value accent-text">${hasAnyGrade ? "3.47" : "--"}</div><div class="kpi-copy"><div>${hasAnyGrade ? "Current GPA" : "Grade sync pending"}</div><div class="${topCourse?.status === "at-risk" ? "trend-down" : "trend-up"}">${topCourse?.status === "at-risk" ? "Watch " : "Stable "}${escapeHtml(topCourse?.name || "semester profile")}</div></div></div>${sparkBars(state.courses.map((course) => Number(course.grade) ? Number(course.grade) / 10 : 1), TOKENS.academy)}<div class="section-list" style="margin-top:0.95rem;">${listOrEmpty(courses, { domain: "academy", title: "No classes yet.", body: "Add a class, upload a syllabus, or enter assignments manually.", primaryLabel: "Add class", primaryDomain: "manual:course", secondaryLabel: "Upload syllabus", secondaryDomain: "upload", tertiaryLabel: "Enter assignment", tertiaryDomain: "manual:assignment" })}</div>` : emptyState({ domain: "academy", title: "No classes yet.", body: "Add a class, upload a syllabus, or enter assignments manually. Ember will not invent grade data.", primaryLabel: "Add class", primaryDomain: "manual:course", secondaryLabel: "Upload syllabus", secondaryDomain: "upload", tertiaryLabel: "Enter assignment", tertiaryDomain: "manual:assignment", compact: true })}</article>`,
     conflicts: `<article class="panel span-4" style="--accent:${TOKENS.danger};"><div class="panel-label">conflict engine</div><div class="stack-list">${listOrEmpty(conflicts, { domain: "command", title: "No conflicts detected yet.", body: "That can mean you are clear, or that Ember needs more real sources before it can compare commitments.", primaryLabel: "Add sources", primaryDomain: "command" })}</div></article>`,
     week: `<article class="panel span-4" style="--accent:${TOKENS.notebook};"><div class="panel-label">this week</div><div class="calendar-grid">${dayLabels.map((label, index) => { const day = intel.weeklyOutlook[index]; const level = day.level === "high" ? TOKENS.danger : day.level === "medium" ? TOKENS.warn : TOKENS.ok; return `<div class="day-card ${index === dayIndex ? "is-today" : ""}" style="--accent:${level};"><small class="muted">${label}</small><strong>${day.date.getDate()}</strong><div class="dot-stack"><span style="background:${level};"></span><span style="background:${level}; opacity:.65;"></span><span style="background:${level}; opacity:.35;"></span></div></div>`; }).join("")}</div><div class="footer-note" style="margin-top:0.95rem;">Peak pressure day: ${intel.hottestDay.date.toLocaleDateString("en-US", { weekday: "long", month: "short", day: "numeric" })}. The weekly view is driven by deadlines, exams, and bills.</div></article>`,
     recommendations: `<article class="panel span-12" style="--accent:${TOKENS.future};"><div class="panel-label">next best moves</div><div class="courses-grid">${listOrEmpty(recommendations, { domain: "future", title: "No recommendations yet.", body: "Ember needs source data before it can safely recommend next moves.", primaryLabel: "Review setup", primaryDomain: "command" })}</div></article>`,
@@ -2883,7 +3097,7 @@ function renderCommand(intel) {
     sources: renderSourcePanel(),
     connectors: renderConnectorPanel(),
     activity: renderActivityPanel(),
-    schedule: `<article class="panel span-12" style="--accent:${TOKENS.command};"><div class="panel-label">optimized schedule</div><div class="schedule-strip schedule-strip--solver">${scheduleBlocks || emptyState({ domain: "command", title: "No schedule blocks yet.", body: "Connect your calendar or add tasks to let the solver build a real day plan.", primaryLabel: "Open connectors", primaryDomain: "command", secondaryLabel: "Upload files", secondaryDomain: "upload" })}</div></article>`,
+    schedule: `<article class="panel span-12" style="--accent:${TOKENS.command};"><div class="panel-label">today's plan</div><div class="schedule-strip schedule-strip--solver">${scheduleBlocks || emptyState({ domain: "command", title: "No plan blocks yet.", body: "Add a manual time block, connect a calendar, or upload a source so the planner has real commitments.", primaryLabel: "Add time block", primaryDomain: "manual:time_block", secondaryLabel: "Open connectors", secondaryDomain: "command", tertiaryLabel: "Upload files", tertiaryDomain: "upload" })}</div></article>`,
   };
   return `<section class="section-shell">${heroBand(intel)}<div class="dashboard-grid">${renderWidgetManager()}${renderVisibleCommandWidgets(widgetPanels)}</div></section>`;
 }
@@ -2901,30 +3115,32 @@ function renderAcademy(intel) {
   }).join("");
   const planner = intel.schedulePlan.filter((item) => item.domain === "academy").map((item) => `<div class="row" style="--accent:${TOKENS.academy};"><div class="row-badge mono">${item.time}</div><div class="row-copy"><div class="row-title">${item.label}</div><div class="row-subtitle">${item.note}</div></div></div>`).join("");
   const courses = state.tasks.filter((task) => task.domain === "academy").map((task) => taskMarkup(task)).join("");
-  return `<section class="section-shell">${heroBand(intel)}<div class="tab-strip" style="--accent:${TOKENS.academy};">${tabButton("academy", "grades", tab, TOKENS.academy)}${tabButton("academy", "planner", tab, TOKENS.academy)}${tabButton("academy", "courses", tab, TOKENS.academy)}</div>${tab === "grades" ? simpleListPanel("grades", TOKENS.academy, grades, { domain: "academy", title: "No classes imported yet.", body: "Upload a syllabus or connect Canvas so grades can be grounded in real school data.", primaryLabel: "Upload syllabus", primaryDomain: "upload", secondaryLabel: "Open connectors", secondaryDomain: "command" }) : ""}${tab === "planner" ? simpleListPanel("study plan", TOKENS.academy, planner, { domain: "academy", title: "No study plan yet.", body: "Ember needs academic tasks or class times before it can schedule study blocks.", primaryLabel: "Upload syllabus", primaryDomain: "upload" }) : ""}${tab === "courses" ? simpleListPanel("deadlines", TOKENS.warn, courses, { domain: "academy", title: "No academic deadlines yet.", body: "Deadlines will appear after a syllabus review, LMS sync, or manual source payload.", primaryLabel: "Upload syllabus", primaryDomain: "upload", secondaryLabel: "Open live sources", secondaryDomain: "command" }) : ""}</section>`;
+  return `<section class="section-shell">${heroBand(intel)}<div class="tab-strip" style="--accent:${TOKENS.academy};">${tabButton("academy", "grades", tab, TOKENS.academy, "classes")}${tabButton("academy", "planner", tab, TOKENS.academy, "study plan")}${tabButton("academy", "courses", tab, TOKENS.academy, "deadlines")}</div>${tab === "grades" ? simpleListPanel("classes", TOKENS.academy, grades, { domain: "academy", title: "No classes yet.", body: "Add a class, upload a syllabus, or connect Canvas later. Manual entry should work on day one.", primaryLabel: "Add class", primaryDomain: "manual:course", secondaryLabel: "Upload syllabus", secondaryDomain: "upload", tertiaryLabel: "Connect school", tertiaryDomain: "command" }) : ""}${tab === "planner" ? simpleListPanel("study plan", TOKENS.academy, planner, { domain: "academy", title: "No study plan yet.", body: "Add an assignment or exam manually so Ember can place a real study block.", primaryLabel: "Enter assignment", primaryDomain: "manual:assignment", secondaryLabel: "Add exam", secondaryDomain: "manual:exam", tertiaryLabel: "Upload syllabus", tertiaryDomain: "upload" }) : ""}${tab === "courses" ? simpleListPanel("deadlines", TOKENS.warn, courses, { domain: "academy", title: "No academic deadlines yet.", body: "Deadlines can come from a syllabus, LMS sync, or manual entry.", primaryLabel: "Enter assignment", primaryDomain: "manual:assignment", secondaryLabel: "Add exam", secondaryDomain: "manual:exam", tertiaryLabel: "Upload syllabus", tertiaryDomain: "upload" }) : ""}</section>`;
 }
 
 function renderWorks(intel) {
   const tab = state.subTabs.works;
-  const hasWorkSource = connectorIsConnected(["deputy"]) || state.tasks.some((task) => task.domain === "works");
-  const shifts = hasWorkSource ? SHIFTS.map((shift) => `<div class="row" style="--accent:${TOKENS.works};"><div class="row-badge">${shift.day}</div><div class="row-copy"><div class="row-title">${shift.hours}</div><div class="row-subtitle">Campus Research Lab</div></div>${pill(`$${shift.pay}`, TOKENS.works)}</div>`).join("") : "";
+  const hasWorkSource = connectorIsConnected(["deputy"]) || state.tasks.some((task) => task.domain === "works") || state.schedule.some((item) => item.domain === "works");
+  const manualShifts = state.schedule.filter((item) => item.domain === "works").map((item) => `<div class="row" style="--accent:${TOKENS.works};"><div class="row-badge">${escapeHtml(item.time)}</div><div class="row-copy"><div class="row-title">${escapeHtml(item.label)}</div><div class="row-subtitle">${Number(item.mins) || 0} minutes &middot; manual shift</div></div>${pill("manual", TOKENS.works)}</div>`).join("");
+  const importedShifts = connectorIsConnected(["deputy"]) ? SHIFTS.map((shift) => `<div class="row" style="--accent:${TOKENS.works};"><div class="row-badge">${shift.day}</div><div class="row-copy"><div class="row-title">${shift.hours}</div><div class="row-subtitle">Campus Research Lab</div></div>${pill(`$${shift.pay}`, TOKENS.works)}</div>`).join("") : "";
+  const shifts = [manualShifts, importedShifts].filter(Boolean).join("");
   const tasks = state.tasks.filter((task) => task.domain === "works").map((task) => taskMarkup(task)).join("");
   const pipeline = hasWorkSource ? PIPELINE.map((item) => `<div class="row" style="--accent:${item.color};"><div class="row-copy"><div class="row-title">${item.company} - ${item.role}</div><div class="row-subtitle">${item.note}</div></div>${pill(item.stage, item.color)}</div>`).join("") : "";
-  return `<section class="section-shell">${heroBand(intel)}<div class="tab-strip" style="--accent:${TOKENS.works};">${tabButton("works", "shifts", tab, TOKENS.works)}${tabButton("works", "tasks", tab, TOKENS.works)}${tabButton("works", "pipeline", tab, TOKENS.works)}</div>${tab === "shifts" ? simpleListPanel("shifts", TOKENS.works, shifts, { domain: "works", title: "No work schedule connected yet.", body: "Connect Deputy or feed shifts through a webhook so Ember can protect work time.", primaryLabel: "Open connectors", primaryDomain: "command" }) : ""}${tab === "tasks" ? simpleListPanel("tasks", TOKENS.works, tasks, { domain: "works", title: "No work tasks yet.", body: "Add project tasks or sync a work source before they appear here.", primaryLabel: "Open live sources", primaryDomain: "command" }) : ""}${tab === "pipeline" ? simpleListPanel("pipeline", TOKENS.future, pipeline, { domain: "future", title: "No career pipeline yet.", body: "When you add job applications or career tasks, Ember will keep follow-ups visible here.", primaryLabel: "Open live sources", primaryDomain: "command" }) : ""}</section>`;
+  return `<section class="section-shell">${heroBand(intel)}<div class="tab-strip" style="--accent:${TOKENS.works};">${tabButton("works", "shifts", tab, TOKENS.works)}${tabButton("works", "tasks", tab, TOKENS.works)}${tabButton("works", "pipeline", tab, TOKENS.works)}</div>${tab === "shifts" ? simpleListPanel("shift board", TOKENS.works, shifts, { domain: "works", title: "No shifts added.", body: "Import a work schedule later, or add a shift manually now so the planner protects those hours.", primaryLabel: "Add shift", primaryDomain: "manual:shift", secondaryLabel: "Import schedule", secondaryDomain: "command", tertiaryLabel: "Add work task", tertiaryDomain: "manual:work_task" }) : ""}${tab === "tasks" ? simpleListPanel("work tasks", TOKENS.works, tasks, { domain: "works", title: "No work tasks yet.", body: "Add a work task manually or sync a source when the connector is ready.", primaryLabel: "Add work task", primaryDomain: "manual:work_task", secondaryLabel: "Import schedule", secondaryDomain: "command" }) : ""}${tab === "pipeline" ? simpleListPanel("career pipeline", TOKENS.future, pipeline, { domain: "future", title: "No career pipeline yet.", body: "Add a career task or future note before Ember turns follow-ups into schedule pressure.", primaryLabel: "Add career task", primaryDomain: "manual:goal", secondaryLabel: "Create note", secondaryDomain: "manual:future_note" }) : ""}</section>`;
 }
 
 function renderLife(intel) {
   const bills = intel.billInsights.map((bill) => `<div class="row ${bill.daysUntilDue !== null && bill.daysUntilDue <= 3 ? "is-hot" : ""}" style="--accent:${bill.covered ? TOKENS.warn : TOKENS.danger};"><div class="row-copy"><div class="row-title">${bill.name}</div><div class="row-subtitle">Due ${bill.due} &middot; ${bill.covered ? "covered" : "needs attention"}</div></div><strong>${bill.amount}</strong></div>`).join("");
   const hasBudget = Number(state.budget.income || 0) > 0 || Number(state.budget.spent || 0) > 0 || Number(state.budget.left || 0) > 0;
   const budget = hasBudget ? `<div class="row"><div class="row-copy"><div class="row-title">Monthly budget</div><div class="row-subtitle">Income ${state.budget.income} &middot; Left ${state.budget.left}</div></div>${pill(`$${state.budget.left}`, TOKENS.life)}</div>` : "";
-  return `<section class="section-shell">${heroBand(intel)}<div class="dashboard-grid">${simpleListPanel("budget snapshot", TOKENS.life, budget, { domain: "life", title: "No budget data yet.", body: "Finance is opt-in. Add a safe payload or connect finance later when you are ready.", primaryLabel: "Open live sources", primaryDomain: "command" })}${simpleListPanel("bills due", TOKENS.warn, bills, { domain: "life", title: "No bills added yet.", body: "Bills will help the scheduler understand financial pressure without needing bank data first.", primaryLabel: "Open live sources", primaryDomain: "command" })}${simpleListPanel("personal tasks", TOKENS.life, state.tasks.filter((task) => task.domain === "life").map((task) => taskMarkup(task)).join(""), { domain: "life", title: "No life tasks yet.", body: "Add chores, bills, errands, or reminders when you want Life to affect the plan.", primaryLabel: "Open live sources", primaryDomain: "command" })}</div></section>`;
+  return `<section class="section-shell">${heroBand(intel)}<div class="dashboard-grid">${simpleListPanel("safe-to-spend", TOKENS.life, budget, { domain: "life", title: "No money context yet.", body: "Add income or a weekly target manually. Bank connections can come later.", primaryLabel: "Add income", primaryDomain: "manual:income", secondaryLabel: "Set weekly target", secondaryDomain: "manual:budget", tertiaryLabel: "Connect finance", tertiaryDomain: "command" })}${simpleListPanel("next bills", TOKENS.warn, bills, { domain: "life", title: "No bills added.", body: "Add rent, phone, tuition, or subscriptions manually so Money can warn you before deadlines stack up.", primaryLabel: "Add bill", primaryDomain: "manual:bill", secondaryLabel: "Add income", secondaryDomain: "manual:income" })}${simpleListPanel("life admin", TOKENS.life, state.tasks.filter((task) => task.domain === "life").map((task) => taskMarkup(task)).join(""), { domain: "life", title: "No life tasks yet.", body: "Add errands, chores, or reminders when they should affect the plan.", primaryLabel: "Add task", primaryDomain: "manual:personal_task", secondaryLabel: "Add bill", secondaryDomain: "manual:bill" })}</div></section>`;
 }
 
 function renderFuture(intel) {
   const hasFutureContext = state.tasks.some((task) => task.domain === "future") || state.notes.some((note) => normalizeNote(note).domain === "future");
   const goals = hasFutureContext ? GOALS.map((goal) => `<div class="row" style="--accent:${colorFor(goal.domain)};"><div class="row-copy"><div class="row-title">${goal.title}</div><div class="row-subtitle">${goal.done}/${goal.tasks} complete</div></div><strong>${goal.pct}%</strong></div>`).join("") : "";
   const milestones = hasFutureContext ? MILESTONES.map((milestone) => `<div class="row ${milestone.hot ? "is-hot" : ""}" style="--accent:${milestone.hot ? TOKENS.future : TOKENS.notebook};"><div class="row-copy"><div class="row-title">${milestone.label}</div><div class="row-subtitle">${milestone.hot ? "High urgency" : "Forward-looking checkpoint"}</div></div><strong>${milestone.date}</strong></div>`).join("") : "";
-  return `<section class="section-shell">${heroBand(intel)}<div class="dashboard-grid">${simpleListPanel("goals", TOKENS.future, goals, { domain: "future", title: "No goals linked yet.", body: "Create a future note or add a career task so Ember can turn a goal into scheduled action.", primaryLabel: "Create note", primaryDomain: "notebook", secondaryLabel: "Open setup", secondaryDomain: "command" })}${simpleListPanel("milestones", TOKENS.future, milestones, { domain: "future", title: "No milestones yet.", body: "Milestones should come from your real goals, school path, or career sources before they drive the plan.", primaryLabel: "Upload sources", primaryDomain: "upload" })}</div></section>`;
+  return `<section class="section-shell">${heroBand(intel)}<div class="dashboard-grid">${simpleListPanel("next steps", TOKENS.future, goals, { domain: "future", title: "No goals linked yet.", body: "Add one concrete goal or write a future note so Path becomes schedulable.", primaryLabel: "Add goal", primaryDomain: "manual:goal", secondaryLabel: "Create note", secondaryDomain: "manual:future_note", tertiaryLabel: "Upload proof", tertiaryDomain: "upload" })}${simpleListPanel("milestones", TOKENS.future, milestones, { domain: "future", title: "No milestones yet.", body: "Milestones should come from real goals, school path, or career sources before they drive the plan.", primaryLabel: "Add goal", primaryDomain: "manual:goal", secondaryLabel: "Upload source", secondaryDomain: "upload" })}</div></section>`;
 }
 
 function renderMind(intel) {
@@ -2936,8 +3152,8 @@ function renderMind(intel) {
   const hasMindSignals = state.checkin.submitted || state.checkin.energy || state.checkin.focus || state.checkin.mood;
   const riskBody = hasMindSignals
     ? gauge(risk, risk > 55 ? TOKENS.warn : TOKENS.ok, "burnout risk", risk > 55 ? "load softening recommended" : "stable")
-    : emptyState({ domain: "mind", title: "No wellness signal yet.", body: "Submit a quick check-in before Ember estimates burnout risk. This is scheduler context, not clinical diagnosis.", primaryLabel: "Start check-in", primaryDomain: "mind", compact: true });
-  return `<section class="section-shell">${heroBand(intel)}<div class="dashboard-grid"><article class="panel span-5" style="--accent:${TOKENS.mind};"><div class="panel-label">daily check-in</div>${form}</article><article class="panel span-3" style="--accent:${TOKENS.notebook};"><div class="panel-label">burnout risk</div>${riskBody}</article>${simpleListPanel("Ember mind intelligence", TOKENS.mind, hasMindSignals ? insights : "", { domain: "mind", title: "Not enough data for Mind insights yet.", body: "Once you submit check-ins, Ember can explain how recovery signals are affecting the schedule.", primaryLabel: "Start check-in", primaryDomain: "mind" })}</div></section>`;
+    : emptyState({ domain: "mind", title: "No recovery signal yet.", body: "Submit a quick check-in or add a rest block. This is scheduler context, not clinical diagnosis.", primaryLabel: "Start check-in", primaryDomain: "mind", secondaryLabel: "Add rest block", secondaryDomain: "manual:rest_block", compact: true });
+  return `<section class="section-shell">${heroBand(intel)}<div class="dashboard-grid"><article class="panel span-5" style="--accent:${TOKENS.mind};"><div class="panel-label">daily check-in</div>${form}</article><article class="panel span-3" style="--accent:${TOKENS.notebook};"><div class="panel-label">burnout risk</div>${riskBody}</article>${simpleListPanel("recovery rules", TOKENS.mind, hasMindSignals ? insights : "", { domain: "mind", title: "Not enough recovery data yet.", body: "Once you submit check-ins or add rest blocks, Ember can show how recovery changes the schedule.", primaryLabel: "Start check-in", primaryDomain: "mind", secondaryLabel: "Add rest block", secondaryDomain: "manual:rest_block" })}</div></section>`;
 }
 
 function renderNotebook(intel) {
@@ -2960,22 +3176,22 @@ function renderNotebook(intel) {
   const noteButtons = filtered.map((note) => `<button class="note-button ${String(note.id) === String(state.activeNoteId) ? "is-active" : ""}" data-note-id="${escapeHtml(note.id)}" style="--accent:${colorFor(note.domain)};"><strong>${escapeHtml(note.title)}</strong><small>${escapeHtml(note.updated)} &middot; ${escapeHtml(note.domain)}</small></button>`).join("");
   const editor = activeNote
     ? `<div class="note-editor"><div class="panel-label">${iconSvg(activeNote.domain)} editable note</div><input class="note-title-input" value="${escapeHtml(activeNote.title)}" placeholder="Note title" data-note-title /><div class="note-meta-grid"><label><span>Domain</span><select data-note-domain>${DOMAINS.filter((domain) => domain.id !== "command").map((domain) => `<option value="${domain.id}" ${activeNote.domain === domain.id ? "selected" : ""}>${domain.label}</option>`).join("")}</select></label><label><span>Tags</span><input value="${escapeHtml(activeNote.tags.join(", "))}" placeholder="exam-prep, ideas" data-note-tags /></label></div><textarea class="note-body-input" placeholder="Write notes, links, questions, or source-grounded context here..." data-note-body>${escapeHtml(activeNote.body || activeNote.summary || "")}</textarea><p class="footer-note">Autosaves locally. Cloud sync updates on field change when apex_notes is available.</p></div>`
-    : `<div class="empty-note-state">${emptyState({ domain: "notebook", title: "No notes yet.", body: "Create a note to capture source-grounded context before the AI/RAG layer lands.", primaryLabel: "", compact: true })}<button class="primary-action" data-note-create type="button">Create first note</button></div>`;
-  const uploadEmpty = emptyState({ domain: "notebook", title: "No source files attached yet.", body: "Start with a syllabus, lecture note, or assignment sheet. Ember will extract text, run AI-style parsing, and keep everything in review until you confirm it.", primaryLabel: "", compact: true });
-  const reviewEmpty = emptyState({ domain: "academy", title: "No syllabus reviews yet.", body: "Upload a syllabus and Ember will create a parsed review card automatically. Nothing gets scheduled until you confirm it.", primaryLabel: "Upload syllabus", primaryDomain: "upload", compact: true });
+    : `<div class="empty-note-state">${emptyState({ domain: "notebook", title: "No notes yet.", body: "Write a note, enter a manual source, or upload a file. Sources should work even before connectors do.", primaryLabel: "Write note", primaryDomain: "manual:note", secondaryLabel: "Manual source", secondaryDomain: "manual:source", compact: true })}</div>`;
+  const uploadEmpty = emptyState({ domain: "notebook", title: "No files attached.", body: "Upload a syllabus, lecture note, or assignment sheet. Nothing gets scheduled until you confirm the review.", primaryLabel: "Upload file", primaryDomain: "upload", secondaryLabel: "Manual source", secondaryDomain: "manual:source", compact: true });
+  const reviewEmpty = emptyState({ domain: "academy", title: "No syllabus reviews yet.", body: "Upload a syllabus or enter academic dates manually. Review stays separate from scheduling until you confirm.", primaryLabel: "Upload syllabus", primaryDomain: "upload", secondaryLabel: "Enter assignment", secondaryDomain: "manual:assignment", tertiaryLabel: "Add exam", tertiaryDomain: "manual:exam", compact: true });
   return `<section class="section-shell">${heroBand(intel)}<div class="notebook-layout"><aside class="panel panel--quiet" style="--accent:${TOKENS.notebook};"><div class="panel-label">search notes</div><input class="search-input" type="search" placeholder="Search all notes..." value="${escapeHtml(state.noteSearch)}" data-note-search /><button class="primary-action note-create-action" data-note-create type="button">New note</button><div class="note-list" style="margin-top:1rem;">${noteButtons || stateNotice("loading", "No notes yet", "Create your first note to make Notebook useful.", "notebook")}</div></aside><div class="section-shell"><article class="panel" style="--accent:${activeNote ? colorFor(activeNote.domain) : TOKENS.notebook};">${editor}</article><article class="panel" data-upload-panel style="--accent:${TOKENS.notebook};"><div class="panel-label">source uploads</div><h3 class="empty-title">Upload syllabi, notes, and assignment sheets.</h3><p class="row-subtitle">Ember now extracts text, runs AI-style syllabus parsing, and falls back to Tesseract OCR for image uploads when available.</p><label class="upload-zone"><input type="file" multiple data-file-upload /><span>Choose files to attach</span><small>${uploads.length ? `${uploads.length} source file(s) tracked` : "No source files attached yet"}</small></label><div class="section-list" style="margin-top:1rem;">${uploadRows || uploadEmpty}</div></article><article class="panel" data-syllabus-review-panel style="--accent:${TOKENS.academy};"><div class="panel-label">syllabus review queue</div><h3 class="empty-title">Confirm before Ember schedules anything.</h3><p class="row-subtitle">Parsed dates, assignments, grading weights, and policies stay in review until you confirm the card.</p><div class="review-list">${reviewRows || reviewEmpty}</div></article><article class="panel" style="--accent:${TOKENS.command};"><div class="panel-label">brain dump</div>${!state.processedDump ? `<textarea class="brain-dump" placeholder="Type anything: study thermo, email professor, pay rent, prep Friday quiz..." data-brain-dump>${escapeHtml(state.brainDump)}</textarea><div class="hero-actions"><button class="primary-action" data-process-dump>Process + sort</button></div>` : `<div class="processing-result"><div class="row is-hot" style="--accent:${TOKENS.ok};"><div class="row-badge">${iconSvg("command", "Processed")}</div><div class="row-copy"><div class="row-title">Dump routed into ${state.processedDump.domains.length} dashboards</div><div class="row-subtitle">${escapeHtml(state.processedDump.summary)}</div></div></div><div class="inline-chips">${state.processedDump.domains.map((domain) => pill(domain, colorFor(domain.toLowerCase()))).join("")}</div><button class="surface-action" data-clear-dump>New dump</button></div>`}</article></div></div></section>`;
 }
 
 function renderFreshDomainState(intel) {
   const domain = activeDomain();
   const guidance = {
-    academy: ["Connect your school context.", "Upload a syllabus or use Live Data Sources in Command Center to bring in LMS assignments and grade signals.", "Upload Syllabus", "upload", "Open Live Sources", "command"],
-    works: ["Connect work before it collides with school.", "Use Live Data Sources to add calendar events, shifts, or webhook-fed project tasks. Ember will block them as hard context.", "Open Live Sources", "command", "Upload Work Files", "upload"],
-    life: ["Add life admin only when you are ready.", "Bills and finance are sensitive, opt-in data. Start by adding bill payloads in Live Data Sources or keep this area empty.", "Open Live Sources", "command", "Review Setup", "command"],
-    future: ["Turn one goal into a scheduled action.", "Start from Command Center, then connect portfolio, course, or career resources as sources when you want Ember to reason over them.", "Review Setup", "command", "Upload Sources", "upload"],
-    mind: ["Start with one check-in.", "Mind signals are scheduler inputs, not a clinical record. Add energy, focus, and mood when you want the plan to soften intelligently.", "Review Setup", "command", "Upload Context", "upload"],
-  }[domain.id] || ["Start by adding your real sources.", "Use the Command Center setup checklist to upload syllabi, connect school/work sources, and tune the scheduler in a clear order.", "Review Setup", "command", "Upload Files", "upload"];
-  return `<section class="section-shell">${heroBand(intel)}<article class="panel panel--empty span-12" style="--accent:${colorFor(domain.id)};"><div class="panel-label">fresh workspace</div>${emptyState({ domain: domain.id, title: guidance[0], body: guidance[1], primaryLabel: guidance[2], primaryDomain: guidance[3], secondaryLabel: guidance[4], secondaryDomain: guidance[5] })}</article></section>`;
+    academy: ["No classes yet.", "Add a class, upload a syllabus, or enter your first assignment manually.", "Add class", "manual:course", "Upload syllabus", "upload", "Enter assignment", "manual:assignment"],
+    works: ["No shifts added.", "Add recurring work hours manually or import a schedule later.", "Add shift", "manual:shift", "Import schedule", "command", "Add work task", "manual:work_task"],
+    life: ["No money context yet.", "Add a bill or income manually so Ember can reason about financial pressure without a bank connection.", "Add bill", "manual:bill", "Add income", "manual:income", "Set weekly target", "manual:budget"],
+    future: ["No path items yet.", "Add one concrete goal or write a note so future work turns into a schedulable step.", "Add goal", "manual:goal", "Create note", "manual:future_note", "Upload proof", "upload"],
+    mind: ["No recovery signal yet.", "Start with a check-in or add a rest block so recovery can shape the plan.", "Start check-in", "mind", "Add rest block", "manual:rest_block", "Open plan", "command"],
+  }[domain.id] || ["Start with real context.", "Add a source manually, upload a file, or connect tools later.", "Review Setup", "command", "Upload Files", "upload", "Manual source", "manual:source"];
+  return `<section class="section-shell">${heroBand(intel)}<article class="panel panel--empty span-12" style="--accent:${colorFor(domain.id)};"><div class="panel-label">fresh workspace</div>${emptyState({ domain: domain.id, title: guidance[0], body: guidance[1], primaryLabel: guidance[2], primaryDomain: guidance[3], secondaryLabel: guidance[4], secondaryDomain: guidance[5], tertiaryLabel: guidance[6], tertiaryDomain: guidance[7] })}</article></section>`;
 }
 
 function renderContent(intel) {
@@ -3236,6 +3452,9 @@ doc?.addEventListener("click", async (event) => {
   if (target.matches("[data-mobile-nav-close]") || target.closest(".mobile-nav-sheet__scrim")) { closeMobileNavSheet(); return; }
   if (target.closest("[data-upload-sheet-open]")) { state.uploadSheetOpen = true; renderUploadSheet(); return; }
   if (target.matches("[data-upload-sheet-close]") || target.closest(".upload-sheet__scrim")) { closeUploadSheet(); return; }
+  const manualEntry = target.closest("[data-manual-entry]");
+  if (manualEntry) { await handleManualEntry(manualEntry.dataset.manualEntry); return; }
+  if (target.closest("[data-focus-top]")) { requestAnimationFrame(() => doc?.querySelector(".schedule-strip--solver")?.scrollIntoView({ block: "start", behavior: "smooth" })); return; }
   const uploadRemove = target.closest("[data-upload-remove]");
   if (uploadRemove) { await removeUploadedFile(uploadRemove.dataset.uploadRemove); return; }
   if (target.closest("[data-command-open]")) { if (shouldCloseMobileNav) state.mobileNavOpen = false; openCommandPalette(); renderMobileNavSheet(); return; }
@@ -3249,6 +3468,12 @@ doc?.addEventListener("click", async (event) => {
     rerender();
     if (domainButton.matches("[data-scroll-personalization]")) {
       requestAnimationFrame(() => doc?.querySelector("[data-personalization-panel]")?.scrollIntoView({ block: "start", behavior: "smooth" }));
+    }
+    if (domainButton.matches("[data-scroll-connectors]")) {
+      requestAnimationFrame(() => doc?.querySelector("[data-connector-panel]")?.scrollIntoView({ block: "start", behavior: "smooth" }));
+    }
+    if (domainButton.matches("[data-scroll-modes]")) {
+      requestAnimationFrame(() => doc?.querySelector("[data-schedule-mode-panel]")?.scrollIntoView({ block: "start", behavior: "smooth" }));
     }
     return;
   }
