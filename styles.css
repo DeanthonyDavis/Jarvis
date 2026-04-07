@@ -3079,6 +3079,102 @@ textarea:focus-visible {
   white-space: nowrap;
 }
 
+.course-action-row,
+.academic-period-strip {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: 0.9rem;
+  margin-top: 1rem;
+}
+
+.course-action-row > div {
+  min-width: min(100%, 18rem);
+  flex: 1 1 18rem;
+}
+
+.period-chip {
+  min-height: 54px;
+  display: inline-grid;
+  gap: 0.15rem;
+  padding: 0.7rem 0.9rem;
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.035);
+  color: var(--text);
+  text-align: left;
+  cursor: pointer;
+}
+
+.period-chip span {
+  color: var(--text-soft);
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+}
+
+.period-chip.is-active {
+  border-color: color-mix(in srgb, var(--accent) 46%, var(--border));
+  background: color-mix(in srgb, var(--accent) 12%, rgba(255, 255, 255, 0.05));
+}
+
+.roadmap-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 1rem;
+}
+
+.roadmap-term {
+  min-width: 0;
+  padding: 1rem;
+  border: 1px solid color-mix(in srgb, var(--accent) 30%, var(--border));
+  border-radius: 22px;
+  background:
+    linear-gradient(180deg, color-mix(in srgb, var(--accent) 10%, transparent), transparent 48%),
+    rgba(255, 255, 255, 0.035);
+}
+
+.roadmap-term__head {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.roadmap-term__head span {
+  display: block;
+  color: var(--text-soft);
+  font-size: 0.7rem;
+  font-weight: 800;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.roadmap-term__head strong {
+  display: block;
+  margin-top: 0.2rem;
+  font-family: "Syne", system-ui, sans-serif;
+  font-size: 1.35rem;
+  letter-spacing: -0.05em;
+}
+
+.roadmap-course {
+  width: 100%;
+  display: grid;
+  gap: 0.25rem;
+  padding: 0.75rem;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: rgba(0, 0, 0, 0.16);
+  color: var(--text);
+  text-align: left;
+  cursor: pointer;
+}
+
+.roadmap-course span {
+  color: var(--text-soft);
+  font-size: 0.8rem;
+}
+
 .course-meta,
 .goal-meta,
 .note-meta {
@@ -4980,6 +5076,7 @@ textarea:focus-visible {
   .preference-grid,
   .widget-manager-list,
   .course-detail-stats,
+  .roadmap-grid,
   .setup-list {
     grid-template-columns: 1fr;
   }

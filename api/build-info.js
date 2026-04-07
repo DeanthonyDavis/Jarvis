@@ -1,4 +1,4 @@
-const BUILD_ID = "flow-fix-9";
+const BUILD_ID = "academic-lifecycle-10";
 
 export default function handler(_req, res) {
   res.status(200).json({
@@ -10,6 +10,6 @@ export default function handler(_req, res) {
     repo: process.env.VERCEL_GIT_REPO_SLUG || "",
     deploymentUrl: process.env.VERCEL_URL || "",
     checkedAt: new Date().toISOString(),
-    markers: ["Flow fix v9", "ember-dock", "styles.css?v=flow-fix-9", "app.js?v=flow-fix-9"],
+    markers: ["Academic v10", "ember-dock", "styles.css?v=academic-lifecycle-10", "app.js?v=academic-lifecycle-10"],
   });
 }

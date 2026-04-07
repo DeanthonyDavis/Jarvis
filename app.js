@@ -315,6 +315,21 @@ const HELP_COPY = {
   notebook: ["Sources", "Bring in files, notes, and manual context so Ember has real evidence to work from."],
 };
 
+const COURSE_STATUSES = ["planned", "active", "completed", "dropped", "archived"];
+const DEFAULT_CURRENT_PERIOD_ID = "term-spring-2026";
+const DEFAULT_ACADEMIC_PROFILE = {
+  schoolType: "college",
+  programType: "degree",
+  programName: "Academic path",
+  targetGradDate: "",
+};
+const DEFAULT_ACADEMIC_PERIODS = [
+  { id: "term-fall-2025", name: "Fall 2025", type: "semester", startDate: "2025-08-25", endDate: "2025-12-12", status: "past", schoolName: "Current school" },
+  { id: DEFAULT_CURRENT_PERIOD_ID, name: "Spring 2026", type: "semester", startDate: "2026-01-12", endDate: "2026-05-08", status: "current", schoolName: "Current school" },
+  { id: "term-summer-2026", name: "Summer 2026", type: "summer_session", startDate: "2026-06-01", endDate: "2026-08-07", status: "upcoming", schoolName: "Current school" },
+  { id: "term-fall-2026", name: "Fall 2026", type: "semester", startDate: "2026-08-24", endDate: "2026-12-11", status: "upcoming", schoolName: "Current school" },
+];
+
 const SECTION_IDENTITY = {
   command: {
     eyebrow: "Plan",
@@ -723,6 +738,9 @@ function defaultSnapshot() {
     sidebarCollapsed: false,
     tasks: clone(INITIAL_TASKS),
     courses: clone(COURSES),
+    academicProfile: clone(DEFAULT_ACADEMIC_PROFILE),
+    academicPeriods: clone(DEFAULT_ACADEMIC_PERIODS),
+    activeAcademicPeriodId: DEFAULT_CURRENT_PERIOD_ID,
     schedule: clone(SCHEDULE),
     bills: clone(BILLS),
     budget: clone(DEFAULT_BUDGET),
@@ -785,6 +803,9 @@ function emptyUserSnapshot() {
     ...snapshot,
     tasks: [],
     courses: [],
+    academicProfile: clone(DEFAULT_ACADEMIC_PROFILE),
+    academicPeriods: clone(DEFAULT_ACADEMIC_PERIODS),
+    activeAcademicPeriodId: DEFAULT_CURRENT_PERIOD_ID,
     schedule: [],
     bills: [],
     budget: { income: 0, spent: 0, saved: 0, left: 0 },
@@ -820,6 +841,9 @@ function loadState() {
       sidebarCollapsed: Boolean(saved.sidebarCollapsed),
       tasks: Array.isArray(saved.tasks) ? saved.tasks : defaults.tasks,
       courses: Array.isArray(saved.courses) ? saved.courses : defaults.courses,
+      academicProfile: { ...DEFAULT_ACADEMIC_PROFILE, ...(saved.academicProfile || {}) },
+      academicPeriods: Array.isArray(saved.academicPeriods) ? saved.academicPeriods : defaults.academicPeriods,
+      activeAcademicPeriodId: saved.activeAcademicPeriodId || defaults.activeAcademicPeriodId,
       schedule: Array.isArray(saved.schedule) ? saved.schedule : defaults.schedule,
       bills: Array.isArray(saved.bills) ? saved.bills : defaults.bills,
       budget: { ...defaults.budget, ...(saved.budget || {}) },
@@ -932,8 +956,15 @@ function sanitizeNote(note = {}) {
 }
 
 function sanitizeLoadedStateSnapshot(snapshot) {
+  const academicPeriods = normalizeAcademicPeriods(snapshot.academicPeriods);
   return {
     ...snapshot,
+    academicProfile: { ...DEFAULT_ACADEMIC_PROFILE, ...(snapshot.academicProfile || {}) },
+    academicPeriods,
+    activeAcademicPeriodId: academicPeriods.some((period) => String(period.id) === String(snapshot.activeAcademicPeriodId))
+      ? snapshot.activeAcademicPeriodId
+      : academicPeriods.find((period) => period.status === "current")?.id || academicPeriods[0]?.id || DEFAULT_CURRENT_PERIOD_ID,
+    courses: normalizeCourses(snapshot.courses, academicPeriods),
     notes: Array.isArray(snapshot.notes) ? snapshot.notes.map(sanitizeNote) : [],
     uploadedFiles: Array.isArray(snapshot.uploadedFiles) ? snapshot.uploadedFiles.map(sanitizeSavedUpload) : [],
     syllabusReviews: Array.isArray(snapshot.syllabusReviews) ? snapshot.syllabusReviews.map(sanitizeSyllabusReview) : [],
@@ -982,6 +1013,63 @@ const localId = (prefix) => `${prefix}-${Date.now()}-${Math.random().toString(16
 const normalizedKey = (...parts) => parts.map((part) => String(part || "").trim().toLowerCase().replace(/\s+/g, " ")).join("|");
 const nextNumericTaskId = () => Math.max(0, ...state.tasks.map((task) => Number(task.id) || 0)) + 1;
 const unreadNotifications = () => state.notifications.filter((item) => !item.read_at && !item.dismissed_at && !item.resolved_at);
+
+function normalizeAcademicPeriod(period = {}, index = 0) {
+  const allowedTypes = ["semester", "quarter", "summer_session", "school_year", "custom"];
+  const allowedStatuses = ["past", "current", "upcoming"];
+  return {
+    id: period.id || period.academic_period_id || `term-${index + 1}`,
+    name: safeSavedText(period.name || `Term ${index + 1}`, 80),
+    type: allowedTypes.includes(period.type) ? period.type : "semester",
+    startDate: period.startDate || period.start_date || "",
+    endDate: period.endDate || period.end_date || "",
+    status: allowedStatuses.includes(period.status) ? period.status : index === 0 ? "current" : "upcoming",
+    schoolName: safeSavedText(period.schoolName || period.school_name || "Current school", 120),
+  };
+}
+
+function normalizeAcademicPeriods(periods) {
+  const input = Array.isArray(periods) && periods.length ? periods : DEFAULT_ACADEMIC_PERIODS;
+  const normalized = input.map(normalizeAcademicPeriod);
+  return normalized.some((period) => period.status === "current")
+    ? normalized
+    : normalized.map((period, index) => index === 0 ? { ...period, status: "current" } : period);
+}
+
+function currentAcademicPeriodId(periods = state?.academicPeriods || DEFAULT_ACADEMIC_PERIODS) {
+  const normalized = normalizeAcademicPeriods(periods);
+  return normalized.find((period) => period.status === "current")?.id || normalized[0]?.id || DEFAULT_CURRENT_PERIOD_ID;
+}
+
+function normalizeCourseRecord(course = {}, periods = state?.academicPeriods || DEFAULT_ACADEMIC_PERIODS) {
+  const periodId = course.academicPeriodId || course.academic_period_id || currentAcademicPeriodId(periods);
+  const status = COURSE_STATUSES.includes(course.status) ? course.status : "active";
+  return {
+    ...course,
+    id: course.id ?? localId("course"),
+    name: safeSavedText(course.name || course.title || "Untitled class", 120),
+    code: safeSavedText(course.code || course.course_code || "Manual", 40),
+    academicPeriodId: periodId,
+    credits: Number(course.credits || course.creditHours || course.credit_hours || 3) || 0,
+    status,
+    archivedAt: course.archivedAt || course.archived_at || (status === "archived" ? new Date().toISOString() : null),
+    difficultyEstimate: course.difficultyEstimate || course.difficulty_estimate || "medium",
+  };
+}
+
+function normalizeCourses(courses = state?.courses || [], periods = state?.academicPeriods || DEFAULT_ACADEMIC_PERIODS) {
+  return Array.isArray(courses) ? courses.map((course) => normalizeCourseRecord(course, periods)) : [];
+}
+
+function visibleCourses({ includeArchived = false, periodId = state?.activeAcademicPeriodId } = {}) {
+  const archivedStatuses = new Set(["archived", "dropped", "completed"]);
+  return normalizeCourses(state.courses).filter((course) => {
+    const inPeriod = !periodId || String(course.academicPeriodId) === String(periodId);
+    if (!includeArchived) return inPeriod && !archivedStatuses.has(course.status);
+    return archivedStatuses.has(course.status);
+  });
+}
+
 function scrollAppToTop() {
   requestAnimationFrame(() => {
     doc?.querySelector(".app-shell")?.scrollTo?.({ top: 0, behavior: "auto" });
@@ -1390,7 +1478,10 @@ function saveState() {
       activeDomain: state.activeDomain,
       sidebarCollapsed: state.sidebarCollapsed,
       tasks: state.tasks,
-      courses: state.courses,
+      courses: normalizeCourses(state.courses, state.academicPeriods),
+      academicProfile: state.academicProfile,
+      academicPeriods: normalizeAcademicPeriods(state.academicPeriods),
+      activeAcademicPeriodId: state.activeAcademicPeriodId,
       schedule: state.schedule,
       bills: state.bills,
       budget: state.budget,
@@ -1431,7 +1522,10 @@ function saveState() {
 function userWorkspaceState() {
   return {
     tasks: state.tasks,
-    courses: state.courses,
+    courses: normalizeCourses(state.courses, state.academicPeriods),
+    academicProfile: state.academicProfile,
+    academicPeriods: normalizeAcademicPeriods(state.academicPeriods),
+    activeAcademicPeriodId: state.activeAcademicPeriodId,
     schedule: state.schedule,
     bills: state.bills,
     budget: state.budget,
@@ -1470,7 +1564,12 @@ function userWorkspaceState() {
 function applyWorkspaceState(workspace) {
   const base = emptyUserSnapshot();
   state.tasks = Array.isArray(workspace?.tasks) ? workspace.tasks : base.tasks;
-  state.courses = Array.isArray(workspace?.courses) ? workspace.courses : base.courses;
+  state.academicProfile = { ...DEFAULT_ACADEMIC_PROFILE, ...(workspace?.academicProfile || base.academicProfile || {}) };
+  state.academicPeriods = normalizeAcademicPeriods(workspace?.academicPeriods || base.academicPeriods);
+  state.activeAcademicPeriodId = state.academicPeriods.some((period) => String(period.id) === String(workspace?.activeAcademicPeriodId))
+    ? workspace.activeAcademicPeriodId
+    : currentAcademicPeriodId(state.academicPeriods);
+  state.courses = normalizeCourses(Array.isArray(workspace?.courses) ? workspace.courses : base.courses, state.academicPeriods);
   state.schedule = Array.isArray(workspace?.schedule) ? workspace.schedule : base.schedule;
   state.bills = Array.isArray(workspace?.bills) ? workspace.bills : base.bills;
   state.budget = { ...base.budget, ...(workspace?.budget || {}) };
@@ -2691,6 +2790,18 @@ const MANUAL_ENTRY_CONFIG = {
       { key: "name", label: "Class name", placeholder: "Calculus I", required: true },
     ],
   },
+  academic_period: {
+    eyebrow: "School",
+    title: "Create term",
+    body: "Add a semester, quarter, school year, or custom term for class planning.",
+    submit: "Create term",
+    fields: [
+      { key: "name", label: "Term name", placeholder: "Fall 2026", required: true },
+      { key: "type", label: "Term type", placeholder: "semester" },
+      { key: "startDate", label: "Start date", placeholder: "2026-08-24" },
+      { key: "endDate", label: "End date", placeholder: "2026-12-11" },
+    ],
+  },
   assignment: {
     eyebrow: "School",
     title: "Enter assignment",
@@ -2904,10 +3015,13 @@ async function handleManualEntry(type, values = {}) {
     const code = manualValue(values, "code", "Manual");
     const name = manualValue(values, "name", code || "New class");
     if (!name) return;
-    created = {
+    created = normalizeCourseRecord({
       id: localId("course"),
       name,
       code: code || "Manual",
+      academicPeriodId: state.activeAcademicPeriodId || currentAcademicPeriodId(state.academicPeriods),
+      status: "active",
+      credits: 3,
       grade: null,
       target: null,
       trend: 0,
@@ -2915,11 +3029,28 @@ async function handleManualEntry(type, values = {}) {
       exam: null,
       platform: "Manual entry",
       hist: [],
-    };
+    }, state.academicPeriods);
     state.courses = [created, ...state.courses];
     state.subTabs.academy = "grades";
     notifyTitle = "Class added";
     notifyBody = `${name} is now available in School.`;
+  } else if (type === "academic_period") {
+    const name = manualValue(values, "name", "New term");
+    if (!name) return;
+    created = normalizeAcademicPeriod({
+      id: localId("term"),
+      name,
+      type: manualValue(values, "type", "semester"),
+      startDate: manualValue(values, "startDate", ""),
+      endDate: manualValue(values, "endDate", ""),
+      status: "upcoming",
+      schoolName: "Current school",
+    }, state.academicPeriods.length);
+    state.academicPeriods = [...normalizeAcademicPeriods(state.academicPeriods), created];
+    state.activeAcademicPeriodId = created.id;
+    state.subTabs.academy = "roadmap";
+    notifyTitle = "Term created";
+    notifyBody = `${name} is ready for planned classes and roadmap work.`;
   } else if (type === "assignment" || type === "exam") {
     const activeCourse = state.courses.find((course) => String(course.id) === String(state.activeCourseId));
     const fallbackCourse = activeCourse?.code || activeCourse?.name || state.courses[0]?.code || state.courses[0]?.name || "Manual";
@@ -3522,6 +3653,79 @@ function courseSourceSummary(course) {
   if (course.sourceStatus === "source_removed") return "Syllabus source removed";
   if (course.sourceType === "syllabus_parse" || course.source === "syllabus") return "From syllabus";
   return course.platform || course.plat || "Manual";
+}
+
+function updateCourseLifecycle(courseId, status) {
+  if (!COURSE_STATUSES.includes(status)) return;
+  let changed = null;
+  state.courses = normalizeCourses(state.courses, state.academicPeriods).map((course) => {
+    if (String(course.id) !== String(courseId)) return course;
+    changed = {
+      ...course,
+      status,
+      archivedAt: status === "archived" ? new Date().toISOString() : null,
+    };
+    return changed;
+  });
+  if (!changed) return;
+  if (["archived", "completed", "dropped"].includes(status)) state.activeCourseId = null;
+  saveState();
+  rerender();
+  notifyUser({
+    type: "course_status",
+    title: "Class updated",
+    body: `${changed.name} is now ${status.replace(/_/g, " ")}.`,
+    severity: status === "archived" ? "info" : "success",
+  });
+  logActivity({
+    entityType: "course",
+    entityId: isUuid(changed.id) ? changed.id : null,
+    actionType: `marked_${status}`,
+    afterState: { title: changed.name, status, academicPeriodId: changed.academicPeriodId },
+  });
+}
+
+function moveCourseToPeriod(courseId, periodId) {
+  const period = normalizeAcademicPeriods(state.academicPeriods).find((item) => String(item.id) === String(periodId));
+  if (!period) return;
+  let changed = null;
+  state.courses = normalizeCourses(state.courses, state.academicPeriods).map((course) => {
+    if (String(course.id) !== String(courseId)) return course;
+    changed = { ...course, academicPeriodId: period.id };
+    return changed;
+  });
+  if (!changed) return;
+  saveState();
+  rerender();
+  notifyUser({
+    type: "course_moved",
+    title: "Class moved",
+    body: `${changed.name} moved to ${period.name}.`,
+    severity: "info",
+  });
+}
+
+function deleteCoursePermanently(courseId) {
+  const course = normalizeCourses(state.courses, state.academicPeriods).find((item) => String(item.id) === String(courseId));
+  if (!course) return;
+  const taskCount = state.tasks.filter((task) => courseTaskMatches(course, task)).length;
+  state.courses = state.courses.filter((item) => String(item.id) !== String(courseId));
+  state.tasks = state.tasks.filter((task) => !courseTaskMatches(course, task));
+  state.activeCourseId = null;
+  saveState();
+  rerender();
+  notifyUser({
+    type: "course_deleted",
+    title: "Class deleted",
+    body: `${course.name} and ${taskCount} linked assignment${taskCount === 1 ? "" : "s"} were removed.`,
+    severity: "warning",
+  });
+  logActivity({
+    entityType: "course",
+    entityId: isUuid(course.id) ? course.id : null,
+    actionType: "deleted",
+    beforeState: { title: course.name, taskCount, status: course.status },
+  });
 }
 
 function renderEmberSplashScene() {
@@ -4270,8 +4474,11 @@ function simpleListPanel(title, accent, rows, emptyConfig = null) {
 
 function renderAcademy(intel) {
   const tab = state.subTabs.academy;
+  const periods = normalizeAcademicPeriods(state.academicPeriods);
+  const activePeriod = periods.find((period) => String(period.id) === String(state.activeAcademicPeriodId)) || periods.find((period) => period.status === "current") || periods[0];
   const activeCourse = state.courses.find((course) => String(course.id) === String(state.activeCourseId));
   if (activeCourse) {
+    const course = normalizeCourseRecord(activeCourse, periods);
     const assignments = courseTasks(activeCourse);
     const openTasks = assignments.filter((task) => !task.done);
     const doneTasks = assignments.filter((task) => task.done);
@@ -4281,11 +4488,15 @@ function renderAcademy(intel) {
     const sourceUpload = activeCourse.sourceUploadId
       ? state.uploadedFiles.map(normalizeUpload).find((upload) => String(upload.id) === String(activeCourse.sourceUploadId))
       : null;
+    const periodMoves = periods.map((period) => `<button class="surface-action surface-action--small ${String(course.academicPeriodId) === String(period.id) ? "is-active" : ""}" data-course-move="${escapeHtml(course.id)}" data-period-id="${escapeHtml(period.id)}">${escapeHtml(period.name)}</button>`).join("");
+    const lifecycleActions = course.status === "archived"
+      ? `<button class="primary-action" data-course-status="${escapeHtml(course.id)}" data-status-value="active">Restore</button><button class="surface-action danger-action" data-course-delete="${escapeHtml(course.id)}">Delete permanently</button>`
+      : `<button class="surface-action" data-course-status="${escapeHtml(course.id)}" data-status-value="completed">Complete</button><button class="surface-action" data-course-status="${escapeHtml(course.id)}" data-status-value="dropped">Drop</button><button class="surface-action" data-course-status="${escapeHtml(course.id)}" data-status-value="archived">Archive</button>`;
     const statCards = [
       ["Open", openTasks.length],
       ["Done", doneTasks.length],
       ["Urgent", openTasks.filter((task) => task.urgent).length],
-      ["Source", courseSourceSummary(activeCourse)],
+      ["Status", course.status],
     ].map(([label, value]) => `<div><span>${escapeHtml(label)}</span><strong>${escapeHtml(String(value))}</strong></div>`).join("");
     const openRows = openTasks.map((task) => taskMarkup(task)).join("");
     const doneRows = doneTasks.map((task) => taskMarkup(task)).join("");
@@ -4294,16 +4505,23 @@ function renderAcademy(intel) {
       : activeCourse.sourceStatus === "source_removed"
         ? "The syllabus file was removed. Manual assignments can still be added here."
         : "Manual class or connector-backed class.";
-    return `<section class="section-shell">${heroBand(intel)}<article class="panel course-detail-panel" style="--accent:${activeCourse.color || TOKENS.academy};"><button class="surface-action surface-action--small" data-course-close>&larr; All classes</button><div class="course-detail-hero"><div><div class="panel-label">class workspace</div><h3>${escapeHtml(activeCourse.name)}</h3><p>${escapeHtml(activeCourse.code || "Manual class")} &middot; ${escapeHtml(sourceCopy)}</p></div><button class="primary-action" data-manual-entry="assignment">Add assignment</button></div><div class="course-detail-stats">${statCards}</div></article><div class="dashboard-grid"><article class="panel span-8" style="--accent:${TOKENS.academy};"><div class="panel-label">assignments for this class</div><div class="section-list">${openRows || emptyState({ domain: "academy", title: "No open assignments in this class.", body: "Add one manually, upload a syllabus, or confirm extracted dates from Sources.", primaryLabel: "Add assignment", primaryDomain: "manual:assignment", secondaryLabel: "Upload syllabus", secondaryDomain: "upload", compact: true })}</div></article><article class="panel span-4" style="--accent:${TOKENS.ok};"><div class="panel-label">completed</div><div class="section-list">${doneRows || stateNotice("loading", "Nothing completed yet", "Finished work will collect here for this class.", "academy")}</div></article></div></section>`;
+    return `<section class="section-shell">${heroBand(intel)}<article class="panel course-detail-panel" style="--accent:${course.color || TOKENS.academy};"><button class="surface-action surface-action--small" data-course-close>&larr; All classes</button><div class="course-detail-hero"><div><div class="panel-label">class workspace</div><h3>${escapeHtml(course.name)}</h3><p>${escapeHtml(course.code || "Manual class")} &middot; ${escapeHtml(sourceCopy)}</p></div><button class="primary-action" data-manual-entry="assignment">Add assignment</button></div><div class="course-detail-stats">${statCards}</div><div class="course-action-row"><div><div class="panel-label">lifecycle</div><div class="row-actions">${lifecycleActions}</div></div><div><div class="panel-label">move to term</div><div class="row-actions">${periodMoves}</div></div></div></article><div class="dashboard-grid"><article class="panel span-8" style="--accent:${TOKENS.academy};"><div class="panel-label">assignments for this class</div><div class="section-list">${openRows || emptyState({ domain: "academy", title: "No open assignments in this class.", body: "Add one manually, upload a syllabus, or confirm extracted dates from Sources.", primaryLabel: "Add assignment", primaryDomain: "manual:assignment", secondaryLabel: "Upload syllabus", secondaryDomain: "upload", compact: true })}</div></article><article class="panel span-4" style="--accent:${TOKENS.ok};"><div class="panel-label">completed</div><div class="section-list">${doneRows || stateNotice("loading", "Nothing completed yet", "Finished work will collect here for this class.", "academy")}</div></article></div></section>`;
   }
-  const grades = state.courses.map((course) => {
+  const periodTabs = periods.map((period) => `<button class="period-chip ${String(activePeriod?.id) === String(period.id) ? "is-active" : ""}" data-academic-period="${escapeHtml(period.id)}"><strong>${escapeHtml(period.name)}</strong><span>${escapeHtml(period.status)}</span></button>`).join("");
+  const grades = visibleCourses({ periodId: activePeriod?.id }).map((course) => {
     const hasGrade = course.grade !== null && course.grade !== undefined && course.grade !== "" && course.target !== null && course.target !== undefined && course.target !== "" && Number.isFinite(Number(course.grade)) && Number.isFinite(Number(course.target));
     const count = courseTasks(course).length;
     return `<button class="row course-open-row" data-course-open="${escapeHtml(course.id)}" style="--accent:${course.color || TOKENS.academy};"><div class="row-copy"><div class="row-title">${escapeHtml(course.name)}</div><div class="row-subtitle">${escapeHtml(course.code)} &middot; ${escapeHtml(courseSourceSummary(course))} &middot; ${count} assignment${count === 1 ? "" : "s"}</div></div><strong style="color:${hasGrade && course.grade < course.target ? TOKENS.warn : TOKENS.ok};">${hasGrade ? `${course.grade}%` : "Open"}</strong></button>`;
   }).join("");
   const planner = intel.schedulePlan.filter((item) => item.domain === "academy").map((item) => `<div class="row" style="--accent:${TOKENS.academy};"><div class="row-badge mono">${item.time}</div><div class="row-copy"><div class="row-title">${item.label}</div><div class="row-subtitle">${item.note}</div></div></div>`).join("");
   const courses = state.tasks.filter((task) => task.domain === "academy").map((task) => taskMarkup(task)).join("");
-  return `<section class="section-shell">${heroBand(intel)}<div class="tab-strip" style="--accent:${TOKENS.academy};">${tabButton("academy", "grades", tab, TOKENS.academy, "classes")}${tabButton("academy", "planner", tab, TOKENS.academy, "study plan")}${tabButton("academy", "courses", tab, TOKENS.academy, "deadlines")}</div>${tab === "grades" ? simpleListPanel("classes", TOKENS.academy, grades, { domain: "academy", title: "No classes yet.", body: "Add a class, upload a syllabus, or connect Canvas later. Manual entry should work on day one.", primaryLabel: "Add class", primaryDomain: "manual:course", secondaryLabel: "Upload syllabus", secondaryDomain: "upload", tertiaryLabel: "Connect school", tertiaryDomain: "command" }) : ""}${tab === "planner" ? simpleListPanel("study plan", TOKENS.academy, planner, { domain: "academy", title: "No study plan yet.", body: "Add an assignment or exam manually so Ember can place a real study block.", primaryLabel: "Enter assignment", primaryDomain: "manual:assignment", secondaryLabel: "Add exam", secondaryDomain: "manual:exam", tertiaryLabel: "Upload syllabus", tertiaryDomain: "upload" }) : ""}${tab === "courses" ? simpleListPanel("deadlines", TOKENS.warn, courses, { domain: "academy", title: "No academic deadlines yet.", body: "Deadlines can come from a syllabus, LMS sync, or manual entry.", primaryLabel: "Enter assignment", primaryDomain: "manual:assignment", secondaryLabel: "Add exam", secondaryDomain: "manual:exam", tertiaryLabel: "Upload syllabus", tertiaryDomain: "upload" }) : ""}</section>`;
+  const roadmap = periods.map((period) => {
+    const termCourses = normalizeCourses(state.courses, periods).filter((course) => String(course.academicPeriodId) === String(period.id));
+    const credits = termCourses.reduce((sum, course) => sum + Number(course.credits || 0), 0);
+    return `<article class="roadmap-term ${period.status}" style="--accent:${period.status === "current" ? TOKENS.academy : period.status === "past" ? TOKENS.ok : TOKENS.future};"><div class="roadmap-term__head"><div><span>${escapeHtml(period.type.replace(/_/g, " "))}</span><strong>${escapeHtml(period.name)}</strong></div>${pill(period.status, period.status === "current" ? TOKENS.academy : period.status === "past" ? TOKENS.ok : TOKENS.future)}</div><div class="footer-note">${credits} planned credits &middot; ${termCourses.length} class${termCourses.length === 1 ? "" : "es"}</div><div class="section-list">${termCourses.map((course) => `<button class="roadmap-course" data-course-open="${escapeHtml(course.id)}"><strong>${escapeHtml(course.code)}</strong><span>${escapeHtml(course.name)} &middot; ${escapeHtml(course.status)}</span></button>`).join("") || `<p class="row-subtitle">No classes planned yet.</p>`}</div></article>`;
+  }).join("");
+  const archived = visibleCourses({ includeArchived: true, periodId: null }).map((course) => `<div class="row" style="--accent:${course.status === "completed" ? TOKENS.ok : course.status === "dropped" ? TOKENS.warn : TOKENS.notebook};"><div class="row-copy"><div class="row-title">${escapeHtml(course.name)}</div><div class="row-subtitle">${escapeHtml(course.code)} &middot; ${escapeHtml(course.status)} &middot; ${escapeHtml(periods.find((period) => String(period.id) === String(course.academicPeriodId))?.name || "No term")}</div></div><div class="row-actions"><button class="surface-action surface-action--small" data-course-open="${escapeHtml(course.id)}">Open</button><button class="surface-action surface-action--small" data-course-status="${escapeHtml(course.id)}" data-status-value="active">Restore</button></div></div>`).join("");
+  return `<section class="section-shell">${heroBand(intel)}<div class="academic-period-strip">${periodTabs}<button class="surface-action" data-manual-entry="academic_period">New term</button></div><div class="tab-strip" style="--accent:${TOKENS.academy};">${tabButton("academy", "grades", tab, TOKENS.academy, "classes")}${tabButton("academy", "planner", tab, TOKENS.academy, "study plan")}${tabButton("academy", "courses", tab, TOKENS.academy, "deadlines")}${tabButton("academy", "roadmap", tab, TOKENS.academy, "roadmap")}${tabButton("academy", "archive", tab, TOKENS.academy, "archive")}</div>${tab === "grades" ? simpleListPanel(`${activePeriod?.name || "Current term"} classes`, TOKENS.academy, grades, { domain: "academy", title: "No active classes in this term.", body: "Add a class, upload a syllabus, or select a different semester.", primaryLabel: "Add class", primaryDomain: "manual:course", secondaryLabel: "Upload syllabus", secondaryDomain: "upload", tertiaryLabel: "Connect school", tertiaryDomain: "command" }) : ""}${tab === "planner" ? simpleListPanel("study plan", TOKENS.academy, planner, { domain: "academy", title: "No study plan yet.", body: "Add an assignment or exam manually so Ember can place a real study block.", primaryLabel: "Enter assignment", primaryDomain: "manual:assignment", secondaryLabel: "Add exam", secondaryDomain: "manual:exam", tertiaryLabel: "Upload syllabus", tertiaryDomain: "upload" }) : ""}${tab === "courses" ? simpleListPanel("deadlines", TOKENS.warn, courses, { domain: "academy", title: "No academic deadlines yet.", body: "Deadlines can come from a syllabus, LMS sync, or manual entry.", primaryLabel: "Enter assignment", primaryDomain: "manual:assignment", secondaryLabel: "Add exam", secondaryDomain: "manual:exam", tertiaryLabel: "Upload syllabus", tertiaryDomain: "upload" }) : ""}${tab === "roadmap" ? `<div class="roadmap-grid">${roadmap}</div>` : ""}${tab === "archive" ? simpleListPanel("archived and completed classes", TOKENS.notebook, archived, { domain: "academy", title: "No archived classes yet.", body: "Completed, dropped, and archived classes will live here instead of cluttering the current semester.", primaryLabel: "Add class", primaryDomain: "manual:course", compact: true }) : ""}</section>`;
 }
 
 function renderWorks(intel) {
@@ -4434,6 +4652,10 @@ function renderContentSafely(intel) {
 function renderApp() {
   if (!app) return;
   const safeSnapshot = sanitizeLoadedStateSnapshot(state);
+  state.academicProfile = safeSnapshot.academicProfile;
+  state.academicPeriods = safeSnapshot.academicPeriods;
+  state.activeAcademicPeriodId = safeSnapshot.activeAcademicPeriodId;
+  state.courses = safeSnapshot.courses;
   state.notes = safeSnapshot.notes;
   state.uploadedFiles = safeSnapshot.uploadedFiles;
   state.syllabusReviews = safeSnapshot.syllabusReviews;
@@ -4461,7 +4683,7 @@ function renderApp() {
   const prefs = normalizePreferences(state.preferences);
   const shellClass = `theme-${prefs.theme} density-${prefs.compactMode === "on" ? "compact" : prefs.density} text-${prefs.fontScale} layout-${prefs.layoutProfile} domain-${domain.id}`;
   const contentHtml = renderContentSafely(intel);
-  app.innerHTML = `<div class="app-shell ${shellClass}" style="--accent:${selectedAccent(domain.id)};"><a class="skip-link" href="#main-content">Skip to content</a><div class="ambient"><div class="orb orb--one"></div><div class="orb orb--two"></div><div class="orb orb--three"></div></div><aside class="sidebar ${state.sidebarCollapsed ? "is-collapsed" : ""}"><div class="brand"><div class="brand-mark">${emberLogoMark("Ember")}</div><div class="brand-copy"><h1>Ember</h1><p>Dawn OS</p></div></div><nav class="sidebar-nav" aria-label="Primary sections">${DOMAINS.map((item) => `<button class="nav-button ${state.activeDomain === item.id ? "is-active" : ""}" data-domain="${item.id}" style="--accent:${colorFor(item.id)};" aria-current="${state.activeDomain === item.id ? "page" : "false"}"><span class="nav-icon">${iconSvg(item.id, item.label)}</span><span class="nav-copy"><strong>${item.label}</strong><span>${item.blurb}</span></span></button>`).join("")}</nav><div class="sidebar-footer"><button class="collapse-button" data-collapse-sidebar aria-label="${state.sidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"}"><span>${state.sidebarCollapsed ? "&#9654;" : "&#9664;"}</span><span>${state.sidebarCollapsed ? "Expand" : "Collapse"}</span></button></div></aside><main class="main" id="main-content"><header class="topbar topbar--toolbelt"><div class="topbar-title"><div class="topbar-icon">${emberLogoMark("Ember")}</div><div class="topbar-copy"><div class="topbar-heading-row"><h2>Ember</h2><span class="topbar-mode">${escapeHtml(domain.label)}</span><span class="dawn-os-chip">Flow fix v9</span></div><p>${escapeHtml(domain.blurb)} &middot; ${formatToday()}</p></div></div><div class="topbar-metrics"><button class="mobile-menu-trigger" data-mobile-nav-open aria-label="Open mobile menu"><span>${iconSvg(domain.id, "Mobile menu")}</span><strong>Menu</strong></button><button class="command-trigger" data-command-open aria-label="Open command palette"><span>${iconSvg("command", "Command palette")}</span><strong>Search</strong><kbd>Ctrl K</kbd></button><div class="metric-pill"><span class="metric-dot"></span><span>Load</span><strong data-shell-load>${intel.loadDisplay || `${intel.loadScore}%`}</strong></div><div class="metric-pill"><span class="metric-dot" style="background:${TOKENS.command};"></span><span>Cloud</span><strong data-shell-cloud>${state.cloudSaveStatus}</strong></div><div class="metric-pill"><span class="metric-dot" data-shell-source-dot style="background:${statusTone(state.sourceConfig.lastSyncStatus)};"></span><span>Source</span><strong data-shell-source>${state.sourceConfig.lastSyncStatus}</strong></div><button class="metric-pill metric-button ${unreadNotifications().length ? "has-unread" : ""}" data-notification-toggle type="button" aria-label="Open notification center"><span class="metric-dot" data-shell-notification-dot style="background:${unreadNotifications().length ? TOKENS.warn : TOKENS.ok};"></span><span>Alerts</span><strong data-shell-notifications>${unreadNotifications().length}</strong></button><button class="upgrade-trigger ${subscriptionTier() === "free" ? "" : "is-active"}" data-paywall-open>${subscriptionTier() === "free" ? "Upgrade" : subscriptionTier() === "pro_plus" ? "Pro+" : "Pro"}</button><button class="surface-action" data-domain="command" data-scroll-personalization>Personalize</button><button class="surface-action" data-auth-signout>Sign Out</button><div class="mini-domain-rail" aria-label="Quick sections">${DOMAINS.filter((item) => item.id !== "command").map((item) => `<button class="stat-dot-button ${item.id === state.activeDomain ? "is-active" : ""}" data-domain="${item.id}" style="--dot:${colorFor(item.id)};" title="${item.label}" aria-label="Open ${item.label}"></button>`).join("")}</div></div></header><div class="content">${contentHtml}</div></main>${renderEmberDock()}${renderOnboarding()}${renderSectionHelp()}</div>`;
+  app.innerHTML = `<div class="app-shell ${shellClass}" style="--accent:${selectedAccent(domain.id)};"><a class="skip-link" href="#main-content">Skip to content</a><div class="ambient"><div class="orb orb--one"></div><div class="orb orb--two"></div><div class="orb orb--three"></div></div><aside class="sidebar ${state.sidebarCollapsed ? "is-collapsed" : ""}"><div class="brand"><div class="brand-mark">${emberLogoMark("Ember")}</div><div class="brand-copy"><h1>Ember</h1><p>Dawn OS</p></div></div><nav class="sidebar-nav" aria-label="Primary sections">${DOMAINS.map((item) => `<button class="nav-button ${state.activeDomain === item.id ? "is-active" : ""}" data-domain="${item.id}" style="--accent:${colorFor(item.id)};" aria-current="${state.activeDomain === item.id ? "page" : "false"}"><span class="nav-icon">${iconSvg(item.id, item.label)}</span><span class="nav-copy"><strong>${item.label}</strong><span>${item.blurb}</span></span></button>`).join("")}</nav><div class="sidebar-footer"><button class="collapse-button" data-collapse-sidebar aria-label="${state.sidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"}"><span>${state.sidebarCollapsed ? "&#9654;" : "&#9664;"}</span><span>${state.sidebarCollapsed ? "Expand" : "Collapse"}</span></button></div></aside><main class="main" id="main-content"><header class="topbar topbar--toolbelt"><div class="topbar-title"><div class="topbar-icon">${emberLogoMark("Ember")}</div><div class="topbar-copy"><div class="topbar-heading-row"><h2>Ember</h2><span class="topbar-mode">${escapeHtml(domain.label)}</span><span class="dawn-os-chip">Academic v10</span></div><p>${escapeHtml(domain.blurb)} &middot; ${formatToday()}</p></div></div><div class="topbar-metrics"><button class="mobile-menu-trigger" data-mobile-nav-open aria-label="Open mobile menu"><span>${iconSvg(domain.id, "Mobile menu")}</span><strong>Menu</strong></button><button class="command-trigger" data-command-open aria-label="Open command palette"><span>${iconSvg("command", "Command palette")}</span><strong>Search</strong><kbd>Ctrl K</kbd></button><div class="metric-pill"><span class="metric-dot"></span><span>Load</span><strong data-shell-load>${intel.loadDisplay || `${intel.loadScore}%`}</strong></div><div class="metric-pill"><span class="metric-dot" style="background:${TOKENS.command};"></span><span>Cloud</span><strong data-shell-cloud>${state.cloudSaveStatus}</strong></div><div class="metric-pill"><span class="metric-dot" data-shell-source-dot style="background:${statusTone(state.sourceConfig.lastSyncStatus)};"></span><span>Source</span><strong data-shell-source>${state.sourceConfig.lastSyncStatus}</strong></div><button class="metric-pill metric-button ${unreadNotifications().length ? "has-unread" : ""}" data-notification-toggle type="button" aria-label="Open notification center"><span class="metric-dot" data-shell-notification-dot style="background:${unreadNotifications().length ? TOKENS.warn : TOKENS.ok};"></span><span>Alerts</span><strong data-shell-notifications>${unreadNotifications().length}</strong></button><button class="upgrade-trigger ${subscriptionTier() === "free" ? "" : "is-active"}" data-paywall-open>${subscriptionTier() === "free" ? "Upgrade" : subscriptionTier() === "pro_plus" ? "Pro+" : "Pro"}</button><button class="surface-action" data-domain="command" data-scroll-personalization>Personalize</button><button class="surface-action" data-auth-signout>Sign Out</button><div class="mini-domain-rail" aria-label="Quick sections">${DOMAINS.filter((item) => item.id !== "command").map((item) => `<button class="stat-dot-button ${item.id === state.activeDomain ? "is-active" : ""}" data-domain="${item.id}" style="--dot:${colorFor(item.id)};" title="${item.label}" aria-label="Open ${item.label}"></button>`).join("")}</div></div></header><div class="content">${contentHtml}</div></main>${renderEmberDock()}${renderOnboarding()}${renderSectionHelp()}</div>`;
   state.lastPlanSnapshot = nextPlanSnapshot;
   persistPlanSnapshotOnly();
   renderToast();
@@ -4809,6 +5031,14 @@ doc?.addEventListener("click", async (event) => {
   if (target.closest("[data-widget-reset]")) { resetCommandWidgets(); return; }
   const tab = target.closest("[data-tab-group]");
   if (tab) { state.subTabs[tab.dataset.tabGroup] = tab.dataset.tabValue; rerender(); return; }
+  const academicPeriod = target.closest("[data-academic-period]");
+  if (academicPeriod) {
+    state.activeAcademicPeriodId = academicPeriod.dataset.academicPeriod;
+    state.activeCourseId = null;
+    saveState();
+    rerender();
+    return;
+  }
   const courseOpen = target.closest("[data-course-open]");
   if (courseOpen) {
     state.activeCourseId = courseOpen.dataset.courseOpen;
@@ -4821,6 +5051,21 @@ doc?.addEventListener("click", async (event) => {
     state.activeCourseId = null;
     saveState();
     rerender();
+    return;
+  }
+  const courseStatus = target.closest("[data-course-status]");
+  if (courseStatus) {
+    updateCourseLifecycle(courseStatus.dataset.courseStatus, courseStatus.dataset.statusValue);
+    return;
+  }
+  const courseMove = target.closest("[data-course-move]");
+  if (courseMove) {
+    moveCourseToPeriod(courseMove.dataset.courseMove, courseMove.dataset.periodId);
+    return;
+  }
+  const courseDelete = target.closest("[data-course-delete]");
+  if (courseDelete) {
+    deleteCoursePermanently(courseDelete.dataset.courseDelete);
     return;
   }
   const task = target.closest("[data-task-id]");

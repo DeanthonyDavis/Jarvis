@@ -91,6 +91,88 @@ create table if not exists public.apex_classes (
   updated_at timestamptz not null default now()
 );
 
+alter table public.apex_classes
+add column if not exists academic_period_id uuid,
+add column if not exists credits numeric(5,2) not null default 3,
+add column if not exists status text not null default 'active',
+add column if not exists difficulty_estimate text not null default 'medium',
+add column if not exists archived_at timestamptz,
+add column if not exists source_upload_id uuid,
+add column if not exists source_review_id uuid;
+
+alter table public.apex_classes
+drop constraint if exists apex_classes_status_check;
+alter table public.apex_classes
+add constraint apex_classes_status_check
+check (status in ('planned', 'active', 'completed', 'dropped', 'archived'));
+
+create table if not exists public.apex_academic_periods (
+  id uuid primary key default gen_random_uuid(),
+  workspace_id uuid not null references public.apex_workspaces(id) on delete cascade,
+  name text not null,
+  period_type text not null default 'semester' check (period_type in ('semester', 'quarter', 'summer_session', 'school_year', 'custom')),
+  start_date date,
+  end_date date,
+  status text not null default 'upcoming' check (status in ('past', 'current', 'upcoming')),
+  school_name text,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  check (end_date is null or start_date is null or end_date >= start_date)
+);
+
+create table if not exists public.apex_programs (
+  id uuid primary key default gen_random_uuid(),
+  workspace_id uuid not null references public.apex_workspaces(id) on delete cascade,
+  name text not null,
+  institution text,
+  program_type text not null default 'degree' check (program_type in ('degree', 'diploma', 'certificate', 'transfer_path', 'graduation_path')),
+  total_credits_required numeric(6,2),
+  target_grad_date date,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+create table if not exists public.apex_requirement_groups (
+  id uuid primary key default gen_random_uuid(),
+  program_id uuid not null references public.apex_programs(id) on delete cascade,
+  name text not null,
+  min_credits numeric(6,2),
+  rule_type text not null default 'all' check (rule_type in ('all', 'choose_one', 'min_credits', 'category')),
+  display_order integer not null default 0,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+create table if not exists public.apex_requirements (
+  id uuid primary key default gen_random_uuid(),
+  requirement_group_id uuid not null references public.apex_requirement_groups(id) on delete cascade,
+  title text not null,
+  requirement_type text not null default 'course' check (requirement_type in ('course', 'option', 'credit_minimum', 'category', 'milestone')),
+  course_code text,
+  min_credits numeric(6,2),
+  option_group_key text,
+  prerequisite_rule jsonb not null default '{}'::jsonb,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+create table if not exists public.apex_roadmap_items (
+  id uuid primary key default gen_random_uuid(),
+  workspace_id uuid not null references public.apex_workspaces(id) on delete cascade,
+  class_id uuid references public.apex_classes(id) on delete cascade,
+  planned_period_id uuid references public.apex_academic_periods(id) on delete set null,
+  locked boolean not null default false,
+  notes text,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+alter table public.apex_classes
+drop constraint if exists apex_classes_academic_period_id_fkey;
+alter table public.apex_classes
+add constraint apex_classes_academic_period_id_fkey
+foreign key (academic_period_id) references public.apex_academic_periods(id) on delete set null;
+
 create table if not exists public.apex_assignments (
   id uuid primary key default gen_random_uuid(),
   workspace_id uuid not null references public.apex_workspaces(id) on delete cascade,
@@ -598,7 +680,9 @@ create table if not exists public.apex_constraint_rules (
 create index if not exists apex_workspaces_owner_user_id_idx on public.apex_workspaces (owner_user_id);
 create index if not exists apex_workspace_members_user_id_idx on public.apex_workspace_members (user_id);
 create index if not exists apex_subscriptions_user_status_idx on public.apex_subscriptions (user_id, status, current_period_end desc);
+create index if not exists apex_academic_periods_workspace_status_idx on public.apex_academic_periods (workspace_id, status, start_date);
 create index if not exists apex_classes_workspace_id_idx on public.apex_classes (workspace_id);
+create index if not exists apex_classes_workspace_period_status_idx on public.apex_classes (workspace_id, academic_period_id, status);
 create index if not exists apex_assignments_workspace_due_idx on public.apex_assignments (workspace_id, due_at);
 create index if not exists apex_assignments_class_id_idx on public.apex_assignments (class_id);
 create index if not exists apex_syllabi_workspace_id_idx on public.apex_syllabi (workspace_id);
@@ -642,11 +726,16 @@ create index if not exists apex_ember_memory_user_key_idx on public.apex_ember_m
 create index if not exists apex_ember_notification_events_user_key_idx on public.apex_ember_notification_events (user_id, event_key, sent_at desc);
 create index if not exists apex_activity_log_workspace_created_idx on public.apex_activity_log (workspace_id, created_at desc);
 create index if not exists apex_constraint_rules_workspace_idx on public.apex_constraint_rules (workspace_id, rule_type, enabled);
+create index if not exists apex_programs_workspace_idx on public.apex_programs (workspace_id);
+create index if not exists apex_requirement_groups_program_idx on public.apex_requirement_groups (program_id, display_order);
+create index if not exists apex_requirements_group_idx on public.apex_requirements (requirement_group_id, option_group_key);
+create index if not exists apex_roadmap_items_workspace_period_idx on public.apex_roadmap_items (workspace_id, planned_period_id);
 
 alter table public.apex_workspaces enable row level security;
 alter table public.apex_workspace_members enable row level security;
 alter table public.apex_user_profiles enable row level security;
 alter table public.apex_subscriptions enable row level security;
+alter table public.apex_academic_periods enable row level security;
 alter table public.apex_classes enable row level security;
 alter table public.apex_assignments enable row level security;
 alter table public.apex_syllabi enable row level security;
@@ -679,6 +768,10 @@ alter table public.apex_ember_notification_events enable row level security;
 alter table public.apex_activity_log enable row level security;
 alter table public.apex_scheduler_preferences enable row level security;
 alter table public.apex_constraint_rules enable row level security;
+alter table public.apex_programs enable row level security;
+alter table public.apex_requirement_groups enable row level security;
+alter table public.apex_requirements enable row level security;
+alter table public.apex_roadmap_items enable row level security;
 
 drop policy if exists "Workspace owners and members can manage workspaces" on public.apex_workspaces;
 create policy "Workspace owners and members can manage workspaces"
@@ -702,6 +795,36 @@ drop policy if exists "Users can manage own subscription" on public.apex_subscri
 create policy "Users can manage own subscription" on public.apex_subscriptions for all to authenticated using (user_id = (select auth.uid())) with check (user_id = (select auth.uid()));
 drop policy if exists "Members can manage classes" on public.apex_classes;
 create policy "Members can manage classes" on public.apex_classes for all to authenticated using ((select public.apex_is_workspace_member(workspace_id))) with check ((select public.apex_is_workspace_member(workspace_id)));
+drop policy if exists "Members can manage academic periods" on public.apex_academic_periods;
+create policy "Members can manage academic periods" on public.apex_academic_periods for all to authenticated using ((select public.apex_is_workspace_member(workspace_id))) with check ((select public.apex_is_workspace_member(workspace_id)));
+drop policy if exists "Members can manage programs" on public.apex_programs;
+create policy "Members can manage programs" on public.apex_programs for all to authenticated using ((select public.apex_is_workspace_member(workspace_id))) with check ((select public.apex_is_workspace_member(workspace_id)));
+drop policy if exists "Members can manage requirement groups" on public.apex_requirement_groups;
+create policy "Members can manage requirement groups" on public.apex_requirement_groups for all to authenticated using (
+  exists (select 1 from public.apex_programs program where program.id = program_id and (select public.apex_is_workspace_member(program.workspace_id)))
+) with check (
+  exists (select 1 from public.apex_programs program where program.id = program_id and (select public.apex_is_workspace_member(program.workspace_id)))
+);
+drop policy if exists "Members can manage requirements" on public.apex_requirements;
+create policy "Members can manage requirements" on public.apex_requirements for all to authenticated using (
+  exists (
+    select 1
+    from public.apex_requirement_groups group_row
+    join public.apex_programs program on program.id = group_row.program_id
+    where group_row.id = requirement_group_id
+      and (select public.apex_is_workspace_member(program.workspace_id))
+  )
+) with check (
+  exists (
+    select 1
+    from public.apex_requirement_groups group_row
+    join public.apex_programs program on program.id = group_row.program_id
+    where group_row.id = requirement_group_id
+      and (select public.apex_is_workspace_member(program.workspace_id))
+  )
+);
+drop policy if exists "Members can manage roadmap items" on public.apex_roadmap_items;
+create policy "Members can manage roadmap items" on public.apex_roadmap_items for all to authenticated using ((select public.apex_is_workspace_member(workspace_id))) with check ((select public.apex_is_workspace_member(workspace_id)));
 drop policy if exists "Members can manage assignments" on public.apex_assignments;
 create policy "Members can manage assignments" on public.apex_assignments for all to authenticated using ((select public.apex_is_workspace_member(workspace_id))) with check ((select public.apex_is_workspace_member(workspace_id)));
 drop policy if exists "Members can manage syllabi" on public.apex_syllabi;
