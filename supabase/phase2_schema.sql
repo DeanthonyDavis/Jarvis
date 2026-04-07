@@ -484,6 +484,85 @@ create table if not exists public.apex_notification_preferences (
   primary key (workspace_id, user_id, channel)
 );
 
+create table if not exists public.apex_user_check_ins (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null references auth.users(id) on delete cascade,
+  workspace_id uuid references public.apex_workspaces(id) on delete cascade,
+  mood_score int not null check (mood_score between 1 and 5),
+  energy_score int not null check (energy_score between 1 and 5),
+  stress_score int check (stress_score between 1 and 5),
+  note text,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+create table if not exists public.apex_ember_states (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null references auth.users(id) on delete cascade,
+  workspace_id uuid references public.apex_workspaces(id) on delete cascade,
+  state_key text not null check (state_key in ('burnout_risk', 'overload_week', 'urgent_deadline', 'avoidance_pattern', 'momentum_streak', 'missed_task', 'grade_risk', 'conflict_day', 'steady')),
+  severity text not null check (severity in ('low', 'medium', 'high')),
+  context jsonb not null default '{}'::jsonb,
+  is_active boolean not null default true,
+  detected_at timestamptz not null default now(),
+  resolved_at timestamptz,
+  updated_at timestamptz not null default now()
+);
+
+create table if not exists public.apex_ember_actions (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null references auth.users(id) on delete cascade,
+  workspace_id uuid references public.apex_workspaces(id) on delete cascade,
+  state_id uuid references public.apex_ember_states(id) on delete set null,
+  action_type text not null check (action_type in ('move_schedule_block', 'create_study_block', 'flag_deadline', 'suppress_notification', 'suggest_plan', 'protect_recovery_time', 'pin_assignment')),
+  target_type text,
+  target_id uuid,
+  action_payload jsonb not null default '{}'::jsonb,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+create table if not exists public.apex_ember_messages (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null references auth.users(id) on delete cascade,
+  workspace_id uuid references public.apex_workspaces(id) on delete cascade,
+  state_id uuid references public.apex_ember_states(id) on delete set null,
+  surface text not null check (surface in ('dashboard', 'planner', 'push', 'email_digest', 'upload_review', 'conflict_modal', 'notification', 'check_in')),
+  message_type text not null default 'guidance',
+  title text,
+  body text not null,
+  cta_label text,
+  cta_action jsonb,
+  metadata jsonb not null default '{}'::jsonb,
+  delivered_at timestamptz,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+create table if not exists public.apex_ember_memory (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null references auth.users(id) on delete cascade,
+  workspace_id uuid references public.apex_workspaces(id) on delete cascade,
+  memory_key text not null,
+  memory_value jsonb not null,
+  confidence numeric(4,3) not null default 1.000,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  unique (user_id, memory_key)
+);
+
+create table if not exists public.apex_ember_notification_events (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null references auth.users(id) on delete cascade,
+  workspace_id uuid references public.apex_workspaces(id) on delete cascade,
+  message_id uuid references public.apex_ember_messages(id) on delete set null,
+  channel text not null check (channel in ('push', 'email', 'in_app')),
+  event_key text not null,
+  sent_at timestamptz not null default now(),
+  status text not null default 'sent',
+  metadata jsonb not null default '{}'::jsonb
+);
+
 create table if not exists public.apex_activity_log (
   id uuid primary key default gen_random_uuid(),
   workspace_id uuid not null references public.apex_workspaces(id) on delete cascade,
@@ -555,6 +634,12 @@ create index if not exists apex_notifications_user_unread_idx on public.apex_not
 create index if not exists apex_notifications_workspace_idx on public.apex_notifications (workspace_id, created_at desc);
 create index if not exists apex_notification_events_notification_id_idx on public.apex_notification_events (notification_id);
 create index if not exists apex_notification_preferences_user_idx on public.apex_notification_preferences (user_id);
+create index if not exists apex_user_check_ins_user_created_idx on public.apex_user_check_ins (user_id, created_at desc);
+create index if not exists apex_ember_states_user_active_idx on public.apex_ember_states (user_id, is_active, severity, detected_at desc);
+create index if not exists apex_ember_actions_user_created_idx on public.apex_ember_actions (user_id, created_at desc);
+create index if not exists apex_ember_messages_user_surface_idx on public.apex_ember_messages (user_id, surface, created_at desc);
+create index if not exists apex_ember_memory_user_key_idx on public.apex_ember_memory (user_id, memory_key);
+create index if not exists apex_ember_notification_events_user_key_idx on public.apex_ember_notification_events (user_id, event_key, sent_at desc);
 create index if not exists apex_activity_log_workspace_created_idx on public.apex_activity_log (workspace_id, created_at desc);
 create index if not exists apex_constraint_rules_workspace_idx on public.apex_constraint_rules (workspace_id, rule_type, enabled);
 
@@ -585,6 +670,12 @@ alter table public.apex_feature_usage enable row level security;
 alter table public.apex_notifications enable row level security;
 alter table public.apex_notification_events enable row level security;
 alter table public.apex_notification_preferences enable row level security;
+alter table public.apex_user_check_ins enable row level security;
+alter table public.apex_ember_states enable row level security;
+alter table public.apex_ember_actions enable row level security;
+alter table public.apex_ember_messages enable row level security;
+alter table public.apex_ember_memory enable row level security;
+alter table public.apex_ember_notification_events enable row level security;
 alter table public.apex_activity_log enable row level security;
 alter table public.apex_scheduler_preferences enable row level security;
 alter table public.apex_constraint_rules enable row level security;
@@ -655,6 +746,18 @@ drop policy if exists "Members can manage notification events" on public.apex_no
 create policy "Members can manage notification events" on public.apex_notification_events for all to authenticated using ((select public.apex_is_workspace_member(workspace_id))) with check ((select public.apex_is_workspace_member(workspace_id)));
 drop policy if exists "Users can manage notification preferences" on public.apex_notification_preferences;
 create policy "Users can manage notification preferences" on public.apex_notification_preferences for all to authenticated using (user_id = (select auth.uid()) and (select public.apex_is_workspace_member(workspace_id))) with check (user_id = (select auth.uid()) and (select public.apex_is_workspace_member(workspace_id)));
+drop policy if exists "Users can manage check ins" on public.apex_user_check_ins;
+create policy "Users can manage check ins" on public.apex_user_check_ins for all to authenticated using (user_id = (select auth.uid()) and (workspace_id is null or (select public.apex_is_workspace_member(workspace_id)))) with check (user_id = (select auth.uid()) and (workspace_id is null or (select public.apex_is_workspace_member(workspace_id))));
+drop policy if exists "Users can manage Ember states" on public.apex_ember_states;
+create policy "Users can manage Ember states" on public.apex_ember_states for all to authenticated using (user_id = (select auth.uid()) and (workspace_id is null or (select public.apex_is_workspace_member(workspace_id)))) with check (user_id = (select auth.uid()) and (workspace_id is null or (select public.apex_is_workspace_member(workspace_id))));
+drop policy if exists "Users can manage Ember actions" on public.apex_ember_actions;
+create policy "Users can manage Ember actions" on public.apex_ember_actions for all to authenticated using (user_id = (select auth.uid()) and (workspace_id is null or (select public.apex_is_workspace_member(workspace_id)))) with check (user_id = (select auth.uid()) and (workspace_id is null or (select public.apex_is_workspace_member(workspace_id))));
+drop policy if exists "Users can manage Ember messages" on public.apex_ember_messages;
+create policy "Users can manage Ember messages" on public.apex_ember_messages for all to authenticated using (user_id = (select auth.uid()) and (workspace_id is null or (select public.apex_is_workspace_member(workspace_id)))) with check (user_id = (select auth.uid()) and (workspace_id is null or (select public.apex_is_workspace_member(workspace_id))));
+drop policy if exists "Users can manage Ember memory" on public.apex_ember_memory;
+create policy "Users can manage Ember memory" on public.apex_ember_memory for all to authenticated using (user_id = (select auth.uid()) and (workspace_id is null or (select public.apex_is_workspace_member(workspace_id)))) with check (user_id = (select auth.uid()) and (workspace_id is null or (select public.apex_is_workspace_member(workspace_id))));
+drop policy if exists "Users can manage Ember notification events" on public.apex_ember_notification_events;
+create policy "Users can manage Ember notification events" on public.apex_ember_notification_events for all to authenticated using (user_id = (select auth.uid()) and (workspace_id is null or (select public.apex_is_workspace_member(workspace_id)))) with check (user_id = (select auth.uid()) and (workspace_id is null or (select public.apex_is_workspace_member(workspace_id))));
 drop policy if exists "Members can read activity log" on public.apex_activity_log;
 create policy "Members can read activity log" on public.apex_activity_log for select to authenticated using ((select public.apex_is_workspace_member(workspace_id)));
 drop policy if exists "Members can insert activity log" on public.apex_activity_log;
@@ -676,6 +779,8 @@ begin
     'apex_shift_pay_records', 'apex_notebooks', 'apex_notes', 'apex_uploads',
     'apex_extracted_items', 'apex_course_events', 'apex_calendar_event_links',
     'apex_integrations', 'apex_feature_usage', 'apex_notification_preferences',
+    'apex_user_check_ins', 'apex_ember_states', 'apex_ember_actions',
+    'apex_ember_messages', 'apex_ember_memory',
     'apex_scheduler_preferences', 'apex_constraint_rules'
   ]
   loop

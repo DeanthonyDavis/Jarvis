@@ -19,6 +19,7 @@ This file defines the current product UI rules so new screens feel intentional i
 - Alerts: use `.state-notice` for inline success, error, and loading states. Toasts should mirror real records, not act as source of truth.
 - Empty states: use `.empty-state` whenever a section has no real user data. Always include what is missing and the next useful action.
 - Section identity: every primary section needs a distinct job, main metric, primary action, and empty-state path. Plan combines domains; School, Work, Money, Path, Recovery, and Sources should feel like separate tools.
+- Ember surfaces: treat Ember as a persistent guidance layer, not a chatbot page. Use the home card for the emotional center, the planner rail for schedule coaching, upload guidance for cautious parsing review, and check-ins as context for planning.
 - Manual entry: never hide manual entry behind connector setup. If a section can import or connect, it should also offer a side-by-side manual action.
 - Loading states: use `.skeleton-line` when a future fetch needs a visible placeholder instead of a blank surface.
 - Preferences: use `.preference-chip` inside `.preference-grid`; chips should use `aria-pressed` when selectable.
@@ -49,6 +50,7 @@ This file defines the current product UI rules so new screens feel intentional i
 - Money: empty safe-to-spend, next bills, and life admin states with manual bill/income/target options.
 - Money MVP: safe-to-spend should lead, followed by manual accounts, transactions, recurring bills/subscriptions, income/paydays, and savings goals. Bank linking is an enhancement, not a gate.
 - Upgrade moments: never paywall signup. Use the Ember paywall only when intent is clear: syllabus parsing, LMS sync, automatic weekly planning, conflict fixing, or upload limits. Always show a manual/free alternative beside the upgrade action.
+- Ember Phase 1: dashboard home-base card, planner take panel, upload review guidance, and check-in copy are live. Backend tables for states/actions/messages/memory exist in the Phase 2 schema, but scheduled scans, durable planner moves, and real push delivery are later phases.
 - Path: empty goals and milestones with manual goal/note options.
 - Recovery: empty recovery signal and insight states with check-in/rest-block options.
 - Sources: empty notes, uploads, and syllabus review queue with upload and manual-source options.

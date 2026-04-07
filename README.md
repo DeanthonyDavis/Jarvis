@@ -74,6 +74,7 @@ You can still open `index.html` directly for a static-only pass, but the local s
 - First-class manual entry across the app: add classes, assignments, exams, shifts, work tasks, bills, income, weekly targets, goals, notes, sources, rest blocks, and time blocks without requiring an integration
 - Rocket Money-style Money foundation: manual accounts, transactions, subscriptions, recurring bills, income/paydays, savings goals, and safe-to-spend math before Plaid exists
 - High-intent upgrade flow: an in-app Ember paywall appears for syllabus parsing, LMS sync, auto-planning, conflict fixing, and upload-limit moments instead of interrupting signup
+- Ember interaction layer foundation with a home-base dashboard card, planner take panel, upload review guidance, daily check-in copy, local state detection, and schema tables for future persisted Ember states/messages/actions/memory
 - Design-system primitives for icon sizing, spacing, typography, cards, form states, inline notices, loading placeholders, and empty states
 - Empty states across Plan, School, Work, Money, Path, Recovery, and Sources so missing data feels intentional
 - Personalization controls for theme, density, font scale, accent profile, and layout profile
@@ -134,6 +135,8 @@ For local testing, copy `.env.example` to `.env` and fill in the same Supabase v
 The Money schema is additive and manual-first: it extends financial accounts and transactions, then adds recurring finance items, savings goals, and shift pay records. The current app still stores Money records in the workspace compatibility blob, but the tables are ready for Plaid/payroll/schedule sync.
 
 The access schema is additive too: `apex_user_profiles`, `apex_subscriptions`, and `apex_feature_usage` support Free, Pro monthly/yearly, Pro+, and Semester Pass states. The current client uses a local beta upgrade simulation; connect Stripe or another billing provider before charging real users.
+
+The Ember schema is additive: `apex_user_check_ins`, `apex_ember_states`, `apex_ember_actions`, `apex_ember_messages`, `apex_ember_memory`, and `apex_ember_notification_events` prepare the backend for persisted state detection, action tracking, dashboard/planner/upload messages, long-term pattern memory, and notification guardrails. The current client uses a local Phase 1 engine in `ember-engine.js`; Edge Function scans, real push delivery, and durable planner actions are still future work.
 
 Run it only after `supabase/schema.sql`. The app still uses `apex_user_state` as its compatibility layer until the UI and API are migrated table-by-table. If this file has been run, Ember will create/read a real workspace row and use `apex_notifications` for notification records, `apex_integrations` plus `apex_integration_events` for connector lifecycle state and logs, `apex_activity_log` for audit records, `apex_notes` for Notebook notes, `apex_uploads` for upload metadata, and `apex_syllabi` for syllabus review state. If it has not been run yet, notifications, connector status, connector events, activity, notes, uploads, and syllabus reviews fall back to local workspace state.
 
