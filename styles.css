@@ -3175,6 +3175,14 @@ textarea:focus-visible {
   font-size: 0.8rem;
 }
 
+.degree-progress-panel h3 {
+  margin: 0 0 1rem;
+  font-family: "Syne", system-ui, sans-serif;
+  font-size: clamp(1.5rem, 4vw, 2.4rem);
+  letter-spacing: -0.06em;
+  line-height: 1;
+}
+
 .course-meta,
 .goal-meta,
 .note-meta {
