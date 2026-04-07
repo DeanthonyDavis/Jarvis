@@ -47,6 +47,7 @@ This file defines the current product UI rules so new screens feel intentional i
 - School: empty classes, study plan, and academic deadlines, each with add/upload/connect options.
 - Work / Shift Board: empty shifts, work tasks, and career pipeline, each with manual shift/task options.
 - Money: empty safe-to-spend, next bills, and life admin states with manual bill/income/target options.
+- Money MVP: safe-to-spend should lead, followed by manual accounts, transactions, recurring bills/subscriptions, income/paydays, and savings goals. Bank linking is an enhancement, not a gate.
 - Path: empty goals and milestones with manual goal/note options.
 - Recovery: empty recovery signal and insight states with check-in/rest-block options.
 - Sources: empty notes, uploads, and syllabus review queue with upload and manual-source options.

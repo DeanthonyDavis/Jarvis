@@ -1010,6 +1010,66 @@ textarea:focus-visible {
   background: linear-gradient(90deg, var(--accent), color-mix(in srgb, var(--accent) 52%, white 16%));
 }
 
+.money-summary {
+  display: grid;
+  gap: 1rem;
+}
+
+.money-safe {
+  padding: 1.1rem;
+  border: 1px solid color-mix(in srgb, var(--accent) 28%, var(--border));
+  border-radius: 22px;
+  background:
+    linear-gradient(135deg, color-mix(in srgb, var(--accent) 14%, transparent), transparent 62%),
+    rgba(255, 255, 255, 0.045);
+}
+
+.money-safe span,
+.money-summary-grid span {
+  display: block;
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--text-soft);
+}
+
+.money-safe strong {
+  display: block;
+  margin: 0.25rem 0;
+  font-family: "Syne", system-ui, sans-serif;
+  font-size: clamp(2.4rem, 10vw, 4.4rem);
+  line-height: 0.9;
+  letter-spacing: -0.08em;
+  color: var(--accent);
+}
+
+.money-safe small {
+  color: var(--text-muted);
+  line-height: 1.5;
+}
+
+.money-summary-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 0.7rem;
+}
+
+.money-summary-grid div {
+  min-width: 0;
+  padding: 0.85rem;
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.035);
+}
+
+.money-summary-grid strong {
+  display: block;
+  margin-top: 0.35rem;
+  font-family: "Syne", system-ui, sans-serif;
+  font-size: 1.25rem;
+}
+
 .spark-bars {
   display: flex;
   align-items: end;
@@ -3726,6 +3786,7 @@ textarea:focus-visible {
   .mode-preview-grid,
   .review-grid,
   .upload-sheet__stats,
+  .money-summary-grid,
   .toggle-grid--wide,
   .why-plan-layout,
   .plan-change-card,

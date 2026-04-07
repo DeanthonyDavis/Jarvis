@@ -72,6 +72,7 @@ You can still open `index.html` directly for a static-only pass, but the local s
 - Outcome-focused onboarding with setup-state progress, completion feedback, unlocked value, and missing next steps
 - Section-specific page identity for Plan, School, Work, Money, Path, Recovery, and Sources, with different purpose copy, primary metrics, and default actions
 - First-class manual entry across the app: add classes, assignments, exams, shifts, work tasks, bills, income, weekly targets, goals, notes, sources, rest blocks, and time blocks without requiring an integration
+- Rocket Money-style Money foundation: manual accounts, transactions, subscriptions, recurring bills, income/paydays, savings goals, and safe-to-spend math before Plaid exists
 - Design-system primitives for icon sizing, spacing, typography, cards, form states, inline notices, loading placeholders, and empty states
 - Empty states across Plan, School, Work, Money, Path, Recovery, and Sources so missing data feels intentional
 - Personalization controls for theme, density, font scale, accent profile, and layout profile
@@ -128,6 +129,8 @@ For local testing, copy `.env.example` to `.env` and fill in the same Supabase v
 ### Phase 2 Schema
 
 `supabase/phase2_schema.sql` adds the normalized production-model foundation without removing the current workspace blob. It creates workspace membership, classes, assignments, syllabi, tasks, calendar events, finance records, notebooks, uploads, parser evidence tables, integrations, notifications, activity logs, scheduler preferences, and constraint rules with RLS policies and supporting indexes.
+
+The Money schema is additive and manual-first: it extends financial accounts and transactions, then adds recurring finance items, savings goals, and shift pay records. The current app still stores Money records in the workspace compatibility blob, but the tables are ready for Plaid/payroll/schedule sync.
 
 Run it only after `supabase/schema.sql`. The app still uses `apex_user_state` as its compatibility layer until the UI and API are migrated table-by-table. If this file has been run, Ember will create/read a real workspace row and use `apex_notifications` for notification records, `apex_integrations` plus `apex_integration_events` for connector lifecycle state and logs, `apex_activity_log` for audit records, `apex_notes` for Notebook notes, `apex_uploads` for upload metadata, and `apex_syllabi` for syllabus review state. If it has not been run yet, notifications, connector status, connector events, activity, notes, uploads, and syllabus reviews fall back to local workspace state.
 

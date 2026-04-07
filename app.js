@@ -269,8 +269,8 @@ const SECTION_IDENTITY = {
     eyebrow: "Money",
     title: "Know what is coming in, going out, and safe to spend.",
     body: "Add bills and income manually first. Connect finance later only if you want to.",
-    actions: [["Add bill", "manual:bill"], ["Add income", "manual:income"], ["Set weekly target", "manual:budget"]],
-    stats: ["Cash view", "Bills", "Income", "Buffer"],
+    actions: [["Add transaction", "manual:transaction"], ["Add bill", "manual:bill"], ["Add account", "manual:account"]],
+    stats: ["Safe", "Recurring", "Income", "Goals"],
   },
   future: {
     eyebrow: "Path",
@@ -517,6 +517,7 @@ function defaultSnapshot() {
     bills: clone(BILLS),
     budget: clone(DEFAULT_BUDGET),
     paychecks: clone(DEFAULT_PAYCHECKS),
+    finance: { accounts: [], transactions: [], subscriptions: [], savingsGoals: [] },
     constraints: clone(DEFAULT_CONSTRAINTS),
     scheduleMode: "balanced",
     sourceConfig: {
@@ -573,6 +574,7 @@ function emptyUserSnapshot() {
     bills: [],
     budget: { income: 0, spent: 0, saved: 0, left: 0 },
     paychecks: [],
+    finance: { accounts: [], transactions: [], subscriptions: [], savingsGoals: [] },
     noteSearch: "",
     activeNoteId: null,
     notes: [],
@@ -605,6 +607,12 @@ function loadState() {
       bills: Array.isArray(saved.bills) ? saved.bills : defaults.bills,
       budget: { ...defaults.budget, ...(saved.budget || {}) },
       paychecks: Array.isArray(saved.paychecks) ? saved.paychecks : defaults.paychecks,
+      finance: {
+        accounts: Array.isArray(saved.finance?.accounts) ? saved.finance.accounts : [],
+        transactions: Array.isArray(saved.finance?.transactions) ? saved.finance.transactions : [],
+        subscriptions: Array.isArray(saved.finance?.subscriptions) ? saved.finance.subscriptions : [],
+        savingsGoals: Array.isArray(saved.finance?.savingsGoals) ? saved.finance.savingsGoals : [],
+      },
       constraints: normalizeConstraints(saved.constraints),
       scheduleMode: SCHEDULE_MODES[saved.scheduleMode] ? saved.scheduleMode : defaults.scheduleMode,
       sourceConfig: { ...defaults.sourceConfig, ...(saved.sourceConfig || {}) },
@@ -972,6 +980,7 @@ function saveState() {
       bills: state.bills,
       budget: state.budget,
       paychecks: state.paychecks,
+      finance: state.finance,
       constraints: state.constraints,
       scheduleMode: state.scheduleMode,
       sourceConfig: state.sourceConfig,
@@ -1007,6 +1016,7 @@ function userWorkspaceState() {
     bills: state.bills,
     budget: state.budget,
     paychecks: state.paychecks,
+    finance: state.finance,
     constraints: state.constraints,
     scheduleMode: state.scheduleMode,
     sourceConfig: state.sourceConfig,
@@ -1040,6 +1050,12 @@ function applyWorkspaceState(workspace) {
   state.bills = Array.isArray(workspace?.bills) ? workspace.bills : base.bills;
   state.budget = { ...base.budget, ...(workspace?.budget || {}) };
   state.paychecks = Array.isArray(workspace?.paychecks) ? workspace.paychecks : base.paychecks;
+  state.finance = {
+    accounts: Array.isArray(workspace?.finance?.accounts) ? workspace.finance.accounts : base.finance.accounts,
+    transactions: Array.isArray(workspace?.finance?.transactions) ? workspace.finance.transactions : base.finance.transactions,
+    subscriptions: Array.isArray(workspace?.finance?.subscriptions) ? workspace.finance.subscriptions : base.finance.subscriptions,
+    savingsGoals: Array.isArray(workspace?.finance?.savingsGoals) ? workspace.finance.savingsGoals : base.finance.savingsGoals,
+  };
   state.constraints = normalizeConstraints(workspace?.constraints || base.constraints);
   state.scheduleMode = SCHEDULE_MODES[workspace?.scheduleMode] ? workspace.scheduleMode : base.scheduleMode;
   state.sourceConfig = { ...base.sourceConfig, ...(workspace?.sourceConfig || {}) };
@@ -2127,6 +2143,52 @@ const MANUAL_ENTRY_CONFIG = {
       { key: "amount", label: "Weekly spending target", placeholder: "75", inputType: "number", required: true },
     ],
   },
+  account: {
+    eyebrow: "Money",
+    title: "Add account",
+    body: "Create a manual balance source. Plaid can replace or update this later.",
+    submit: "Add account",
+    fields: [
+      { key: "name", label: "Account name", placeholder: "Checking", required: true },
+      { key: "type", label: "Account type", placeholder: "checking" },
+      { key: "balance", label: "Current balance", placeholder: "250", inputType: "number" },
+    ],
+  },
+  transaction: {
+    eyebrow: "Money",
+    title: "Add transaction",
+    body: "Add income, expense, transfer, or refund by hand.",
+    submit: "Add transaction",
+    fields: [
+      { key: "merchant", label: "Merchant or source", placeholder: "Grocery store", required: true },
+      { key: "amount", label: "Amount", placeholder: "24.50", inputType: "number", required: true },
+      { key: "eventType", label: "Type", placeholder: "expense" },
+      { key: "category", label: "Category", placeholder: "Food" },
+    ],
+  },
+  subscription: {
+    eyebrow: "Money",
+    title: "Add subscription",
+    body: "Track a recurring charge before account sync detects it.",
+    submit: "Add subscription",
+    fields: [
+      { key: "name", label: "Subscription", placeholder: "Spotify", required: true },
+      { key: "amount", label: "Amount", placeholder: "9.99", inputType: "number" },
+      { key: "cadence", label: "Cadence", placeholder: "monthly" },
+      { key: "nextDue", label: "Next charge", placeholder: "Apr 20" },
+    ],
+  },
+  savings_goal: {
+    eyebrow: "Money",
+    title: "Add savings goal",
+    body: "Create a target and track progress manually before smart savings exists.",
+    submit: "Add goal",
+    fields: [
+      { key: "name", label: "Goal name", placeholder: "Emergency fund", required: true },
+      { key: "target", label: "Target amount", placeholder: "1000", inputType: "number" },
+      { key: "current", label: "Current amount", placeholder: "0", inputType: "number" },
+    ],
+  },
   note: {
     eyebrow: "Sources",
     title: "Write note",
@@ -2256,6 +2318,87 @@ async function handleManualEntry(type, values = {}) {
     state.budget = { ...state.budget, weeklyTarget: amount, left: Number(state.budget.left || 0) || amount };
     notifyTitle = "Weekly target set";
     notifyBody = `Money now uses a $${amount} weekly target.`;
+  } else if (type === "account") {
+    const name = manualValue(values, "name", "Manual account");
+    const balance = Number(manualValue(values, "balance", "0")) || 0;
+    created = {
+      id: localId("account"),
+      name,
+      type: manualValue(values, "type", "checking"),
+      balance,
+      provider: "Manual",
+      updatedAt: new Date().toISOString(),
+    };
+    state.finance = {
+      ...state.finance,
+      accounts: [created, ...(state.finance?.accounts || [])].slice(0, 50),
+    };
+    state.budget = { ...state.budget, left: Number(state.budget.left || 0) + balance };
+    notifyTitle = "Account added";
+    notifyBody = `${name} now contributes to Money cash context.`;
+  } else if (type === "transaction") {
+    const merchant = manualValue(values, "merchant", "Manual transaction");
+    const rawAmount = Number(manualValue(values, "amount", "0")) || 0;
+    const eventTypeInput = manualValue(values, "eventType", rawAmount >= 0 ? "income" : "expense").toLowerCase();
+    const eventType = ["expense", "income", "transfer", "refund", "adjustment"].includes(eventTypeInput) ? eventTypeInput : rawAmount >= 0 ? "income" : "expense";
+    const signedAmount = eventType === "expense" ? -Math.abs(rawAmount) : Math.abs(rawAmount);
+    const budgetDelta = eventType === "transfer" ? 0 : signedAmount;
+    created = {
+      id: localId("txn"),
+      merchant,
+      amount: signedAmount,
+      eventType,
+      category: manualValue(values, "category", eventType === "income" ? "Income" : "Uncategorized"),
+      date: new Date().toISOString().slice(0, 10),
+      source: "manual",
+      confidence: 1,
+    };
+    state.finance = {
+      ...state.finance,
+      transactions: [created, ...(state.finance?.transactions || [])].slice(0, 250),
+    };
+    state.budget = {
+      ...state.budget,
+      income: eventType === "income" ? Number(state.budget.income || 0) + Math.abs(signedAmount) : Number(state.budget.income || 0),
+      spent: eventType === "expense" ? Number(state.budget.spent || 0) + Math.abs(signedAmount) : Number(state.budget.spent || 0),
+      left: Number(state.budget.left || 0) + budgetDelta,
+    };
+    notifyTitle = "Transaction added";
+    notifyBody = `${merchant} was added as a ${eventType}.`;
+  } else if (type === "subscription") {
+    const name = manualValue(values, "name", "Subscription");
+    created = {
+      id: localId("sub"),
+      name,
+      amount: Number(manualValue(values, "amount", "0")) || 0,
+      cadence: manualValue(values, "cadence", "monthly"),
+      nextDue: manualValue(values, "nextDue", "This month"),
+      status: "active",
+      confidence: 1,
+      source: "manual",
+    };
+    state.finance = {
+      ...state.finance,
+      subscriptions: [created, ...(state.finance?.subscriptions || [])].slice(0, 100),
+    };
+    notifyTitle = "Subscription added";
+    notifyBody = `${name} now appears in recurring charges.`;
+  } else if (type === "savings_goal") {
+    const name = manualValue(values, "name", "Savings goal");
+    created = {
+      id: localId("goal"),
+      name,
+      target: Number(manualValue(values, "target", "0")) || 0,
+      current: Number(manualValue(values, "current", "0")) || 0,
+      autoContribute: false,
+      source: "manual",
+    };
+    state.finance = {
+      ...state.finance,
+      savingsGoals: [created, ...(state.finance?.savingsGoals || [])].slice(0, 50),
+    };
+    notifyTitle = "Savings goal added";
+    notifyBody = `${name} is now tracked manually.`;
   }
 
   if (!created) return;
@@ -2717,7 +2860,8 @@ function setupProgress(checks) {
 
 function buildSetupGuideItems() {
   const connectors = mergeIntegrationTemplates();
-  const hasBudget = Number(state.budget?.income || 0) > 0 || Number(state.budget?.spent || 0) > 0 || Number(state.budget?.left || 0) > 0;
+  const hasBudget = Number(state.budget?.income || 0) > 0 || Number(state.budget?.spent || 0) > 0 || Number(state.budget?.left || 0) > 0 || Boolean(state.budget?.weeklyTarget);
+  const hasMoneyContext = hasBudget || state.bills.length > 0 || state.paychecks.length > 0 || (state.finance?.accounts || []).length > 0 || (state.finance?.transactions || []).length > 0 || (state.finance?.subscriptions || []).length > 0;
   const constraintsChanged = JSON.stringify(normalizeConstraints(state.constraints)) !== JSON.stringify(normalizeConstraints(DEFAULT_CONSTRAINTS));
   const item = (config) => {
     const progress = setupProgress(config.checks);
@@ -2779,9 +2923,9 @@ function buildSetupGuideItems() {
       action: "Open Money",
       unlocked: "Bill timing can influence warnings, weekly pressure, and next-best-move recommendations.",
       checks: [
-        { label: "Add bills", done: state.bills.length > 0 },
+        { label: "Add bills or subscriptions", done: state.bills.length > 0 || (state.finance?.subscriptions || []).length > 0 },
         { label: "Connect Plaid finance", done: connectorIsConnected(["plaid"], connectors) },
-        { label: "Add budget context", done: hasBudget },
+        { label: "Add manual money context", done: hasMoneyContext },
         { label: "Add paycheck timing", done: state.paychecks.length > 0 },
       ],
     }),
@@ -3097,6 +3241,47 @@ function saveThemeDraft() {
   void notifyUser({ type: "theme_saved", title: "Theme saved", body: `${theme.name} is now available in My Themes.`, severity: "success" });
 }
 
+const money = (value) => {
+  const amount = Number(value || 0);
+  return amount < 0 ? `-$${Math.abs(amount).toFixed(0)}` : `$${amount.toFixed(0)}`;
+};
+
+function amountNumber(value) {
+  return Number(String(value || 0).replace(/[^0-9.-]/g, "")) || 0;
+}
+
+function buildMoneyInsights() {
+  const finance = state.finance || {};
+  const accounts = Array.isArray(finance.accounts) ? finance.accounts : [];
+  const transactions = Array.isArray(finance.transactions) ? finance.transactions : [];
+  const subscriptions = Array.isArray(finance.subscriptions) ? finance.subscriptions : [];
+  const savingsGoals = Array.isArray(finance.savingsGoals) ? finance.savingsGoals : [];
+  const accountCash = accounts.reduce((sum, account) => sum + amountNumber(account.balance), 0);
+  const fallbackCash = Number(state.budget.left || 0);
+  const cashOnHand = accountCash || fallbackCash;
+  const billTotal = state.bills.reduce((sum, bill) => sum + amountNumber(bill.amount), 0);
+  const subscriptionTotal = subscriptions.reduce((sum, item) => sum + amountNumber(item.amount), 0);
+  const paycheckIncome = state.paychecks.reduce((sum, item) => sum + amountNumber(item.amount), 0);
+  const transactionIncome = transactions.filter((item) => item.eventType === "income").reduce((sum, item) => sum + Math.abs(amountNumber(item.amount)), 0);
+  const transactionSpend = transactions.filter((item) => item.eventType !== "income").reduce((sum, item) => sum + Math.abs(Math.min(amountNumber(item.amount), 0)), 0);
+  const weeklyTarget = Number(state.budget.weeklyTarget || 0);
+  const safeToSpend = Math.max(0, cashOnHand + paycheckIncome + transactionIncome - billTotal - subscriptionTotal - weeklyTarget - transactionSpend);
+  return {
+    accounts,
+    transactions,
+    subscriptions,
+    savingsGoals,
+    cashOnHand,
+    billTotal,
+    subscriptionTotal,
+    incomeTotal: paycheckIncome + transactionIncome,
+    transactionSpend,
+    weeklyTarget,
+    safeToSpend,
+    recurringCount: state.bills.length + subscriptions.length,
+  };
+}
+
 function heroActionButton([label, action], index) {
   const className = index === 0 ? "primary-action" : "surface-action";
   if (String(action).startsWith("manual:")) return `<button class="${className}" data-manual-entry="${escapeHtml(action.replace("manual:", ""))}">${escapeHtml(label)}</button>`;
@@ -3116,11 +3301,12 @@ function heroBand(intel) {
   const importedShiftCount = connectorIsConnected(["deputy"]) ? SHIFTS.length : 0;
   const importedShiftPay = connectorIsConnected(["deputy"]) ? SHIFTS.reduce((sum, shift) => sum + Number(shift.pay || 0), 0) : 0;
   const hasFutureContext = state.tasks.some((task) => task.domain === "future") || state.notes.some((note) => normalizeNote(note).domain === "future");
+  const moneyInsights = buildMoneyInsights();
   const statValues = {
     command: [loadValue, intel.conflicts.length, `${intel.solverSummary.scheduledMinutes}m`, intel.solverSummary.hardGuardrails],
     academy: [state.courses.length, state.tasks.filter((task) => task.domain === "academy" && !task.done).length, `${intel.solverSummary.scheduledMinutes}m`, intel.courseInsights.filter((course) => course.exam).length],
     works: [state.schedule.filter((item) => item.domain === "works").length + importedShiftCount, state.tasks.filter((task) => task.domain === "works" && !task.done).length, `${intel.solverSummary.scheduledMinutes}m`, importedShiftPay ? `$${importedShiftPay}` : "--"],
-    life: [`$${state.budget.left || 0}`, state.bills.length, state.paychecks.length, state.bills.filter((bill) => bill.soon).length],
+    life: [money(moneyInsights.safeToSpend), moneyInsights.recurringCount, money(moneyInsights.incomeTotal), money(moneyInsights.cashOnHand)],
     future: [hasFutureContext ? GOALS.length : 0, hasFutureContext ? MILESTONES.length : 0, hasFutureContext ? CAREER_SKILLS.length : 0, state.tasks.filter((task) => task.domain === "future" && !task.done).length],
     mind: [state.checkin.energy || "--", burnoutRisk(intel), state.schedule.filter((item) => item.domain === "mind").length, loadValue],
     notebook: [state.uploadedFiles.length, state.syllabusReviews.length, state.notes.length, state.syllabusReviews.filter((review) => review.parseStatus === "needs_review").length],
@@ -3317,10 +3503,20 @@ function renderWorks(intel) {
 }
 
 function renderLife(intel) {
+  const insights = buildMoneyInsights();
   const bills = intel.billInsights.map((bill) => `<div class="row ${bill.daysUntilDue !== null && bill.daysUntilDue <= 3 ? "is-hot" : ""}" style="--accent:${bill.covered ? TOKENS.warn : TOKENS.danger};"><div class="row-copy"><div class="row-title">${bill.name}</div><div class="row-subtitle">Due ${bill.due} &middot; ${bill.covered ? "covered" : "needs attention"}</div></div><strong>${bill.amount}</strong></div>`).join("");
-  const hasBudget = Number(state.budget.income || 0) > 0 || Number(state.budget.spent || 0) > 0 || Number(state.budget.left || 0) > 0;
-  const budget = hasBudget ? `<div class="row"><div class="row-copy"><div class="row-title">Monthly budget</div><div class="row-subtitle">Income ${state.budget.income} &middot; Left ${state.budget.left}</div></div>${pill(`$${state.budget.left}`, TOKENS.life)}</div>` : "";
-  return `<section class="section-shell">${heroBand(intel)}<div class="dashboard-grid">${simpleListPanel("safe-to-spend", TOKENS.life, budget, { domain: "life", title: "No money context yet.", body: "Add income or a weekly target manually. Bank connections can come later.", primaryLabel: "Add income", primaryDomain: "manual:income", secondaryLabel: "Set weekly target", secondaryDomain: "manual:budget", tertiaryLabel: "Connect finance", tertiaryDomain: "command" })}${simpleListPanel("next bills", TOKENS.warn, bills, { domain: "life", title: "No bills added.", body: "Add rent, phone, tuition, or subscriptions manually so Money can warn you before deadlines stack up.", primaryLabel: "Add bill", primaryDomain: "manual:bill", secondaryLabel: "Add income", secondaryDomain: "manual:income" })}${simpleListPanel("life admin", TOKENS.life, state.tasks.filter((task) => task.domain === "life").map((task) => taskMarkup(task)).join(""), { domain: "life", title: "No life tasks yet.", body: "Add errands, chores, or reminders when they should affect the plan.", primaryLabel: "Add task", primaryDomain: "manual:personal_task", secondaryLabel: "Add bill", secondaryDomain: "manual:bill" })}</div></section>`;
+  const accounts = insights.accounts.map((account) => `<div class="row" style="--accent:${TOKENS.life};"><div class="row-copy"><div class="row-title">${escapeHtml(account.name)}</div><div class="row-subtitle">${escapeHtml(account.type || "account")} &middot; ${escapeHtml(account.provider || "Manual")}</div></div><strong>${money(account.balance)}</strong></div>`).join("");
+  const transactions = insights.transactions.slice(0, 8).map((item) => `<div class="row" style="--accent:${amountNumber(item.amount) < 0 ? TOKENS.warn : TOKENS.ok};"><div class="row-copy"><div class="row-title">${escapeHtml(item.merchant)}</div><div class="row-subtitle">${escapeHtml(item.category || "Uncategorized")} &middot; ${escapeHtml(item.eventType || "expense")} &middot; ${escapeHtml(item.date || "manual")}</div></div><strong>${money(item.amount)}</strong></div>`).join("");
+  const subscriptions = insights.subscriptions.map((item) => `<div class="row" style="--accent:${TOKENS.life};"><div class="row-copy"><div class="row-title">${escapeHtml(item.name)}</div><div class="row-subtitle">${escapeHtml(item.cadence || "monthly")} &middot; next ${escapeHtml(item.nextDue || "review")}</div></div><strong>${money(item.amount)}</strong></div>`).join("");
+  const paychecks = state.paychecks.map((item) => `<div class="row" style="--accent:${TOKENS.ok};"><div class="row-copy"><div class="row-title">${escapeHtml(item.label || "Income")}</div><div class="row-subtitle">${escapeHtml(item.date || "manual")} &middot; forecast income</div></div><strong>${money(item.amount)}</strong></div>`).join("");
+  const savings = insights.savingsGoals.map((goal) => {
+    const pct = goal.target ? Math.min(100, Math.round((amountNumber(goal.current) / amountNumber(goal.target)) * 100)) : 0;
+    return `<div class="row" style="--accent:${TOKENS.ok};"><div class="row-copy"><div class="row-title">${escapeHtml(goal.name)}</div><div class="row-subtitle">${money(goal.current)} of ${money(goal.target)} saved</div>${meter(pct, TOKENS.ok)}</div><strong>${pct}%</strong></div>`;
+  }).join("");
+  const safeSummary = insights.cashOnHand || insights.incomeTotal || insights.billTotal || insights.subscriptionTotal || insights.weeklyTarget
+    ? `<div class="money-summary"><div class="money-safe"><span>safe to spend</span><strong>${money(insights.safeToSpend)}</strong><small>Cash + known income minus bills, subscriptions, weekly target, and manual spend.</small></div><div class="money-summary-grid"><div><span>Cash</span><strong>${money(insights.cashOnHand)}</strong></div><div><span>Income</span><strong>${money(insights.incomeTotal)}</strong></div><div><span>Bills</span><strong>${money(insights.billTotal)}</strong></div><div><span>Subs</span><strong>${money(insights.subscriptionTotal)}</strong></div></div></div>`
+    : "";
+  return `<section class="section-shell">${heroBand(intel)}<div class="dashboard-grid">${simpleListPanel("safe-to-spend", TOKENS.life, safeSummary, { domain: "life", title: "No money context yet.", body: "Add an account, transaction, income, bill, or weekly target manually. Plaid can come later.", primaryLabel: "Add transaction", primaryDomain: "manual:transaction", secondaryLabel: "Add account", secondaryDomain: "manual:account", tertiaryLabel: "Set weekly target", tertiaryDomain: "manual:budget" })}${simpleListPanel("accounts and cash", TOKENS.life, accounts, { domain: "life", title: "No accounts added.", body: "Create a manual account now, then connect finance later if you want bank sync.", primaryLabel: "Add account", primaryDomain: "manual:account", secondaryLabel: "Connect finance", secondaryDomain: "command" })}${simpleListPanel("transactions", TOKENS.life, transactions, { domain: "life", title: "No transactions yet.", body: "Add a transaction manually so budgeting and safe-to-spend have real movement.", primaryLabel: "Add transaction", primaryDomain: "manual:transaction", secondaryLabel: "Add income", secondaryDomain: "manual:income" })}${simpleListPanel("recurring bills", TOKENS.warn, `${bills}${subscriptions}`, { domain: "life", title: "No recurring charges yet.", body: "Add bills and subscriptions manually before bank sync detects them.", primaryLabel: "Add bill", primaryDomain: "manual:bill", secondaryLabel: "Add subscription", secondaryDomain: "manual:subscription" })}${simpleListPanel("income and paydays", TOKENS.ok, paychecks, { domain: "life", title: "No income forecast yet.", body: "Add a paycheck or shift income so Payday View can estimate what's safe before the next bill.", primaryLabel: "Add income", primaryDomain: "manual:income", secondaryLabel: "Add shift", secondaryDomain: "manual:shift" })}${simpleListPanel("savings goals", TOKENS.ok, savings, { domain: "life", title: "No savings goals yet.", body: "Create a manual goal now. Smart savings automation can plug in later.", primaryLabel: "Add savings goal", primaryDomain: "manual:savings_goal", secondaryLabel: "Add income", secondaryDomain: "manual:income" })}</div></section>`;
 }
 
 function renderFuture(intel) {
@@ -3382,7 +3578,8 @@ function renderFreshDomainState(intel) {
 }
 
 function renderContent(intel) {
-  if (!state.tasks.length && !state.courses.length && !state.schedule.length && !state.bills.length) {
+  const hasFinanceData = (state.finance?.accounts || []).length || (state.finance?.transactions || []).length || (state.finance?.subscriptions || []).length || (state.finance?.savingsGoals || []).length || state.paychecks.length || Boolean(state.budget?.weeklyTarget);
+  if (!state.tasks.length && !state.courses.length && !state.schedule.length && !state.bills.length && !hasFinanceData) {
     if (state.activeDomain === "command") {
       return renderCommand(intel);
     }
@@ -3540,6 +3737,16 @@ function applySourcePayload(rawPayload, origin = "manual payload") {
   if (payload.budget && typeof payload.budget === "object") {
     state.budget = { ...state.budget, ...payload.budget };
     applied.push("budget");
+  }
+  if (payload.finance && typeof payload.finance === "object") {
+    state.finance = {
+      ...state.finance,
+      accounts: Array.isArray(payload.finance.accounts) ? payload.finance.accounts : state.finance.accounts,
+      transactions: Array.isArray(payload.finance.transactions) ? payload.finance.transactions : state.finance.transactions,
+      subscriptions: Array.isArray(payload.finance.subscriptions) ? payload.finance.subscriptions : state.finance.subscriptions,
+      savingsGoals: Array.isArray(payload.finance.savingsGoals) ? payload.finance.savingsGoals : state.finance.savingsGoals,
+    };
+    applied.push("finance");
   }
   if (payload.checkin && typeof payload.checkin === "object") {
     state.checkin = { ...state.checkin, ...payload.checkin };
@@ -4085,6 +4292,7 @@ async function handleSignOut() {
     state.notifications = [];
     state.integrations = mergeIntegrationTemplates([]);
     state.notes = [];
+    state.finance = { accounts: [], transactions: [], subscriptions: [], savingsGoals: [] };
     state.syllabusReviews = [];
     state.lastPlanSnapshot = null;
     state.lastPlanChanges = null;
@@ -4105,6 +4313,7 @@ win?.addEventListener("storage", (event) => {
   state.bills = next.bills;
   state.budget = next.budget;
   state.paychecks = next.paychecks;
+  state.finance = next.finance;
   state.constraints = next.constraints;
   state.scheduleMode = next.scheduleMode;
   state.sourceConfig = next.sourceConfig;

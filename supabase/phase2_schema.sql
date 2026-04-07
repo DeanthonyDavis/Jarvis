@@ -186,6 +186,65 @@ create table if not exists public.apex_budgets (
   check (period_end >= period_start)
 );
 
+alter table public.apex_financial_accounts add column if not exists provider_account_id text;
+alter table public.apex_financial_accounts add column if not exists sync_status text not null default 'manual';
+alter table public.apex_financial_accounts add column if not exists metadata jsonb not null default '{}'::jsonb;
+
+alter table public.apex_transactions add column if not exists merchant text;
+alter table public.apex_transactions add column if not exists raw_description text;
+alter table public.apex_transactions add column if not exists event_type text not null default 'expense' check (event_type in ('expense', 'income', 'transfer', 'refund', 'adjustment'));
+alter table public.apex_transactions add column if not exists is_recurring boolean not null default false;
+alter table public.apex_transactions add column if not exists recurring_rule text;
+alter table public.apex_transactions add column if not exists classification_confidence numeric(4,3) not null default 0.000;
+alter table public.apex_transactions add column if not exists reviewed_at timestamptz;
+alter table public.apex_transactions add column if not exists updated_at timestamptz not null default now();
+
+create table if not exists public.apex_recurring_finance_items (
+  id uuid primary key default gen_random_uuid(),
+  workspace_id uuid not null references public.apex_workspaces(id) on delete cascade,
+  financial_account_id uuid references public.apex_financial_accounts(id) on delete set null,
+  item_type text not null check (item_type in ('bill', 'subscription', 'income', 'paycheck')),
+  name text not null,
+  merchant text,
+  amount numeric(14,2) not null default 0,
+  cadence text not null default 'monthly',
+  next_due_at date,
+  status text not null default 'active' check (status in ('active', 'paused', 'canceled', 'needs_review')),
+  auto_pay boolean not null default false,
+  classification_confidence numeric(4,3) not null default 0.000,
+  source text not null default 'manual',
+  metadata jsonb not null default '{}'::jsonb,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+create table if not exists public.apex_savings_goals (
+  id uuid primary key default gen_random_uuid(),
+  workspace_id uuid not null references public.apex_workspaces(id) on delete cascade,
+  name text not null,
+  target_amount numeric(14,2) not null default 0,
+  current_amount numeric(14,2) not null default 0,
+  recurrence text,
+  auto_contribute boolean not null default false,
+  source text not null default 'manual',
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+create table if not exists public.apex_shift_pay_records (
+  id uuid primary key default gen_random_uuid(),
+  workspace_id uuid not null references public.apex_workspaces(id) on delete cascade,
+  shift_date date not null,
+  starts_at time,
+  ends_at time,
+  duration_hours numeric(6,2) not null default 0,
+  rate_per_hour numeric(10,2) not null default 0,
+  expected_pay numeric(14,2) generated always as (duration_hours * rate_per_hour) stored,
+  source text not null default 'manual',
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
 create table if not exists public.apex_notebooks (
   id uuid primary key default gen_random_uuid(),
   workspace_id uuid not null references public.apex_workspaces(id) on delete cascade,
@@ -432,7 +491,13 @@ create index if not exists apex_calendar_events_workspace_starts_idx on public.a
 create index if not exists apex_financial_accounts_workspace_id_idx on public.apex_financial_accounts (workspace_id);
 create index if not exists apex_transactions_workspace_id_idx on public.apex_transactions (workspace_id);
 create index if not exists apex_transactions_account_posted_idx on public.apex_transactions (financial_account_id, posted_at desc);
+create index if not exists apex_transactions_workspace_event_idx on public.apex_transactions (workspace_id, event_type, posted_at desc);
+create index if not exists apex_transactions_workspace_recurring_idx on public.apex_transactions (workspace_id, is_recurring) where is_recurring;
 create index if not exists apex_budgets_workspace_period_idx on public.apex_budgets (workspace_id, period_start, period_end);
+create index if not exists apex_recurring_finance_items_workspace_due_idx on public.apex_recurring_finance_items (workspace_id, next_due_at, item_type);
+create index if not exists apex_recurring_finance_items_workspace_status_idx on public.apex_recurring_finance_items (workspace_id, status, item_type);
+create index if not exists apex_savings_goals_workspace_idx on public.apex_savings_goals (workspace_id, created_at desc);
+create index if not exists apex_shift_pay_records_workspace_date_idx on public.apex_shift_pay_records (workspace_id, shift_date desc);
 create index if not exists apex_notebooks_workspace_id_idx on public.apex_notebooks (workspace_id);
 create index if not exists apex_notes_workspace_id_idx on public.apex_notes (workspace_id);
 create index if not exists apex_notes_workspace_domain_idx on public.apex_notes (workspace_id, domain);
@@ -464,6 +529,9 @@ alter table public.apex_calendar_events enable row level security;
 alter table public.apex_financial_accounts enable row level security;
 alter table public.apex_transactions enable row level security;
 alter table public.apex_budgets enable row level security;
+alter table public.apex_recurring_finance_items enable row level security;
+alter table public.apex_savings_goals enable row level security;
+alter table public.apex_shift_pay_records enable row level security;
 alter table public.apex_notebooks enable row level security;
 alter table public.apex_notes enable row level security;
 alter table public.apex_uploads enable row level security;
@@ -511,6 +579,12 @@ drop policy if exists "Members can manage transactions" on public.apex_transacti
 create policy "Members can manage transactions" on public.apex_transactions for all to authenticated using ((select public.apex_is_workspace_member(workspace_id))) with check ((select public.apex_is_workspace_member(workspace_id)));
 drop policy if exists "Members can manage budgets" on public.apex_budgets;
 create policy "Members can manage budgets" on public.apex_budgets for all to authenticated using ((select public.apex_is_workspace_member(workspace_id))) with check ((select public.apex_is_workspace_member(workspace_id)));
+drop policy if exists "Members can manage recurring finance items" on public.apex_recurring_finance_items;
+create policy "Members can manage recurring finance items" on public.apex_recurring_finance_items for all to authenticated using ((select public.apex_is_workspace_member(workspace_id))) with check ((select public.apex_is_workspace_member(workspace_id)));
+drop policy if exists "Members can manage savings goals" on public.apex_savings_goals;
+create policy "Members can manage savings goals" on public.apex_savings_goals for all to authenticated using ((select public.apex_is_workspace_member(workspace_id))) with check ((select public.apex_is_workspace_member(workspace_id)));
+drop policy if exists "Members can manage shift pay records" on public.apex_shift_pay_records;
+create policy "Members can manage shift pay records" on public.apex_shift_pay_records for all to authenticated using ((select public.apex_is_workspace_member(workspace_id))) with check ((select public.apex_is_workspace_member(workspace_id)));
 drop policy if exists "Members can manage notebooks" on public.apex_notebooks;
 create policy "Members can manage notebooks" on public.apex_notebooks for all to authenticated using ((select public.apex_is_workspace_member(workspace_id))) with check ((select public.apex_is_workspace_member(workspace_id)));
 drop policy if exists "Members can manage notes" on public.apex_notes;
@@ -549,7 +623,8 @@ begin
   foreach target_table in array array[
     'apex_workspaces', 'apex_classes', 'apex_assignments', 'apex_syllabi',
     'apex_tasks', 'apex_calendar_events', 'apex_financial_accounts',
-    'apex_budgets', 'apex_notebooks', 'apex_notes', 'apex_uploads',
+    'apex_transactions', 'apex_budgets', 'apex_recurring_finance_items', 'apex_savings_goals',
+    'apex_shift_pay_records', 'apex_notebooks', 'apex_notes', 'apex_uploads',
     'apex_extracted_items', 'apex_course_events', 'apex_calendar_event_links',
     'apex_integrations', 'apex_notification_preferences',
     'apex_scheduler_preferences', 'apex_constraint_rules'
