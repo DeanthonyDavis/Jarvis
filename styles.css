@@ -438,15 +438,15 @@ textarea:focus-visible {
   grid-template-columns: auto minmax(0, 1fr) auto;
   align-items: end;
   gap: clamp(1rem, 3vw, 1.8rem);
-  min-height: clamp(13rem, 26vw, 20rem);
-  padding: clamp(1.2rem, 4vw, 2.8rem);
-  border: 1px solid color-mix(in srgb, var(--accent) 28%, rgba(255, 255, 255, 0.08));
-  border-radius: clamp(26px, 5vw, 44px);
+  min-height: clamp(18rem, 34vw, 29rem);
+  padding: clamp(1.35rem, 5vw, 3.8rem);
+  border: 1px solid color-mix(in srgb, var(--accent) 34%, rgba(255, 255, 255, 0.08));
+  border-radius: clamp(32px, 6vw, 60px);
   background:
-    linear-gradient(90deg, rgba(13, 7, 5, 0.72), rgba(13, 7, 5, 0.12)),
+    linear-gradient(90deg, rgba(13, 7, 5, 0.84), rgba(13, 7, 5, 0.08)),
     var(--atmosphere-gradient, linear-gradient(135deg, rgba(224, 112, 48, 0.24), rgba(253, 232, 192, 0.08))),
     var(--bg);
-  box-shadow: 0 34px 110px rgba(0, 0, 0, 0.36), inset 0 1px 0 rgba(255, 255, 255, 0.1);
+  box-shadow: 0 44px 150px rgba(0, 0, 0, 0.46), inset 0 1px 0 rgba(255, 255, 255, 0.12);
   isolation: isolate;
 }
 
@@ -510,11 +510,11 @@ textarea:focus-visible {
 
 .ember-atmosphere__copy h2 {
   margin: 0.35rem 0 0.55rem;
-  max-width: 13ch;
+  max-width: 12ch;
   font-family: "Syne", system-ui, sans-serif;
-  font-size: clamp(2.4rem, 7vw, 5.4rem);
-  line-height: 0.88;
-  letter-spacing: -0.085em;
+  font-size: clamp(3.1rem, 9vw, 7.8rem);
+  line-height: 0.82;
+  letter-spacing: -0.1em;
 }
 
 .ember-atmosphere__copy p {
@@ -551,14 +551,81 @@ textarea:focus-visible {
   line-height: 0.95;
 }
 
+.ember-dock {
+  position: fixed;
+  left: 50%;
+  bottom: max(0.85rem, env(safe-area-inset-bottom));
+  z-index: 40;
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  gap: 0.32rem;
+  width: min(760px, calc(100vw - 1.4rem));
+  padding: 0.48rem;
+  border: 1px solid color-mix(in srgb, var(--ember-flame) 20%, rgba(255, 255, 255, 0.12));
+  border-radius: 28px;
+  background:
+    linear-gradient(135deg, rgba(253, 232, 192, 0.12), rgba(13, 7, 5, 0.64)),
+    rgba(13, 7, 5, 0.82);
+  box-shadow: 0 22px 80px rgba(0, 0, 0, 0.48), inset 0 1px 0 rgba(255, 255, 255, 0.12);
+  backdrop-filter: blur(24px);
+  transform: translateX(-50%);
+}
+
+.ember-dock__item {
+  display: grid;
+  place-items: center;
+  gap: 0.22rem;
+  min-height: 58px;
+  padding: 0.52rem 0.36rem;
+  border: 1px solid transparent;
+  border-radius: 22px;
+  background: transparent;
+  color: var(--text-soft);
+  cursor: pointer;
+}
+
+.ember-dock__item span {
+  display: grid;
+  place-items: center;
+  width: 1.65rem;
+  height: 1.65rem;
+  color: color-mix(in srgb, var(--accent) 72%, var(--text-muted));
+}
+
+.ember-dock__item strong {
+  max-width: 100%;
+  overflow: hidden;
+  font-size: 0.66rem;
+  letter-spacing: -0.02em;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ember-dock__item.is-active {
+  color: var(--text);
+  border-color: color-mix(in srgb, var(--accent) 34%, rgba(255, 255, 255, 0.12));
+  background:
+    radial-gradient(circle at 50% 0%, color-mix(in srgb, var(--accent) 26%, transparent), transparent 74%),
+    rgba(255, 255, 255, 0.055);
+  box-shadow: 0 12px 28px color-mix(in srgb, var(--accent) 16%, transparent);
+}
+
+.ember-dock__item--search {
+  --accent: var(--ember-flame);
+  background: rgba(253, 232, 192, 0.06);
+}
+
 .app-shell {
   position: relative;
   min-height: 100vh;
   min-height: 100dvh;
-  display: flex;
-  overflow: hidden;
+  display: grid;
+  grid-template-columns: 1fr;
+  overflow-y: auto;
+  overflow-x: hidden;
   background:
-    linear-gradient(180deg, rgba(5, 5, 10, 0.24), rgba(5, 5, 10, 0.82)),
+    radial-gradient(circle at 50% -12%, rgba(253, 232, 192, 0.22), transparent 26rem),
+    linear-gradient(180deg, rgba(13, 7, 5, 0.2), rgba(13, 7, 5, 0.92) 58%),
     var(--student-gradient);
   font-size: 1rem;
 }
@@ -767,6 +834,10 @@ textarea:focus-visible {
   transition: width 220ms ease;
 }
 
+.app-shell .sidebar {
+  display: none;
+}
+
 .sidebar.is-collapsed {
   width: 84px;
 }
@@ -931,16 +1002,27 @@ textarea:focus-visible {
   display: flex;
   flex-direction: column;
   min-height: 100dvh;
+  width: min(100%, 1240px);
+  margin: 0 auto;
+  padding-bottom: 7.5rem;
 }
 
 .topbar {
+  position: sticky;
+  top: max(0.75rem, env(safe-area-inset-top));
+  z-index: 12;
   display: flex;
   align-items: center;
   gap: 1.15rem;
-  padding: calc(1.1rem + env(safe-area-inset-top)) 2rem 1.1rem;
+  margin: 0.85rem clamp(0.75rem, 2vw, 1.4rem) 0;
+  padding: 0.85rem clamp(0.9rem, 2vw, 1.25rem);
   min-height: 82px;
-  border-bottom: 1px solid var(--border);
-  background: rgba(6, 7, 13, 0.52);
+  border: 1px solid color-mix(in srgb, var(--ember-flame) 18%, var(--border));
+  border-radius: 28px;
+  background:
+    linear-gradient(135deg, rgba(253, 232, 192, 0.1), rgba(13, 7, 5, 0.5)),
+    rgba(13, 7, 5, 0.74);
+  box-shadow: 0 18px 70px rgba(0, 0, 0, 0.32);
   backdrop-filter: blur(24px);
 }
 
@@ -962,11 +1044,17 @@ textarea:focus-visible {
   border: 1px solid color-mix(in srgb, var(--accent) 28%, transparent);
 }
 
+.topbar-icon .ember-logo-mark {
+  width: 1.9rem;
+  height: 1.9rem;
+}
+
 .topbar-copy h2 {
   margin: 0;
   font-family: "Syne", system-ui, sans-serif;
-  font-size: 1.15rem;
-  letter-spacing: -0.03em;
+  font-size: clamp(1.45rem, 4vw, 2.25rem);
+  letter-spacing: -0.07em;
+  line-height: 0.9;
 }
 
 .topbar-heading-row {
@@ -985,7 +1073,7 @@ textarea:focus-visible {
   border-radius: 999px;
   background: linear-gradient(135deg, rgba(224, 112, 48, 0.24), rgba(253, 232, 192, 0.1));
   color: var(--ember-horizon);
-  font-size: 0.66rem;
+  font-size: 0.68rem;
   font-weight: 800;
   letter-spacing: 0.14em;
   text-transform: uppercase;
@@ -1116,9 +1204,10 @@ textarea:focus-visible {
 }
 
 .content {
-  padding: clamp(1.4rem, 2vw, 2.35rem);
-  padding-bottom: calc(clamp(1.4rem, 2vw, 2.35rem) + env(safe-area-inset-bottom));
-  overflow: auto;
+  width: min(100% - clamp(1.5rem, 4vw, 3rem), 1180px);
+  margin: 0 auto;
+  padding: clamp(1.15rem, 2vw, 1.8rem) 0 calc(8rem + env(safe-area-inset-bottom));
+  overflow: visible;
   -webkit-overflow-scrolling: touch;
 }
 
@@ -1132,56 +1221,37 @@ textarea:focus-visible {
 .hero-band {
   position: relative;
   overflow: hidden;
-  padding: clamp(1.6rem, 3vw, 2.35rem);
-  border-radius: var(--theme-border-radius);
-  border: 1px solid color-mix(in srgb, var(--accent) 34%, var(--border));
+  padding: clamp(1rem, 2vw, 1.35rem);
+  border-radius: 26px;
+  border: 1px solid color-mix(in srgb, var(--accent) 18%, var(--border));
   background:
-    linear-gradient(90deg, color-mix(in srgb, var(--accent) 12%, transparent), transparent 44%),
-    repeating-linear-gradient(0deg, rgba(255,255,255,0.035) 0 1px, transparent 1px 1.85rem),
-    color-mix(in srgb, var(--panel) 88%, transparent);
+    linear-gradient(90deg, color-mix(in srgb, var(--accent) 8%, transparent), transparent 44%),
+    color-mix(in srgb, var(--bg) 46%, transparent);
   box-shadow:
-    0 18px 58px rgba(0, 0, 0, 0.48),
-    0 0 28px color-mix(in srgb, var(--theme-glow) 20%, transparent),
+    0 12px 36px rgba(0, 0, 0, 0.24),
     inset 0 1px 0 rgba(255, 255, 255, 0.11);
 }
 
 .hero-band::after {
-  content: "";
-  position: absolute;
-  inset: 1rem 1rem auto auto;
-  width: 5.5rem;
-  height: 5.5rem;
-  border: 1px solid color-mix(in srgb, var(--accent) 28%, var(--border));
-  border-radius: 22px;
-  background:
-    linear-gradient(90deg, transparent 0 42%, color-mix(in srgb, var(--accent) 30%, transparent) 42% 47%, transparent 47%),
-    repeating-linear-gradient(0deg, rgba(255,255,255,0.1) 0 1px, transparent 1px 0.72rem);
-  opacity: 0.5;
-  transform: rotate(3deg);
-  pointer-events: none;
+  display: none;
 }
 
 .hero-band--academy {
   background:
-    linear-gradient(90deg, color-mix(in srgb, var(--accent) 13%, transparent), transparent 48%),
-    repeating-linear-gradient(0deg, rgba(255,255,255,0.05) 0 1px, transparent 1px 1.55rem),
-    repeating-linear-gradient(90deg, rgba(255,255,255,0.035) 0 1px, transparent 1px 1.55rem),
-    color-mix(in srgb, var(--panel) 90%, transparent);
+    linear-gradient(90deg, color-mix(in srgb, var(--accent) 11%, transparent), transparent 48%),
+    color-mix(in srgb, var(--bg) 46%, transparent);
 }
 
 .hero-band--works {
   background:
-    linear-gradient(90deg, color-mix(in srgb, var(--accent) 14%, transparent), transparent 44%),
-    repeating-linear-gradient(90deg, transparent 0 1.2rem, color-mix(in srgb, var(--accent) 12%, transparent) 1.2rem 1.35rem, transparent 1.35rem 2.6rem),
-    color-mix(in srgb, var(--panel) 90%, transparent);
+    linear-gradient(90deg, color-mix(in srgb, var(--accent) 12%, transparent), transparent 44%),
+    color-mix(in srgb, var(--bg) 46%, transparent);
 }
 
 .hero-band--life {
   background:
-    linear-gradient(90deg, color-mix(in srgb, var(--accent) 12%, transparent), transparent 46%),
-    repeating-linear-gradient(0deg, rgba(255,255,255,0.035) 0 1px, transparent 1px 1.2rem),
-    linear-gradient(90deg, transparent 0 70%, color-mix(in srgb, var(--accent) 10%, transparent) 70% 100%),
-    color-mix(in srgb, var(--panel) 90%, transparent);
+    linear-gradient(90deg, color-mix(in srgb, var(--accent) 10%, transparent), transparent 46%),
+    color-mix(in srgb, var(--bg) 46%, transparent);
 }
 
 .hero-band--future,
@@ -1190,7 +1260,7 @@ textarea:focus-visible {
   background:
     radial-gradient(circle at 82% 16%, color-mix(in srgb, var(--accent) 22%, transparent), transparent 26%),
     linear-gradient(90deg, color-mix(in srgb, var(--accent) 10%, transparent), transparent 48%),
-    color-mix(in srgb, var(--panel) 90%, transparent);
+    color-mix(in srgb, var(--bg) 46%, transparent);
 }
 
 .hero-band--notebook::after {
@@ -1328,23 +1398,22 @@ textarea:focus-visible {
 .dashboard-grid {
   display: grid;
   grid-template-columns: repeat(12, minmax(0, 1fr));
-  gap: 1.25rem;
+  gap: clamp(0.9rem, 2vw, 1.35rem);
 }
 
 .panel {
   position: relative;
   overflow: hidden;
   padding: clamp(var(--space-4), 1.8vw, var(--space-5));
-  border-radius: var(--theme-border-radius);
-  border: 1px solid color-mix(in srgb, var(--accent, rgba(255,255,255,.12)) 20%, var(--border));
+  border-radius: 28px;
+  border: 1px solid color-mix(in srgb, var(--accent, rgba(255,255,255,.12)) 16%, var(--border));
+  border-left: 4px solid color-mix(in srgb, var(--accent, var(--ember-flame)) 72%, var(--ember-horizon));
   background:
-    linear-gradient(90deg, color-mix(in srgb, var(--accent, white) 7%, transparent), transparent 38%),
-    linear-gradient(180deg, rgba(255, 255, 255, 0.046), rgba(255, 255, 255, 0.018)),
-    rgba(255, 255, 255, 0.018);
-  backdrop-filter: blur(var(--card-blur));
+    linear-gradient(90deg, color-mix(in srgb, var(--accent, white) 5%, transparent), transparent 32%),
+    rgba(13, 7, 5, 0.46);
+  backdrop-filter: blur(18px);
   box-shadow:
-    0 14px 46px rgba(0, 0, 0, 0.34),
-    0 0 20px color-mix(in srgb, var(--theme-glow) 10%, transparent),
+    0 12px 42px rgba(0, 0, 0, 0.26),
     inset 0 1px 0 rgba(255, 255, 255, 0.08);
 }
 
@@ -1358,12 +1427,7 @@ textarea:focus-visible {
 }
 
 .panel::before {
-  content: "";
-  position: absolute;
-  inset: 0 0 auto 0;
-  height: 2px;
-  background: linear-gradient(90deg, transparent, color-mix(in srgb, var(--accent, #fff) 80%, transparent), transparent);
-  opacity: 0.7;
+  display: none;
 }
 
 .panel--quiet::before {
@@ -4658,14 +4722,22 @@ textarea:focus-visible {
   .content,
   .topbar,
   .sidebar {
-    padding-left: 1rem;
-    padding-right: 1rem;
+    padding-left: 0;
+    padding-right: 0;
+  }
+
+  .topbar {
+    margin-inline: 0.75rem;
+  }
+
+  .content {
+    width: calc(100% - 1.4rem);
   }
 
   .hero-band { padding: 1.2rem; }
   .hero-copy h3 { font-size: 1.9rem; }
   .ember-atmosphere {
-    min-height: 25rem;
+    min-height: 31rem;
     padding: 1.15rem;
   }
 
@@ -4677,7 +4749,16 @@ textarea:focus-visible {
   }
 
   .ember-atmosphere__copy h2 {
-    font-size: clamp(2.25rem, 15vw, 4.2rem);
+    font-size: clamp(3rem, 18vw, 5.1rem);
+  }
+
+  .ember-dock {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    border-radius: 24px;
+  }
+
+  .ember-dock__item {
+    min-height: 52px;
   }
 
   .hero-stats,
