@@ -1,4 +1,4 @@
-const BUILD_ID = "full-rework-6";
+const BUILD_ID = "full-rework-7";
 
 export default function handler(_req, res) {
   res.status(200).json({
@@ -10,6 +10,6 @@ export default function handler(_req, res) {
     repo: process.env.VERCEL_GIT_REPO_SLUG || "",
     deploymentUrl: process.env.VERCEL_URL || "",
     checkedAt: new Date().toISOString(),
-    markers: ["Full rework v6", "ember-dock", "styles.css?v=full-rework-6", "app.js?v=full-rework-6"],
+    markers: ["Full rework v7", "ember-dock", "styles.css?v=full-rework-7", "app.js?v=full-rework-7"],
   });
 }

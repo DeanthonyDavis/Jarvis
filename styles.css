@@ -70,9 +70,13 @@ body {
   min-height: 100vh;
   min-height: 100dvh;
   font-family: "Instrument Sans", system-ui, sans-serif;
-  background: var(--student-gradient);
+  background:
+    radial-gradient(circle at 50% -10%, color-mix(in srgb, var(--cmd) 18%, transparent), transparent 28rem),
+    var(--student-gradient);
+  background-attachment: fixed;
   color: var(--text);
   overscroll-behavior-y: none;
+  overflow-x: hidden;
 }
 
 html,
@@ -168,7 +172,7 @@ textarea:focus-visible {
   position: relative;
   overflow: hidden;
   display: grid;
-  grid-template-columns: minmax(0, 1.1fr) minmax(320px, 0.9fr);
+  grid-template-columns: minmax(0, 1fr) minmax(20rem, 0.72fr);
   gap: 2rem;
   align-items: center;
   padding: clamp(1.2rem, 4vw, 4rem);
@@ -624,10 +628,12 @@ textarea:focus-visible {
   overflow-y: auto;
   overflow-x: hidden;
   background:
-    radial-gradient(circle at 50% -12%, rgba(253, 232, 192, 0.22), transparent 26rem),
-    linear-gradient(180deg, rgba(13, 7, 5, 0.2), rgba(13, 7, 5, 0.92) 58%),
+    radial-gradient(circle at 50% -12%, color-mix(in srgb, var(--cmd) 22%, transparent), transparent 26rem),
+    linear-gradient(180deg, color-mix(in srgb, var(--bg) 20%, transparent), color-mix(in srgb, var(--bg) 72%, transparent) 62%),
     var(--student-gradient);
+  background-attachment: fixed;
   font-size: 1rem;
+  isolation: isolate;
 }
 
 .app-shell.domain-command {
@@ -695,7 +701,9 @@ textarea:focus-visible {
   --text-muted: #d7d7e5;
   --text-soft: #b5b5c7;
   --shadow: 0 20px 60px rgba(0, 0, 0, 0.7);
-  background: #020204;
+  background:
+    linear-gradient(180deg, rgba(0, 0, 0, 0.38), rgba(0, 0, 0, 0.82)),
+    var(--student-gradient);
 }
 
 .app-shell.theme-daylight {
@@ -708,9 +716,8 @@ textarea:focus-visible {
   --text-soft: #746d84;
   --shadow: 0 22px 70px rgba(67, 51, 32, 0.16);
   background:
-    linear-gradient(180deg, rgba(255, 252, 245, 0.48), rgba(255, 252, 245, 0.9)),
-    var(--student-gradient-soft),
-    linear-gradient(180deg, #f7f2e8, #efe8dc);
+    linear-gradient(180deg, rgba(255, 252, 245, 0.38), rgba(255, 252, 245, 0.76)),
+    var(--student-gradient);
   color-scheme: light;
 }
 
@@ -1208,7 +1215,7 @@ textarea:focus-visible {
   margin: 0 auto;
   padding: clamp(1.15rem, 2vw, 1.8rem) 0 calc(8rem + env(safe-area-inset-bottom));
   min-height: calc(100dvh - 8rem);
-  overflow: visible;
+  overflow: clip;
   overflow-anchor: none;
   -webkit-overflow-scrolling: touch;
 }
@@ -1218,6 +1225,8 @@ textarea:focus-visible {
   flex-direction: column;
   gap: 1.6rem;
   min-height: 20rem;
+  max-width: 100%;
+  overflow: clip;
   animation: fadeInUp 320ms ease;
 }
 
@@ -4066,6 +4075,7 @@ textarea:focus-visible {
   width: min(30rem, calc(100vw - 2rem));
   max-height: min(82vh, 44rem);
   overflow: auto;
+  overscroll-behavior: contain;
   padding: 1rem;
   border: 1px solid color-mix(in srgb, var(--cmd) 32%, var(--border));
   border-radius: var(--theme-border-radius);
@@ -4079,6 +4089,7 @@ textarea:focus-visible {
     0 0 42px color-mix(in srgb, var(--theme-glow) 34%, transparent),
     inset 0 1px 0 rgba(255, 255, 255, 0.14);
   animation: settingsUp 240ms ease;
+  contain: layout paint;
 }
 
 .appearance-panel section + section {
@@ -4119,10 +4130,13 @@ textarea:focus-visible {
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 0.7rem;
   margin-top: 0.85rem;
+  min-width: 0;
+  max-width: 100%;
 }
 
 .theme-card {
   min-height: 6.7rem;
+  min-width: 0;
   display: grid;
   align-content: end;
   gap: 0.34rem;
@@ -4136,6 +4150,7 @@ textarea:focus-visible {
   text-align: left;
   cursor: pointer;
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.12);
+  overflow: hidden;
 }
 
 .theme-card:hover,
@@ -4157,6 +4172,9 @@ textarea:focus-visible {
 
 .theme-card strong {
   font-size: 0.92rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .theme-card small,
@@ -4164,6 +4182,7 @@ textarea:focus-visible {
   color: var(--text-muted);
   font-size: 0.76rem;
   line-height: 1.35;
+  overflow-wrap: anywhere;
 }
 
 .empty-theme-row {
@@ -4245,16 +4264,19 @@ textarea:focus-visible {
   border: 1px solid color-mix(in srgb, var(--cmd) 28%, var(--border));
   border-radius: 24px;
   background: rgba(255, 255, 255, 0.035);
+  overflow: hidden;
 }
 
 .theme-builder-grid {
   grid-template-columns: 1fr 1fr;
   margin-top: 0.9rem;
+  min-width: 0;
 }
 
 .builder-preview {
   grid-column: 1 / -1;
   min-height: 10rem;
+  min-width: 0;
   padding: 1rem;
   border: 1px solid color-mix(in srgb, var(--accent) 42%, var(--border));
   border-radius: 22px;
@@ -4262,6 +4284,7 @@ textarea:focus-visible {
     linear-gradient(180deg, rgba(255, 255, 255, 0.08), rgba(255, 255, 255, 0.02)),
     var(--theme-card-gradient);
   box-shadow: 0 0 34px color-mix(in srgb, var(--accent) 28%, transparent);
+  overflow: hidden;
 }
 
 .preview-mini-card {
