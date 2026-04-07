@@ -1,4 +1,4 @@
-const BUILD_ID = "class-workspace-14";
+const BUILD_ID = "class-study-blocks-15";
 
 export default function handler(_req, res) {
   res.status(200).json({
@@ -10,6 +10,6 @@ export default function handler(_req, res) {
     repo: process.env.VERCEL_GIT_REPO_SLUG || "",
     deploymentUrl: process.env.VERCEL_URL || "",
     checkedAt: new Date().toISOString(),
-    markers: ["Class workspace v14", "ember-dock", "styles.css?v=class-workspace-14", "app.js?v=class-workspace-14"],
+    markers: ["Class study blocks v15", "ember-dock", "styles.css?v=class-study-blocks-15", "app.js?v=class-study-blocks-15"],
   });
 }
