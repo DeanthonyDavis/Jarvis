@@ -100,6 +100,28 @@ function handleResetQuery() {
 
 handleResetQuery();
 
+const MAX_SAVED_TEXT = 900;
+const MAX_NOTE_TEXT = 6000;
+const HTMLISH_PATTERN = /(<\/?[a-z][\s\S]*?>|function\s+\w+|import\s+.+from|export\s+default|className=|jsx|tailwind|lorem ipsum)/i;
+
+function safeSavedText(value, max = MAX_SAVED_TEXT) {
+  const text = String(value || "");
+  if (!text) return "";
+  const compact = text.replace(/\s+/g, " ").trim();
+  return compact.length > max ? `${compact.slice(0, max).trim()}...` : compact;
+}
+
+function safeFreeformText(value, max = MAX_NOTE_TEXT) {
+  const text = String(value || "");
+  if (!text) return "";
+  return text.length > max ? `${text.slice(0, max).trim()}...` : text;
+}
+
+function safePreviewText(value) {
+  const text = safeSavedText(value, 420);
+  return HTMLISH_PATTERN.test(text) ? "Large source preview hidden. Open the review queue for extracted dates." : text;
+}
+
 const EMBER_THEMES = {
   dawn: {
     name: "Dawn",
@@ -790,7 +812,7 @@ function loadState() {
     const raw = storage.getItem(STORAGE_KEY);
     if (!raw) return defaults;
     const saved = JSON.parse(raw);
-    return {
+    return sanitizeLoadedStateSnapshot({
       ...defaults,
       activeDomain: saved.activeDomain || defaults.activeDomain,
       sidebarCollapsed: Boolean(saved.sidebarCollapsed),
@@ -843,10 +865,73 @@ function loadState() {
         activeStep: Number(saved.onboarding?.activeStep || 0),
         sectionHelpSeen: saved.onboarding?.sectionHelpSeen || {},
       },
-    };
+    });
   } catch {
     return defaults;
   }
+}
+
+function sanitizeSavedUpload(file = {}) {
+  return {
+    ...file,
+    name: safeSavedText(file.name, 120),
+    type: safeSavedText(file.type, 64),
+    uploadStatus: safeSavedText(file.uploadStatus, 40),
+    textStatus: safeSavedText(file.textStatus, 40),
+    extractionMethod: safeSavedText(file.extractionMethod, 40),
+    textPreview: safePreviewText(file.textPreview),
+  };
+}
+
+function sanitizeExtractedItem(item = {}) {
+  return {
+    ...item,
+    itemType: safeSavedText(item.itemType || item.type, 24),
+    type: safeSavedText(item.type || item.itemType, 24),
+    title: safeSavedText(item.title || item.rawTitle || item.name, 140),
+    rawTitle: safeSavedText(item.rawTitle || item.title || item.name, 140),
+    name: safeSavedText(item.name || item.title || item.rawTitle, 140),
+    dateText: safeSavedText(item.dateText || item.due || item.dueAt || item.date, 48),
+  };
+}
+
+function sanitizeSyllabusReview(review = {}) {
+  const summary = review.parsedSummary && typeof review.parsedSummary === "object" ? review.parsedSummary : {};
+  const items = Array.isArray(summary.extractedItems) ? summary.extractedItems.slice(0, 80).map(sanitizeExtractedItem) : [];
+  return {
+    ...review,
+    title: safeSavedText(review.title, 140),
+    parsedSummary: {
+      ...summary,
+      courseName: safeSavedText(summary.courseName, 100),
+      courseCode: safeSavedText(summary.courseCode, 40),
+      parser: safeSavedText(summary.parser, 50),
+      extractionMethod: safeSavedText(summary.extractionMethod, 50),
+      textStatus: safeSavedText(summary.textStatus, 50),
+      warning: safeSavedText(summary.warning, 260),
+      extractedItems: items,
+    },
+  };
+}
+
+function sanitizeNote(note = {}) {
+  return {
+    ...note,
+    title: safeSavedText(note.title, 140),
+    summary: safeSavedText(note.summary, 420),
+    body: safeFreeformText(note.body, HTMLISH_PATTERN.test(String(note.body || "")) ? 1200 : MAX_NOTE_TEXT),
+    tags: Array.isArray(note.tags) ? note.tags.map((tag) => safeSavedText(tag, 36)).slice(0, 16) : [],
+  };
+}
+
+function sanitizeLoadedStateSnapshot(snapshot) {
+  return {
+    ...snapshot,
+    notes: Array.isArray(snapshot.notes) ? snapshot.notes.map(sanitizeNote) : [],
+    uploadedFiles: Array.isArray(snapshot.uploadedFiles) ? snapshot.uploadedFiles.map(sanitizeSavedUpload) : [],
+    syllabusReviews: Array.isArray(snapshot.syllabusReviews) ? snapshot.syllabusReviews.map(sanitizeSyllabusReview) : [],
+    brainDump: safeFreeformText(snapshot.brainDump, 2000),
+  };
 }
 
 const state = {
@@ -1291,6 +1376,7 @@ function syncShellPreferenceClasses() {
 }
 
 function saveState() {
+  const sanitized = sanitizeLoadedStateSnapshot(state);
   storage.setItem(
     STORAGE_KEY,
     JSON.stringify({
@@ -1318,10 +1404,10 @@ function saveState() {
       integrations: state.integrations,
       noteSearch: state.noteSearch,
       activeNoteId: state.activeNoteId,
-      notes: state.notes,
-      uploadedFiles: state.uploadedFiles,
-      syllabusReviews: state.syllabusReviews,
-      brainDump: state.brainDump,
+      notes: sanitized.notes,
+      uploadedFiles: sanitized.uploadedFiles,
+      syllabusReviews: sanitized.syllabusReviews,
+      brainDump: sanitized.brainDump,
       processedDump: state.processedDump,
       checkin: state.checkin,
       lastPlanSnapshot: state.lastPlanSnapshot,
@@ -4215,6 +4301,11 @@ function renderContentSafely(intel) {
 
 function renderApp() {
   if (!app) return;
+  const safeSnapshot = sanitizeLoadedStateSnapshot(state);
+  state.notes = safeSnapshot.notes;
+  state.uploadedFiles = safeSnapshot.uploadedFiles;
+  state.syllabusReviews = safeSnapshot.syllabusReviews;
+  state.brainDump = safeSnapshot.brainDump;
   state.preferences = normalizePreferences(state.preferences);
   applyTheme();
   if (!state.auth.ready || !state.auth.user) {
@@ -4238,7 +4329,7 @@ function renderApp() {
   const prefs = normalizePreferences(state.preferences);
   const shellClass = `theme-${prefs.theme} density-${prefs.compactMode === "on" ? "compact" : prefs.density} text-${prefs.fontScale} layout-${prefs.layoutProfile} domain-${domain.id}`;
   const contentHtml = renderContentSafely(intel);
-  app.innerHTML = `<div class="app-shell ${shellClass}" style="--accent:${selectedAccent(domain.id)};"><a class="skip-link" href="#main-content">Skip to content</a><div class="ambient"><div class="orb orb--one"></div><div class="orb orb--two"></div><div class="orb orb--three"></div></div><aside class="sidebar ${state.sidebarCollapsed ? "is-collapsed" : ""}"><div class="brand"><div class="brand-mark">${emberLogoMark("Ember")}</div><div class="brand-copy"><h1>Ember</h1><p>Dawn OS</p></div></div><nav class="sidebar-nav" aria-label="Primary sections">${DOMAINS.map((item) => `<button class="nav-button ${state.activeDomain === item.id ? "is-active" : ""}" data-domain="${item.id}" style="--accent:${colorFor(item.id)};" aria-current="${state.activeDomain === item.id ? "page" : "false"}"><span class="nav-icon">${iconSvg(item.id, item.label)}</span><span class="nav-copy"><strong>${item.label}</strong><span>${item.blurb}</span></span></button>`).join("")}</nav><div class="sidebar-footer"><button class="collapse-button" data-collapse-sidebar aria-label="${state.sidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"}"><span>${state.sidebarCollapsed ? "&#9654;" : "&#9664;"}</span><span>${state.sidebarCollapsed ? "Expand" : "Collapse"}</span></button></div></aside><main class="main" id="main-content"><header class="topbar"><div class="topbar-title"><div class="topbar-icon">${emberLogoMark("Ember")}</div><div class="topbar-copy"><div class="topbar-heading-row"><h2>${escapeHtml(domain.label)}</h2><span class="dawn-os-chip">Full rework v7</span></div><p>${formatToday()} &middot; ${state.auth.user.email}</p></div></div><div class="topbar-metrics"><button class="mobile-menu-trigger" data-mobile-nav-open aria-label="Open mobile menu"><span>${iconSvg(domain.id, "Mobile menu")}</span><strong>Menu</strong></button><button class="command-trigger" data-command-open aria-label="Open command palette"><span>${iconSvg("command", "Command palette")}</span><strong>Search</strong><kbd>Ctrl K</kbd></button><div class="metric-pill"><span class="metric-dot"></span><span>Load</span><strong data-shell-load>${intel.loadDisplay || `${intel.loadScore}%`}</strong></div><div class="metric-pill"><span class="metric-dot" style="background:${TOKENS.command};"></span><span>Cloud</span><strong data-shell-cloud>${state.cloudSaveStatus}</strong></div><div class="metric-pill"><span class="metric-dot" data-shell-source-dot style="background:${statusTone(state.sourceConfig.lastSyncStatus)};"></span><span>Source</span><strong data-shell-source>${state.sourceConfig.lastSyncStatus}</strong></div><button class="metric-pill metric-button ${unreadNotifications().length ? "has-unread" : ""}" data-notification-toggle type="button" aria-label="Open notification center"><span class="metric-dot" data-shell-notification-dot style="background:${unreadNotifications().length ? TOKENS.warn : TOKENS.ok};"></span><span>Alerts</span><strong data-shell-notifications>${unreadNotifications().length}</strong></button><button class="upgrade-trigger ${subscriptionTier() === "free" ? "" : "is-active"}" data-paywall-open>${subscriptionTier() === "free" ? "Upgrade" : subscriptionTier() === "pro_plus" ? "Pro+" : "Pro"}</button><button class="surface-action" data-domain="command" data-scroll-personalization>Personalize</button><button class="surface-action" data-auth-signout>Sign Out</button><div class="mini-domain-rail" aria-label="Quick sections">${DOMAINS.filter((item) => item.id !== "command").map((item) => `<button class="stat-dot-button ${item.id === state.activeDomain ? "is-active" : ""}" data-domain="${item.id}" style="--dot:${colorFor(item.id)};" title="${item.label}" aria-label="Open ${item.label}"></button>`).join("")}</div></div></header><div class="content">${contentHtml}</div></main>${renderEmberDock()}${renderOnboarding()}${renderSectionHelp()}</div>`;
+  app.innerHTML = `<div class="app-shell ${shellClass}" style="--accent:${selectedAccent(domain.id)};"><a class="skip-link" href="#main-content">Skip to content</a><div class="ambient"><div class="orb orb--one"></div><div class="orb orb--two"></div><div class="orb orb--three"></div></div><aside class="sidebar ${state.sidebarCollapsed ? "is-collapsed" : ""}"><div class="brand"><div class="brand-mark">${emberLogoMark("Ember")}</div><div class="brand-copy"><h1>Ember</h1><p>Dawn OS</p></div></div><nav class="sidebar-nav" aria-label="Primary sections">${DOMAINS.map((item) => `<button class="nav-button ${state.activeDomain === item.id ? "is-active" : ""}" data-domain="${item.id}" style="--accent:${colorFor(item.id)};" aria-current="${state.activeDomain === item.id ? "page" : "false"}"><span class="nav-icon">${iconSvg(item.id, item.label)}</span><span class="nav-copy"><strong>${item.label}</strong><span>${item.blurb}</span></span></button>`).join("")}</nav><div class="sidebar-footer"><button class="collapse-button" data-collapse-sidebar aria-label="${state.sidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"}"><span>${state.sidebarCollapsed ? "&#9654;" : "&#9664;"}</span><span>${state.sidebarCollapsed ? "Expand" : "Collapse"}</span></button></div></aside><main class="main" id="main-content"><header class="topbar"><div class="topbar-title"><div class="topbar-icon">${emberLogoMark("Ember")}</div><div class="topbar-copy"><div class="topbar-heading-row"><h2>${escapeHtml(domain.label)}</h2><span class="dawn-os-chip">Full rework v8</span></div><p>${formatToday()} &middot; ${state.auth.user.email}</p></div></div><div class="topbar-metrics"><button class="mobile-menu-trigger" data-mobile-nav-open aria-label="Open mobile menu"><span>${iconSvg(domain.id, "Mobile menu")}</span><strong>Menu</strong></button><button class="command-trigger" data-command-open aria-label="Open command palette"><span>${iconSvg("command", "Command palette")}</span><strong>Search</strong><kbd>Ctrl K</kbd></button><div class="metric-pill"><span class="metric-dot"></span><span>Load</span><strong data-shell-load>${intel.loadDisplay || `${intel.loadScore}%`}</strong></div><div class="metric-pill"><span class="metric-dot" style="background:${TOKENS.command};"></span><span>Cloud</span><strong data-shell-cloud>${state.cloudSaveStatus}</strong></div><div class="metric-pill"><span class="metric-dot" data-shell-source-dot style="background:${statusTone(state.sourceConfig.lastSyncStatus)};"></span><span>Source</span><strong data-shell-source>${state.sourceConfig.lastSyncStatus}</strong></div><button class="metric-pill metric-button ${unreadNotifications().length ? "has-unread" : ""}" data-notification-toggle type="button" aria-label="Open notification center"><span class="metric-dot" data-shell-notification-dot style="background:${unreadNotifications().length ? TOKENS.warn : TOKENS.ok};"></span><span>Alerts</span><strong data-shell-notifications>${unreadNotifications().length}</strong></button><button class="upgrade-trigger ${subscriptionTier() === "free" ? "" : "is-active"}" data-paywall-open>${subscriptionTier() === "free" ? "Upgrade" : subscriptionTier() === "pro_plus" ? "Pro+" : "Pro"}</button><button class="surface-action" data-domain="command" data-scroll-personalization>Personalize</button><button class="surface-action" data-auth-signout>Sign Out</button><div class="mini-domain-rail" aria-label="Quick sections">${DOMAINS.filter((item) => item.id !== "command").map((item) => `<button class="stat-dot-button ${item.id === state.activeDomain ? "is-active" : ""}" data-domain="${item.id}" style="--dot:${colorFor(item.id)};" title="${item.label}" aria-label="Open ${item.label}"></button>`).join("")}</div></div></header><div class="content">${contentHtml}</div></main>${renderEmberDock()}${renderOnboarding()}${renderSectionHelp()}</div>`;
   state.lastPlanSnapshot = nextPlanSnapshot;
   persistPlanSnapshotOnly();
   renderToast();

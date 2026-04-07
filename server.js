@@ -382,14 +382,14 @@ const server = http.createServer(async (req, res) => {
   if (pathname === "/api/build-info" && req.method === "GET") {
     sendJson(res, 200, {
       app: "Ember",
-      buildId: "full-rework-7",
+      buildId: "full-rework-8",
       expectedCommit: "latest",
       commit: process.env.VERCEL_GIT_COMMIT_SHA || "local",
       branch: process.env.VERCEL_GIT_COMMIT_REF || "local",
       repo: process.env.VERCEL_GIT_REPO_SLUG || "local",
       deploymentUrl: process.env.VERCEL_URL || "",
       checkedAt: new Date().toISOString(),
-      markers: ["Full rework v7", "ember-dock", "styles.css?v=full-rework-7", "app.js?v=full-rework-7"],
+      markers: ["Full rework v8", "ember-dock", "styles.css?v=full-rework-8", "app.js?v=full-rework-8"],
     });
     return;
   }
