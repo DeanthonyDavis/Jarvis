@@ -240,6 +240,60 @@ alter table public.apex_syllabi
 add constraint apex_syllabi_upload_id_fkey
 foreign key (upload_id) references public.apex_uploads(id) on delete set null;
 
+create table if not exists public.apex_extracted_items (
+  id uuid primary key default gen_random_uuid(),
+  workspace_id uuid not null references public.apex_workspaces(id) on delete cascade,
+  syllabus_id uuid references public.apex_syllabi(id) on delete cascade,
+  upload_id uuid references public.apex_uploads(id) on delete set null,
+  item_type text not null check (item_type in ('homework', 'lab', 'quiz', 'exam', 'final_exam', 'break', 'holiday', 'policy', 'info')),
+  raw_title text not null default '',
+  title text not null,
+  date_text text,
+  parsed_start_date date,
+  parsed_end_date date,
+  due_at timestamptz,
+  confidence numeric(4,3) not null default 0,
+  page integer,
+  section_type text,
+  block_type text,
+  evidence jsonb not null default '[]'::jsonb,
+  review_status text not null default 'needs_review' check (review_status in ('needs_review', 'accepted', 'rejected', 'skip')),
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+create table if not exists public.apex_course_events (
+  id uuid primary key default gen_random_uuid(),
+  workspace_id uuid not null references public.apex_workspaces(id) on delete cascade,
+  class_id uuid references public.apex_classes(id) on delete set null,
+  syllabus_id uuid references public.apex_syllabi(id) on delete set null,
+  extracted_item_id uuid references public.apex_extracted_items(id) on delete set null,
+  event_type text not null check (event_type in ('homework', 'lab', 'quiz', 'exam', 'final_exam', 'break', 'holiday')),
+  title text not null,
+  start_at timestamptz,
+  end_at timestamptz,
+  due_at timestamptz,
+  confidence numeric(4,3) not null default 0,
+  source text not null default 'syllabus_parser',
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+create table if not exists public.apex_calendar_event_links (
+  id uuid primary key default gen_random_uuid(),
+  workspace_id uuid not null references public.apex_workspaces(id) on delete cascade,
+  course_event_id uuid not null references public.apex_course_events(id) on delete cascade,
+  integration_id uuid,
+  provider text not null,
+  external_event_id text,
+  sync_status text not null default 'pending' check (sync_status in ('pending', 'synced', 'failed', 'deleted')),
+  last_synced_at timestamptz,
+  last_error text,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  unique (workspace_id, course_event_id, provider)
+);
+
 create table if not exists public.apex_integrations (
   id uuid primary key default gen_random_uuid(),
   workspace_id uuid not null references public.apex_workspaces(id) on delete cascade,
@@ -291,6 +345,12 @@ create table if not exists public.apex_integration_events (
   result jsonb not null default '{}'::jsonb,
   created_at timestamptz not null default now()
 );
+
+alter table public.apex_calendar_event_links
+drop constraint if exists apex_calendar_event_links_integration_id_fkey;
+alter table public.apex_calendar_event_links
+add constraint apex_calendar_event_links_integration_id_fkey
+foreign key (integration_id) references public.apex_integrations(id) on delete set null;
 
 create table if not exists public.apex_notifications (
   id uuid primary key default gen_random_uuid(),
@@ -377,6 +437,11 @@ create index if not exists apex_notebooks_workspace_id_idx on public.apex_notebo
 create index if not exists apex_notes_workspace_id_idx on public.apex_notes (workspace_id);
 create index if not exists apex_notes_workspace_domain_idx on public.apex_notes (workspace_id, domain);
 create index if not exists apex_uploads_workspace_id_idx on public.apex_uploads (workspace_id);
+create index if not exists apex_extracted_items_workspace_status_idx on public.apex_extracted_items (workspace_id, review_status, item_type);
+create index if not exists apex_extracted_items_syllabus_idx on public.apex_extracted_items (syllabus_id);
+create index if not exists apex_course_events_workspace_due_idx on public.apex_course_events (workspace_id, due_at);
+create index if not exists apex_course_events_workspace_start_idx on public.apex_course_events (workspace_id, start_at);
+create index if not exists apex_calendar_event_links_workspace_status_idx on public.apex_calendar_event_links (workspace_id, sync_status);
 create index if not exists apex_integrations_workspace_provider_idx on public.apex_integrations (workspace_id, provider_type, provider);
 create index if not exists apex_integrations_workspace_sync_idx on public.apex_integrations (workspace_id, sync_status, next_sync_at);
 create index if not exists apex_integrations_workspace_auth_idx on public.apex_integrations (workspace_id, auth_state);
@@ -402,6 +467,9 @@ alter table public.apex_budgets enable row level security;
 alter table public.apex_notebooks enable row level security;
 alter table public.apex_notes enable row level security;
 alter table public.apex_uploads enable row level security;
+alter table public.apex_extracted_items enable row level security;
+alter table public.apex_course_events enable row level security;
+alter table public.apex_calendar_event_links enable row level security;
 alter table public.apex_integrations enable row level security;
 alter table public.apex_integration_events enable row level security;
 alter table public.apex_notifications enable row level security;
@@ -449,6 +517,12 @@ drop policy if exists "Members can manage notes" on public.apex_notes;
 create policy "Members can manage notes" on public.apex_notes for all to authenticated using ((select public.apex_is_workspace_member(workspace_id))) with check ((select public.apex_is_workspace_member(workspace_id)));
 drop policy if exists "Members can manage uploads" on public.apex_uploads;
 create policy "Members can manage uploads" on public.apex_uploads for all to authenticated using ((select public.apex_is_workspace_member(workspace_id))) with check ((select public.apex_is_workspace_member(workspace_id)));
+drop policy if exists "Members can manage extracted items" on public.apex_extracted_items;
+create policy "Members can manage extracted items" on public.apex_extracted_items for all to authenticated using ((select public.apex_is_workspace_member(workspace_id))) with check ((select public.apex_is_workspace_member(workspace_id)));
+drop policy if exists "Members can manage course events" on public.apex_course_events;
+create policy "Members can manage course events" on public.apex_course_events for all to authenticated using ((select public.apex_is_workspace_member(workspace_id))) with check ((select public.apex_is_workspace_member(workspace_id)));
+drop policy if exists "Members can manage calendar event links" on public.apex_calendar_event_links;
+create policy "Members can manage calendar event links" on public.apex_calendar_event_links for all to authenticated using ((select public.apex_is_workspace_member(workspace_id))) with check ((select public.apex_is_workspace_member(workspace_id)));
 drop policy if exists "Members can manage integrations" on public.apex_integrations;
 create policy "Members can manage integrations" on public.apex_integrations for all to authenticated using ((select public.apex_is_workspace_member(workspace_id))) with check ((select public.apex_is_workspace_member(workspace_id)));
 drop policy if exists "Members can manage integration events" on public.apex_integration_events;
@@ -476,6 +550,7 @@ begin
     'apex_workspaces', 'apex_classes', 'apex_assignments', 'apex_syllabi',
     'apex_tasks', 'apex_calendar_events', 'apex_financial_accounts',
     'apex_budgets', 'apex_notebooks', 'apex_notes', 'apex_uploads',
+    'apex_extracted_items', 'apex_course_events', 'apex_calendar_event_links',
     'apex_integrations', 'apex_notification_preferences',
     'apex_scheduler_preferences', 'apex_constraint_rules'
   ]

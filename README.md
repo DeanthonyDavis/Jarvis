@@ -59,6 +59,7 @@ You can still open `index.html` directly for a static-only pass, but the local s
 - Text extraction and AI-style parsing through `/api/ingest` for source uploads, with plain text support, optional PDF/DOCX packages, optional OpenAI/external parser, and Tesseract OCR fallback for images
 - User-created Notebook notes with editable title, body, tags, and domain, plus optional Supabase-backed `apex_notes` records
 - Syllabus review queue that turns an upload into a safe `needs_review -> confirmed` workflow, then creates Academy course/task records only after confirmation
+- Structured parser stages for section detection, schedule/table rows, important dates, exams, labs, homework, quizzes, breaks, holidays, confidence scoring, and dedupe
 - Uploaded source removal from Notebook and the global upload sheet, including Supabase upload/review cleanup when Phase 2 tables are active
 - Domain switching with a collapsible sidebar
 - Command Center driven by computed priorities, conflicts, load, weekly heat, and a real slot-assignment solver pass
@@ -124,11 +125,11 @@ For local testing, copy `.env.example` to `.env` and fill in the same Supabase v
 
 ### Phase 2 Schema
 
-`supabase/phase2_schema.sql` adds the normalized production-model foundation without removing the current workspace blob. It creates workspace membership, classes, assignments, syllabi, tasks, calendar events, finance records, notebooks, uploads, integrations, notifications, activity logs, scheduler preferences, and constraint rules with RLS policies and supporting indexes.
+`supabase/phase2_schema.sql` adds the normalized production-model foundation without removing the current workspace blob. It creates workspace membership, classes, assignments, syllabi, tasks, calendar events, finance records, notebooks, uploads, parser evidence tables, integrations, notifications, activity logs, scheduler preferences, and constraint rules with RLS policies and supporting indexes.
 
 Run it only after `supabase/schema.sql`. The app still uses `apex_user_state` as its compatibility layer until the UI and API are migrated table-by-table. If this file has been run, Ember will create/read a real workspace row and use `apex_notifications` for notification records, `apex_integrations` plus `apex_integration_events` for connector lifecycle state and logs, `apex_activity_log` for audit records, `apex_notes` for Notebook notes, `apex_uploads` for upload metadata, and `apex_syllabi` for syllabus review state. If it has not been run yet, notifications, connector status, connector events, activity, notes, uploads, and syllabus reviews fall back to local workspace state.
 
-The syllabus review flow is intentionally conservative: `/api/ingest` extracts text, creates a parsed review card, and waits for user confirmation before parsed dates and assignments become Academy data. After confirmation, Ember adds the imported course plus extracted assignment/exam tasks when they are present and avoids duplicating existing rows. Plain text works without extra packages. PDF/DOCX extraction uses optional `pdf-parse` and `mammoth` dependencies. Image OCR uses `tesseract.js` as the fallback when available. If `APEX_AI_PARSE_URL` or `OPENAI_API_KEY` is configured, the parser can upgrade from deterministic heuristics to a source-grounded AI parse.
+The syllabus review flow is intentionally conservative: `/api/ingest` extracts text, runs section-aware parsers first, creates a parsed review card, and waits for user confirmation before parsed dates and assignments become Academy data. After confirmation, Ember adds the imported course plus extracted homework/lab/quiz/exam tasks when they are present and avoids duplicating existing rows. Breaks, holidays, policies, and info rows are retained as review evidence but do not create task rows. Plain text works without extra packages. PDF/DOCX extraction uses optional `pdf-parse` and `mammoth` dependencies. Image OCR uses `tesseract.js` as the fallback when available. If `APEX_AI_PARSE_URL` or `OPENAI_API_KEY` is configured, AI parsing is treated as an enrichment layer; Ember keeps the structured parser result if the AI response returns fewer extracted items.
 
 ## First User Testing
 

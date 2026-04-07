@@ -152,26 +152,284 @@ function parseInstructor(line) {
   return match?.[1]?.trim() || "";
 }
 
+const SECTION_TYPES = {
+  important_dates: /^(important\s+dates?|academic\s+calendar|key\s+dates?|course\s+calendar)\b/i,
+  tentative_schedule: /^(tentative\s+schedule|weekly\s+schedule|course\s+schedule|schedule\s+of\s+topics|calendar)\b/i,
+  exams: /^(exams?|tests?|midterms?|final\s+exam)\b/i,
+  labs: /^(labs?|laboratory|lab\s+schedule|simulation\s+labs?)\b/i,
+  homework: /^(homework|assignments?|problem\s+sets?|online\s+homework)\b/i,
+  grade_policy: /^(grading|grade\s+policy|course\s+grade|evaluation|weights?)\b/i,
+  noise: /^(resources?|textbooks?|office\s+hours?|contact|communication|materials?)\b/i,
+};
+
+const EVENT_TYPES = new Set(["homework", "lab", "quiz", "exam", "final_exam", "break", "holiday", "policy", "info"]);
+
+function detectSectionType(line = "") {
+  const normalized = String(line).trim().replace(/[:\-–—]+$/, "");
+  const compact = normalized.replace(/\s+/g, " ");
+  for (const [type, pattern] of Object.entries(SECTION_TYPES)) {
+    if (pattern.test(compact)) return type;
+  }
+  if (/important|key/i.test(compact) && /date/i.test(compact)) return "important_dates";
+  if (/tentative|weekly|course/i.test(compact) && /schedule|calendar/i.test(compact)) return "tentative_schedule";
+  if (/homework|assignment|problem\s+set/i.test(compact) && compact.length < 70) return "homework";
+  if (/lab|laboratory/i.test(compact) && /schedule|experiment|report/i.test(compact) && compact.length < 90) return "labs";
+  if (/exam|test|midterm|final/i.test(compact) && compact.length < 80) return "exams";
+  if (/grading|weight|points|percent|policy/i.test(compact) && compact.length < 100) return "grade_policy";
+  return "";
+}
+
+function looksLikeTableRow(line = "") {
+  const value = String(line).trim();
+  return /\t|\s{2,}|\|/.test(value)
+    || (/(?:^|\s)(?:ch(?:apter)?\.?\s*)?\d{1,2}\b/i.test(value) && hasDate(value))
+    || (/^(?:week|unit|module)\s+\d+/i.test(value) && hasDate(value));
+}
+
+function normalizeBlocks(text) {
+  const lines = cleanText(text).split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
+  let sectionType = "info";
+  return lines.map((line, index) => {
+    const detected = detectSectionType(line);
+    if (detected) sectionType = detected;
+    return {
+      page: 1,
+      line: index + 1,
+      blockType: detected ? "heading" : looksLikeTableRow(line) ? "table_row" : /^[-*•]\s+/.test(line) ? "list_item" : "paragraph",
+      text: line.replace(/^[-*•]\s+/, "").trim(),
+      sectionType: detected || sectionType,
+    };
+  });
+}
+
+function inferYear(text = "") {
+  const explicit = String(text).match(/\b(20\d{2})\b/);
+  return explicit ? Number(explicit[1]) : new Date().getFullYear();
+}
+
+function hasDate(text = "") {
+  return new RegExp(`${MONTH_PATTERN}\\.?\\s+\\d{1,2}|\\b\\d{1,2}\\/\\d{1,2}(?:\\/\\d{2,4})?\\b`, "i").test(String(text));
+}
+
+function monthIndex(value = "") {
+  const key = String(value).slice(0, 3).toLowerCase();
+  return ["jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"].indexOf(key);
+}
+
+function isoDate(year, month, day) {
+  const safeYear = Number(year) || new Date().getFullYear();
+  const safeMonth = String(Number(month) + 1).padStart(2, "0");
+  const safeDay = String(Number(day)).padStart(2, "0");
+  return `${safeYear}-${safeMonth}-${safeDay}`;
+}
+
+function parseDateRange(text = "", defaultYear = new Date().getFullYear()) {
+  const value = String(text).replace(/\s+/g, " ");
+  const monthRange = new RegExp(`\\b${MONTH_PATTERN}\\.?\\s+(\\d{1,2})(?:\\s*(?:-|–|—|to)\\s*(?:(?:${MONTH_PATTERN})\\.?\\s+)?(\\d{1,2}))?(?:,\\s*(20\\d{2}))?`, "i");
+  const monthMatch = value.match(monthRange);
+  if (monthMatch) {
+    const startMonth = monthIndex(monthMatch[1]);
+    const endMonth = monthMatch[3] ? monthIndex(monthMatch[3]) : startMonth;
+    const startDay = Number(monthMatch[2]);
+    const endDay = Number(monthMatch[4] || startDay);
+    const year = Number(monthMatch[5] || defaultYear);
+    return {
+      dateText: monthMatch[0],
+      parsedStartDate: isoDate(year, startMonth, startDay),
+      parsedEndDate: isoDate(year, endMonth, endDay),
+    };
+  }
+
+  const numericRange = value.match(/\b(\d{1,2})\/(\d{1,2})(?:\/(\d{2,4}))?(?:\s*(?:-|–|—|to)\s*(?:(\d{1,2})\/)?(\d{1,2})(?:\/(\d{2,4}))?)?/);
+  if (numericRange) {
+    const startMonth = Number(numericRange[1]) - 1;
+    const startDay = Number(numericRange[2]);
+    const endMonth = Number(numericRange[4] || numericRange[1]) - 1;
+    const endDay = Number(numericRange[5] || numericRange[2]);
+    const rawYear = numericRange[3] || numericRange[6] || defaultYear;
+    const year = Number(rawYear) < 100 ? 2000 + Number(rawYear) : Number(rawYear);
+    return {
+      dateText: numericRange[0],
+      parsedStartDate: isoDate(year, startMonth, startDay),
+      parsedEndDate: isoDate(year, endMonth, endDay),
+    };
+  }
+
+  return { dateText: "", parsedStartDate: "", parsedEndDate: "" };
+}
+
+function normalizeEventType(text = "", sectionType = "") {
+  const value = `${sectionType} ${text}`.toLowerCase();
+  if (/spring\s+break|fall\s+break|winter\s+break|thanksgiving\s+break/.test(value)) return "break";
+  if (/holiday|offices?\s+closed|no\s+class/.test(value)) return "holiday";
+  if (/final\s+exam|comprehensive\s+final/.test(value)) return "final_exam";
+  if (sectionType === "exams" || /\bexam\b|midterm|\btest\b/.test(value)) return "exam";
+  if (/\bquiz\b/.test(value)) return "quiz";
+  if (sectionType === "labs" || /\blab\b|laboratory/.test(value)) return "lab";
+  if (sectionType === "homework" || /\bhw\b|homework|problem\s+set|assignment/.test(value)) return "homework";
+  if (sectionType === "grade_policy" || /policy|grading|weight|percent|attendance|withdrawal/.test(value)) return "policy";
+  return "info";
+}
+
+function chapterTitle(text = "", type = "homework") {
+  const explicit = String(text).match(/\bch(?:apter)?\.?\s*(\d{1,2})\b/i)?.[1];
+  const chapter = explicit || String(text).replace(/\bweek\s+\d{1,2}\b/ig, "").match(/\b(\d{1,2})\b/i)?.[1];
+  if (!chapter) return "";
+  const label = type === "quiz" ? "Quiz" : type === "homework" ? "Homework" : "";
+  return label ? `Chapter ${chapter} ${label}` : "";
+}
+
+function cleanEventTitle(text = "", type = "info") {
+  const value = String(text)
+    .replace(/\b(?:due|opens?|closes?|date|week)\b[:\s]*/ig, " ")
+    .replace(new RegExp(`${MONTH_PATTERN}\\.?\\s+\\d{1,2}(?:\\s*(?:-|–|—|to)\\s*(?:(?:${MONTH_PATTERN})\\.?\\s+)?\\d{1,2})?(?:,\\s*20\\d{2})?`, "ig"), " ")
+    .replace(/\b\d{1,2}\/\d{1,2}(?:\/\d{2,4})?(?:\s*(?:-|–|—|to)\s*(?:\d{1,2}\/)?\d{1,2}(?:\/\d{2,4})?)?/g, " ")
+    .replace(/\s+/g, " ")
+    .replace(/^[|:\-–—,\s]+|[|:\-–—,\s]+$/g, "")
+    .trim();
+  if (type === "break" && /spring\s+break/i.test(text)) return "Spring Break";
+  if (type === "holiday" && /spring\s+holiday/i.test(text)) return "Spring Holiday";
+  if (type === "holiday" && /holiday/i.test(text)) return value || "Holiday";
+  if (type === "final_exam") return value || "Final Exam";
+  if (type === "homework" || type === "quiz") return chapterTitle(text, type) || value.replace(/\bHW\b/ig, "Homework") || (type === "quiz" ? "Quiz" : "Homework");
+  if (type === "lab") return value.replace(/\blab\b/i, "Lab") || "Lab";
+  if (type === "exam") return value || "Exam";
+  return value || text.slice(0, 120);
+}
+
+function makeCandidate(block, type, defaultYear, reason = "") {
+  const dates = parseDateRange(block.text, defaultYear);
+  const itemType = EVENT_TYPES.has(type) ? type : normalizeEventType(block.text, block.sectionType);
+  return {
+    itemType,
+    type: itemType,
+    rawTitle: block.text,
+    title: cleanEventTitle(block.text, itemType),
+    dateText: dates.dateText,
+    parsedStartDate: dates.parsedStartDate,
+    parsedEndDate: dates.parsedEndDate,
+    dueAt: ["homework", "lab", "quiz"].includes(itemType) && dates.parsedStartDate ? `${dates.parsedStartDate}T23:59:00-06:00` : "",
+    status: ["policy", "info"].includes(itemType) ? "skip" : "needs_review",
+    confidence: 0,
+    page: block.page,
+    sectionType: block.sectionType,
+    blockType: block.blockType,
+    evidence: [reason || block.sectionType || block.blockType],
+  };
+}
+
+function confidenceForItem(item, duplicateCount = 1) {
+  let score = 0.35;
+  if (item.blockType === "table_row") score += 0.4;
+  if (item.parsedStartDate || item.dueAt) score += 0.3;
+  if (duplicateCount > 1) score += 0.2;
+  if (item.blockType === "paragraph") score -= 0.3;
+  if (!item.parsedStartDate && !["policy", "info"].includes(item.itemType)) score -= 0.4;
+  if (["break", "holiday", "exam", "final_exam"].includes(item.itemType)) score += 0.1;
+  return Math.max(0.05, Math.min(0.99, Number(score.toFixed(2))));
+}
+
+function dedupeItems(items) {
+  const grouped = new Map();
+  for (const item of items) {
+    const key = [item.itemType, item.title.toLowerCase().replace(/[^a-z0-9]+/g, " "), item.parsedStartDate || item.dateText].join("|");
+    const existing = grouped.get(key);
+    if (!existing) {
+      grouped.set(key, { ...item, evidenceCount: 1 });
+    } else {
+      grouped.set(key, {
+        ...existing,
+        evidenceCount: existing.evidenceCount + 1,
+        evidence: [...new Set([...(existing.evidence || []), ...(item.evidence || [])])],
+        rawTitle: existing.rawTitle.length <= item.rawTitle.length ? existing.rawTitle : item.rawTitle,
+      });
+    }
+  }
+  return [...grouped.values()]
+    .map((item) => ({ ...item, confidence: confidenceForItem(item, item.evidenceCount) }))
+    .sort((a, b) => (a.parsedStartDate || "9999").localeCompare(b.parsedStartDate || "9999") || a.itemType.localeCompare(b.itemType));
+}
+
+function parseImportantDates(blocks, year) {
+  return blocks
+    .filter((block) => block.sectionType === "important_dates" || /spring\s+break|holiday|final\s+exam|withdrawal|offices?\s+closed/i.test(block.text))
+    .map((block) => makeCandidate(block, normalizeEventType(block.text, block.sectionType), year, "important_dates"))
+    .filter((item) => item.itemType !== "info" && (item.parsedStartDate || item.itemType === "policy"));
+}
+
+function parseExams(blocks, year) {
+  return blocks
+    .filter((block) => block.sectionType === "exams" || /\bexam\b|midterm|final\s+exam|\btest\b/i.test(block.text))
+    .map((block) => makeCandidate(block, normalizeEventType(block.text, "exams"), year, "exams"))
+    .filter((item) => ["exam", "final_exam"].includes(item.itemType) && item.parsedStartDate);
+}
+
+function parseLabs(blocks, year) {
+  return blocks
+    .filter((block) => block.sectionType === "labs" || /\blab\b|laboratory/i.test(block.text))
+    .map((block) => makeCandidate(block, "lab", year, "labs"))
+    .filter((item) => item.itemType === "lab" && item.parsedStartDate);
+}
+
+function parseHomework(blocks, year) {
+  return blocks
+    .filter((block) => block.sectionType === "homework" || /\bhw\b|homework|problem\s+set/i.test(block.text))
+    .map((block) => makeCandidate(block, "homework", year, "homework"))
+    .filter((item) => item.itemType === "homework" && item.parsedStartDate);
+}
+
+function parseWeeklySchedule(blocks, year) {
+  const scheduleRows = blocks.filter((block) => block.sectionType === "tentative_schedule" && (block.blockType === "table_row" || hasDate(block.text)));
+  const candidates = [];
+  for (const block of scheduleRows) {
+    const hardType = normalizeEventType(block.text, block.sectionType);
+    if (["break", "holiday", "exam", "final_exam"].includes(hardType)) candidates.push(makeCandidate(block, hardType, year, "weekly_schedule"));
+    if (/\bquiz\b/i.test(block.text)) candidates.push(makeCandidate(block, "quiz", year, "weekly_schedule"));
+    if (/\blab\b|laboratory/i.test(block.text)) candidates.push(makeCandidate(block, "lab", year, "weekly_schedule"));
+    if (/\bhw\b|homework|assignment|problem\s+set/i.test(block.text)) candidates.push(makeCandidate(block, "homework", year, "weekly_schedule"));
+  }
+  return candidates.filter((item) => item.parsedStartDate || ["break", "holiday"].includes(item.itemType));
+}
+
+function parseStructuredItems(text) {
+  const year = inferYear(text);
+  const blocks = normalizeBlocks(text);
+  const items = dedupeItems([
+    ...parseImportantDates(blocks, year),
+    ...parseExams(blocks, year),
+    ...parseLabs(blocks, year),
+    ...parseHomework(blocks, year),
+    ...parseWeeklySchedule(blocks, year),
+  ]);
+  const sections = [...new Set(blocks.map((block) => block.sectionType).filter(Boolean))];
+  return { blocks, items, sections, year };
+}
+
 export function heuristicSyllabusParse(text, fileName = "upload") {
   const cleaned = cleanText(text);
   const lines = cleaned.split(/\r?\n/).map((line) => line.trim()).filter(Boolean).slice(0, 400);
   const joined = lines.join("\n");
+  const structured = parseStructuredItems(cleaned);
   const fileStem = fileName.replace(/\.[^.]+$/, "").replace(/[_-]+/g, " ").trim();
   const codeMatch = joined.match(/\b[A-Z]{2,5}\s*[-]?\s*\d{2,4}[A-Z]?\b/) || fileStem.match(/\b[A-Z]{2,5}\s*[-]?\s*\d{2,4}[A-Z]?\b/);
   const syllabusLine = firstMatch(lines, /syllabus|course overview|course schedule/i);
   const instructorLine = firstMatch(lines, /instructor|professor|teacher|faculty/i);
-  const assignments = parseDateItems(lines, "assignment|homework|problem set|project|paper|essay|lab|quiz|due", "assignment");
-  const exams = parseDateItems(lines, "exam|midterm|final|test", "exam");
+  const assignments = structured.items.filter((item) => ["homework", "lab", "quiz"].includes(item.itemType));
+  const exams = structured.items.filter((item) => ["exam", "final_exam", "break", "holiday"].includes(item.itemType));
   const gradingWeights = parseWeights(lines);
-  const policies = lines
+  const policies = [
+    ...structured.items.filter((item) => ["policy", "info"].includes(item.itemType)),
+    ...lines
     .filter((line) => /attendance|late|make.?up|academic integrity|honor|office hours|grading|policy/i.test(line))
     .slice(0, 8)
-    .map((line) => ({ type: "policy", title: line.slice(0, 140), status: "needs_review" }));
-  const extractedItems = [...assignments, ...exams, ...policies].slice(0, 24);
-  const confidence = Math.min(0.92, Math.max(0.28, (cleaned.length > 500 ? 0.25 : 0) + (codeMatch ? 0.18 : 0) + (assignments.length ? 0.18 : 0) + (exams.length ? 0.14 : 0) + (gradingWeights.length ? 0.12 : 0) + (policies.length ? 0.05 : 0)));
+    .map((line) => ({ itemType: "policy", type: "policy", title: line.slice(0, 140), status: "skip", confidence: 0.45 })),
+  ].slice(0, 12);
+  const extractedItems = [...assignments, ...exams, ...policies].slice(0, 80);
+  const averageItemConfidence = extractedItems.length ? extractedItems.reduce((sum, item) => sum + Number(item.confidence || 0.4), 0) / extractedItems.length : 0;
+  const confidence = Math.min(0.96, Math.max(0.28, averageItemConfidence + (codeMatch ? 0.04 : 0) + (gradingWeights.length ? 0.04 : 0)));
 
   return {
-    parser: "heuristic",
+    parser: "structured-heuristic",
     documentType: /syllabus/i.test(joined) || gradingWeights.length || exams.length ? "syllabus" : assignments.length ? "assignment_sheet" : "unknown",
     courseName: syllabusLine ? syllabusLine.replace(/syllabus/ig, "").replace(/[:|-]/g, " ").trim() || fileStem : fileStem,
     courseCode: codeMatch ? codeMatch[0].toUpperCase().replace("-", " ") : "Needs review",
@@ -182,7 +440,15 @@ export function heuristicSyllabusParse(text, fileName = "upload") {
     policies,
     extractedItems,
     confidence,
-    warning: confidence < 0.65 ? "AI-style parsing found limited structure. Review before scheduling assignments." : "Review extracted dates and grading details before scheduling.",
+    sections: structured.sections,
+    parserStats: {
+      homework: extractedItems.filter((item) => item.itemType === "homework").length,
+      labs: extractedItems.filter((item) => item.itemType === "lab").length,
+      quizzes: extractedItems.filter((item) => item.itemType === "quiz").length,
+      exams: extractedItems.filter((item) => ["exam", "final_exam"].includes(item.itemType)).length,
+      breaks: extractedItems.filter((item) => ["break", "holiday"].includes(item.itemType)).length,
+    },
+    warning: confidence < 0.65 ? "Structured parsing found limited rows. Review before scheduling assignments." : "Review extracted dates and grading details before scheduling.",
     warnings: [],
     sourceTextLength: cleaned.length,
   };
@@ -281,7 +547,12 @@ export async function parseSyllabusWithAi(text, fileName = "upload") {
   for (const parser of [parseWithExternalAi, parseWithOpenAI]) {
     try {
       const parsed = await parser(text, fileName, fallback);
-      if (parsed) return { ...parsed, parser: parsed.parser || "ai", warnings: [...(parsed.warnings || []), ...warnings] };
+      if (parsed) {
+        const fallbackCount = Array.isArray(fallback.extractedItems) ? fallback.extractedItems.length : 0;
+        const parsedCount = Array.isArray(parsed.extractedItems) ? parsed.extractedItems.length : 0;
+        if (parsedCount >= fallbackCount) return { ...parsed, parser: parsed.parser || "ai", warnings: [...(parsed.warnings || []), ...warnings] };
+        warnings.push(`AI parser returned ${parsedCount} item(s); kept structured parser result with ${fallbackCount} item(s).`);
+      }
     } catch (error) {
       warnings.push(error instanceof Error ? error.message : "AI parser failed.");
     }

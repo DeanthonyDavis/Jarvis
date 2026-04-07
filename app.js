@@ -1345,7 +1345,7 @@ function summaryFromParsedUpload(upload, parsed, extraction) {
         ...(Array.isArray(parsed.assignments) ? parsed.assignments : []),
         ...(Array.isArray(parsed.exams) ? parsed.exams : []),
         ...(Array.isArray(parsed.policies) ? parsed.policies : []),
-      ].slice(0, 24);
+      ].slice(0, 80);
   return {
     ...parsed,
     courseName: parsed.courseName || upload.name.replace(/\.[^.]+$/, ""),
@@ -1391,20 +1391,21 @@ function taskItemsFromSyllabusReview(review) {
   const seen = new Set();
   return items
     .map((item) => ({
-      type: String(item.type || "").toLowerCase(),
-      title: String(item.title || item.name || "").trim(),
-      due: String(item.dateText || item.due || item.date || "").trim(),
+      type: String(item.itemType || item.type || "").toLowerCase(),
+      title: String(item.title || item.rawTitle || item.name || "").trim(),
+      due: String(item.dateText || item.dueAt || item.due || item.date || item.parsedStartDate || "").trim(),
       status: String(item.status || "").toLowerCase(),
     }))
     .filter((item) => !(item.status === "needs_review" && !item.due && /^review\s+/i.test(item.title)))
-    .filter((item) => item.title && /assignment|exam|quiz|project|paper|lab|deadline|midterm|final|test/.test(`${item.type} ${item.title}`))
+    .filter((item) => item.title && /homework|assignment|exam|final_exam|quiz|project|paper|lab|deadline|midterm|final|test/.test(`${item.type} ${item.title}`))
+    .filter((item) => !/break|holiday|policy|info/.test(item.type))
     .filter((item) => {
       const key = normalizedKey(item.type, item.title, item.due);
       if (seen.has(key)) return false;
       seen.add(key);
       return true;
     })
-    .slice(0, 20);
+    .slice(0, 80);
 }
 
 function applyConfirmedSyllabusReview(review) {
@@ -2953,7 +2954,8 @@ function renderNotebook(intel) {
   const reviewRows = reviews.map((review) => {
     const summary = review.parsedSummary || {};
     const items = Array.isArray(summary.extractedItems) ? summary.extractedItems : [];
-    return `<div class="review-card" style="--accent:${review.parseStatus === "confirmed" ? TOKENS.ok : TOKENS.academy};"><div class="review-card__head"><div><div class="panel-label">${review.parseStatus === "confirmed" ? "confirmed syllabus" : "needs review"}</div><h4>${escapeHtml(review.title)}</h4></div>${pill(`${Math.round((review.confidence || 0) * 100)}% confidence`, review.parseStatus === "confirmed" ? TOKENS.ok : TOKENS.warn)}</div><div class="review-grid"><span>Course</span><strong>${escapeHtml(summary.courseName || "Needs review")}</strong><span>Code</span><strong>${escapeHtml(summary.courseCode || "Needs review")}</strong><span>Parser</span><strong>${escapeHtml(summary.parser || summary.extractionMethod || "heuristic")}</strong><span>Text</span><strong>${escapeHtml(summary.textStatus || "review")}</strong></div><div class="extraction-list">${items.map((item) => `<div><span>${escapeHtml(item.type)}</span><strong>${escapeHtml(item.title)}${item.dateText ? ` (${escapeHtml(item.dateText)})` : ""}</strong></div>`).join("") || `<div><span>review</span><strong>No structured dates found yet</strong></div>`}</div><p class="footer-note">${review.parseStatus === "confirmed" ? "Added to Academy where parsed course/task data was available." : escapeHtml(summary.warning || "Review before scheduling assignments.")}</p><button class="primary-action" data-syllabus-confirm="${escapeHtml(review.id)}" ${review.parseStatus === "confirmed" ? "disabled" : ""}>${review.parseStatus === "confirmed" ? "Added to Academy" : "Confirm and add to Academy"}</button></div>`;
+    const parserStats = summary.parserStats ? `<p class="footer-note">Found ${summary.parserStats.homework || 0} homework, ${summary.parserStats.labs || 0} labs, ${summary.parserStats.quizzes || 0} quizzes, ${summary.parserStats.exams || 0} exams, and ${summary.parserStats.breaks || 0} break/holiday blocks.</p>` : "";
+    return `<div class="review-card" style="--accent:${review.parseStatus === "confirmed" ? TOKENS.ok : TOKENS.academy};"><div class="review-card__head"><div><div class="panel-label">${review.parseStatus === "confirmed" ? "confirmed syllabus" : "needs review"}</div><h4>${escapeHtml(review.title)}</h4></div>${pill(`${Math.round((review.confidence || 0) * 100)}% confidence`, review.parseStatus === "confirmed" ? TOKENS.ok : TOKENS.warn)}</div><div class="review-grid"><span>Course</span><strong>${escapeHtml(summary.courseName || "Needs review")}</strong><span>Code</span><strong>${escapeHtml(summary.courseCode || "Needs review")}</strong><span>Parser</span><strong>${escapeHtml(summary.parser || summary.extractionMethod || "heuristic")}</strong><span>Text</span><strong>${escapeHtml(summary.textStatus || "review")}</strong></div>${parserStats}<div class="extraction-list">${items.map((item) => `<div><span>${escapeHtml(item.itemType || item.type)}</span><strong>${escapeHtml(item.title || item.rawTitle)}${item.dateText ? ` (${escapeHtml(item.dateText)})` : ""}</strong></div>`).join("") || `<div><span>review</span><strong>No structured dates found yet</strong></div>`}</div><p class="footer-note">${review.parseStatus === "confirmed" ? "Added to Academy where parsed course/task data was available." : escapeHtml(summary.warning || "Review before scheduling assignments.")}</p><button class="primary-action" data-syllabus-confirm="${escapeHtml(review.id)}" ${review.parseStatus === "confirmed" ? "disabled" : ""}>${review.parseStatus === "confirmed" ? "Added to Academy" : "Confirm and add to Academy"}</button></div>`;
   }).join("");
   const noteButtons = filtered.map((note) => `<button class="note-button ${String(note.id) === String(state.activeNoteId) ? "is-active" : ""}" data-note-id="${escapeHtml(note.id)}" style="--accent:${colorFor(note.domain)};"><strong>${escapeHtml(note.title)}</strong><small>${escapeHtml(note.updated)} &middot; ${escapeHtml(note.domain)}</small></button>`).join("");
   const editor = activeNote
