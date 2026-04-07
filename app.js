@@ -737,12 +737,14 @@ function defaultSnapshot() {
       remoteUrl: win && win.location.protocol.startsWith("http") ? "/api/source/live" : DEFAULT_SOURCE_CONFIG.remoteUrl,
     },
     subTabs: { academy: "grades", works: "shifts" },
+    activeCourseId: null,
     toast: null,
     workspace: { id: null, name: "Local workspace", phase2Enabled: false, error: "" },
     notifications: [],
     notificationPanelOpen: false,
     notificationStatus: "local",
     ember: { states: [], messages: [], notificationEvents: [], lastSnapshotKey: "" },
+    emberInteraction: { prompt: "", response: "" },
     activityLog: [],
     integrations: clone(CONNECTOR_TEMPLATES).map((item) => ({
       ...item,
@@ -834,6 +836,7 @@ function loadState() {
       scheduleMode: SCHEDULE_MODES[saved.scheduleMode] ? saved.scheduleMode : defaults.scheduleMode,
       sourceConfig: { ...defaults.sourceConfig, ...(saved.sourceConfig || {}) },
       subTabs: { ...defaults.subTabs, ...(saved.subTabs || {}) },
+      activeCourseId: saved.activeCourseId ?? null,
       workspace: { ...defaults.workspace, ...(saved.workspace || {}) },
       notifications: Array.isArray(saved.notifications) ? saved.notifications : defaults.notifications,
       notificationPanelOpen: Boolean(saved.notificationPanelOpen),
@@ -843,6 +846,10 @@ function loadState() {
         messages: Array.isArray(saved.ember?.messages) ? saved.ember.messages : [],
         notificationEvents: Array.isArray(saved.ember?.notificationEvents) ? saved.ember.notificationEvents : [],
         lastSnapshotKey: saved.ember?.lastSnapshotKey || "",
+      },
+      emberInteraction: {
+        prompt: safeSavedText(saved.emberInteraction?.prompt || "", 180),
+        response: safeSavedText(saved.emberInteraction?.response || "", 520),
       },
       activityLog: Array.isArray(saved.activityLog) ? saved.activityLog : defaults.activityLog,
       integrations: Array.isArray(saved.integrations) ? saved.integrations : defaults.integrations,
@@ -1395,11 +1402,13 @@ function saveState() {
       scheduleMode: state.scheduleMode,
       sourceConfig: state.sourceConfig,
       subTabs: state.subTabs,
+      activeCourseId: state.activeCourseId,
       workspace: state.workspace,
       notifications: state.notifications,
       notificationPanelOpen: state.notificationPanelOpen,
       notificationStatus: state.notificationStatus,
       ember: state.ember,
+      emberInteraction: state.emberInteraction,
       activityLog: state.activityLog,
       integrations: state.integrations,
       noteSearch: state.noteSearch,
@@ -1434,10 +1443,12 @@ function userWorkspaceState() {
     scheduleMode: state.scheduleMode,
     sourceConfig: state.sourceConfig,
     subTabs: state.subTabs,
+    activeCourseId: state.activeCourseId,
     workspace: state.workspace,
     notifications: state.notifications,
     notificationStatus: state.notificationStatus,
     ember: state.ember,
+    emberInteraction: state.emberInteraction,
     activityLog: state.activityLog,
     integrations: state.integrations,
     noteSearch: state.noteSearch,
@@ -1476,6 +1487,7 @@ function applyWorkspaceState(workspace) {
   state.scheduleMode = SCHEDULE_MODES[workspace?.scheduleMode] ? workspace.scheduleMode : base.scheduleMode;
   state.sourceConfig = { ...base.sourceConfig, ...(workspace?.sourceConfig || {}) };
   state.subTabs = { ...base.subTabs, ...(workspace?.subTabs || {}) };
+  state.activeCourseId = workspace?.activeCourseId ?? null;
   state.workspace = { ...base.workspace, ...(workspace?.workspace || {}) };
   state.notifications = Array.isArray(workspace?.notifications) ? workspace.notifications : base.notifications;
   state.notificationStatus = workspace?.notificationStatus || base.notificationStatus;
@@ -1485,6 +1497,10 @@ function applyWorkspaceState(workspace) {
     states: Array.isArray(workspace?.ember?.states) ? workspace.ember.states : base.ember.states,
     messages: Array.isArray(workspace?.ember?.messages) ? workspace.ember.messages : base.ember.messages,
     notificationEvents: Array.isArray(workspace?.ember?.notificationEvents) ? workspace.ember.notificationEvents : base.ember.notificationEvents,
+  };
+  state.emberInteraction = {
+    prompt: safeSavedText(workspace?.emberInteraction?.prompt || "", 180),
+    response: safeSavedText(workspace?.emberInteraction?.response || "", 520),
   };
   state.activityLog = Array.isArray(workspace?.activityLog) ? workspace.activityLog : base.activityLog;
   state.notificationPanelOpen = Boolean(workspace?.notificationPanelOpen);
@@ -1914,6 +1930,8 @@ function courseFromSyllabusReview(review) {
     platform: "Syllabus",
     hist: [],
     source: "syllabus",
+    sourceType: "syllabus_parse",
+    sourceUploadId: review.uploadId || null,
     sourceReviewId: review.id,
   };
 }
@@ -1949,12 +1967,16 @@ function applyConfirmedSyllabusReview(review) {
   const summary = review.parsedSummary || {};
   const course = courseFromSyllabusReview(review);
   let courseAdded = false;
+  let linkedCourse = null;
   if (course) {
     const courseKey = normalizedKey(course.code !== "Review code" ? course.code : course.name);
-    const exists = state.courses.some((item) => normalizedKey(item.code || item.name) === courseKey || item.sourceReviewId === review.id);
+    const exists = state.courses.find((item) => normalizedKey(item.code || item.name) === courseKey || item.sourceReviewId === review.id);
     if (!exists) {
       state.courses = [course, ...state.courses];
+      linkedCourse = course;
       courseAdded = true;
+    } else {
+      linkedCourse = exists;
     }
   }
 
@@ -1971,7 +1993,10 @@ function applyConfirmedSyllabusReview(review) {
         done: false,
         course: summary.courseCode && summary.courseCode !== "Needs review" ? summary.courseCode : course?.code || "",
         source: "syllabus",
+        sourceType: "syllabus_parse",
+        sourceUploadId: review.uploadId || null,
         sourceReviewId: review.id,
+        courseId: linkedCourse?.id || course?.id || null,
       };
       nextId += 1;
       return task;
@@ -1984,7 +2009,7 @@ function applyConfirmedSyllabusReview(review) {
     });
   if (newTasks.length) state.tasks = [...newTasks, ...state.tasks];
 
-  return { courseAdded, tasksAdded: newTasks.length };
+  return { courseAdded, tasksAdded: newTasks.length, courseId: linkedCourse?.id || null };
 }
 
 async function upsertParsedSyllabusReview(upload, parsed, extraction) {
@@ -2385,24 +2410,40 @@ async function attachSourceFiles(files) {
 async function removeUploadedFile(uploadId) {
   const upload = state.uploadedFiles.map(normalizeUpload).find((item) => item.id === uploadId);
   if (!upload) return;
-  const confirmedLinkedReviews = state.syllabusReviews
+  const linkedReviews = state.syllabusReviews
     .map(normalizeSyllabusReview)
-    .filter((review) => review.uploadId === uploadId && review.parseStatus === "confirmed");
-  const message = confirmedLinkedReviews.length
-    ? `Remove ${upload.name}? The file and its review card will disappear, but any Academy tasks already created from it will stay.`
-    : `Remove ${upload.name}? The file and any review card created from it will disappear.`;
-  if (win?.confirm && !win.confirm(message)) return;
-
+    .filter((review) => review.uploadId === uploadId);
+  const linkedReviewIds = new Set(linkedReviews.map((review) => String(review.id)));
+  const linkedCourseIds = new Set(state.courses
+    .filter((course) => course.sourceUploadId === uploadId || linkedReviewIds.has(String(course.sourceReviewId || "")))
+    .map((course) => String(course.id)));
+  const generatedTaskCount = state.tasks.filter((task) =>
+    task.sourceUploadId === uploadId ||
+    linkedReviewIds.has(String(task.sourceReviewId || "")) ||
+    (task.sourceType === "syllabus_parse" && linkedCourseIds.has(String(task.courseId || "")))
+  ).length;
   const beforeUploads = state.uploadedFiles;
   const beforeReviews = state.syllabusReviews;
+  const beforeTasks = state.tasks;
+  const beforeCourses = state.courses;
   state.uploadedFiles = state.uploadedFiles.filter((item) => item.id !== uploadId);
   state.syllabusReviews = state.syllabusReviews.filter((review) => review.uploadId !== uploadId);
+  state.tasks = state.tasks.filter((task) =>
+    task.sourceUploadId !== uploadId &&
+    !linkedReviewIds.has(String(task.sourceReviewId || "")) &&
+    !(task.sourceType === "syllabus_parse" && linkedCourseIds.has(String(task.courseId || "")))
+  );
+  state.courses = state.courses.map((course) =>
+    course.sourceUploadId === uploadId || linkedReviewIds.has(String(course.sourceReviewId || ""))
+      ? { ...course, sourceStatus: "source_removed", sourceUploadId: null }
+      : course
+  );
   saveState();
   renderApp();
   void notifyUser({
     type: "upload_removed",
     title: "Source removed",
-    body: `${upload.name} was removed from your uploaded files.`,
+    body: `${upload.name} was removed. ${generatedTaskCount ? `${generatedTaskCount} syllabus-generated assignment${generatedTaskCount === 1 ? "" : "s"} were removed too.` : "Manual assignments were left alone."}`,
     severity: "info",
     sourceEntityType: "upload",
     sourceEntityId: isUuid(uploadId) ? uploadId : null,
@@ -2412,7 +2453,7 @@ async function removeUploadedFile(uploadId) {
     entityId: isUuid(uploadId) ? uploadId : null,
     actionType: "removed",
     beforeState: { title: upload.name, textStatus: upload.textStatus },
-    afterState: { summary: `${upload.name} removed from source uploads.` },
+    afterState: { summary: `${upload.name} removed from source uploads.`, generatedTasksRemoved: generatedTaskCount },
   });
 
   if (!state.workspace.phase2Enabled || !state.auth.client || !isUuid(uploadId)) return;
@@ -2422,6 +2463,8 @@ async function removeUploadedFile(uploadId) {
   } catch (error) {
     state.uploadedFiles = beforeUploads;
     state.syllabusReviews = beforeReviews;
+    state.tasks = beforeTasks;
+    state.courses = beforeCourses;
     state.workspace = {
       ...state.workspace,
       error: error instanceof Error ? error.message : "Upload removal unavailable.",
@@ -2514,6 +2557,10 @@ async function confirmSyllabusReview(reviewId) {
   });
   state.syllabusReviews = state.syllabusReviews.map((item) => item.id === reviewId ? updated : item);
   const created = wasConfirmed ? { courseAdded: false, tasksAdded: 0 } : applyConfirmedSyllabusReview(updated);
+  if (created.courseId) {
+    state.activeCourseId = created.courseId;
+    state.activeDomain = "academy";
+  }
   rerender();
   notifyUser({
     type: "syllabus_confirmed",
@@ -2604,7 +2651,7 @@ async function createNotebookNote({ domain = "notebook", title = "Untitled note"
   }
 }
 
-function addManualTask({ domain, title, due = "Today", urgent = false, course = "" }) {
+function addManualTask({ domain, title, due = "Today", urgent = false, course = "", courseId = null, source = "manual", sourceType = "manual" }) {
   const task = {
     id: nextNumericTaskId(),
     title,
@@ -2612,8 +2659,11 @@ function addManualTask({ domain, title, due = "Today", urgent = false, course = 
     due,
     urgent,
     done: false,
+    source,
+    sourceType,
   };
   if (course) task.course = course;
+  if (courseId) task.courseId = courseId;
   state.tasks = [task, ...state.tasks].slice(0, 200);
   return task;
 }
@@ -2871,7 +2921,8 @@ async function handleManualEntry(type, values = {}) {
     notifyTitle = "Class added";
     notifyBody = `${name} is now available in School.`;
   } else if (type === "assignment" || type === "exam") {
-    const fallbackCourse = state.courses[0]?.code || state.courses[0]?.name || "Manual";
+    const activeCourse = state.courses.find((course) => String(course.id) === String(state.activeCourseId));
+    const fallbackCourse = activeCourse?.code || activeCourse?.name || state.courses[0]?.code || state.courses[0]?.name || "Manual";
     const title = manualValue(values, "title", type === "exam" ? "Exam" : "Assignment");
     if (!title) return;
     const due = manualValue(values, "due", "Today");
@@ -2881,6 +2932,9 @@ async function handleManualEntry(type, values = {}) {
       due: due || "Today",
       urgent: /today|tomorrow|exam/i.test(`${due} ${type}`),
       course: fallbackCourse,
+      courseId: activeCourse?.id || null,
+      source: "manual",
+      sourceType: "manual",
     });
     state.subTabs.academy = "courses";
     notifyTitle = type === "exam" ? "Exam added" : "Assignment added";
@@ -3449,6 +3503,27 @@ function taskMarkup(task) {
   return `<button class="task-item ${task.done ? "is-done" : ""} ${task.urgent && !task.done ? "is-urgent" : ""}" data-task-id="${task.id}" style="--accent:${colorFor(task.domain)};"><span class="check">${task.done ? "&#10003;" : ""}</span><span class="task-copy"><span class="task-title">${task.title}</span><span class="task-due">${task.due}${task.course ? ` &middot; ${task.course}` : ""}</span></span>${task.urgent && !task.done ? pill("urgent", TOKENS.danger) : ""}</button>`;
 }
 
+function courseTaskMatches(course, task) {
+  if (!course || !task || task.domain !== "academy") return false;
+  const courseId = String(course.id || "");
+  if (courseId && String(task.courseId || "") === courseId) return true;
+  if (course.sourceReviewId && String(task.sourceReviewId || "") === String(course.sourceReviewId)) return true;
+  const courseCode = normalizedKey(course.code);
+  const courseName = normalizedKey(course.name);
+  const taskCourse = normalizedKey(task.course);
+  return Boolean(taskCourse && (taskCourse === courseCode || taskCourse === courseName));
+}
+
+function courseTasks(course) {
+  return state.tasks.filter((task) => courseTaskMatches(course, task));
+}
+
+function courseSourceSummary(course) {
+  if (course.sourceStatus === "source_removed") return "Syllabus source removed";
+  if (course.sourceType === "syllabus_parse" || course.source === "syllabus") return "From syllabus";
+  return course.platform || course.plat || "Manual";
+}
+
 function renderEmberSplashScene() {
   return `<div class="ember-splash-scene" role="img" aria-label="Ember dawn horizon"><div class="ember-splash-sky"></div><div class="ember-sun" aria-hidden="true"></div><div class="ember-horizon-glow" aria-hidden="true"></div><svg class="ember-treeline" viewBox="0 0 320 88" aria-hidden="true"><path d="M0 76h320v12H0V76Zm5 0 18-32 14 32h12l18-46 20 46h16l17-34 13 34h16l28-56 30 56h14l18-38 17 38h17l16-30 16 30h14v12H0V76Z"></path></svg><div class="ember-reflection" aria-hidden="true"></div><div class="ember-ground" aria-hidden="true"></div><div class="ember-wordmark">${emberLogoMark("Ember")}<span>Ember</span><small>School, work, money, and energy in one morning plan.</small></div><div class="dawn-palette-strip" role="img" aria-label="Dawn to Dusk palette"><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span></div><div class="ember-tap-hint"><span></span><small>sign in to enter</small></div></div>`;
 }
@@ -3738,8 +3813,11 @@ function renderUploadSheet() {
   const domain = activeDomain();
   const uploads = state.uploadedFiles.map(normalizeUpload).slice(0, 5);
   const reviews = state.syllabusReviews.map(normalizeSyllabusReview).slice(0, 4);
-  const uploadRows = uploads.map((file) => `<div class="upload-sheet-row"><div><strong>${escapeHtml(file.name)}</strong><span>${escapeHtml(file.textStatus)}${file.extractionMethod ? ` via ${escapeHtml(file.extractionMethod)}` : ""}</span></div><button class="surface-action surface-action--small danger-action" data-upload-remove="${escapeHtml(file.id)}" aria-label="Remove ${escapeHtml(file.name)}">Remove</button></div>`).join("");
-  const reviewRows = reviews.map((review) => `<div class="upload-sheet-row"><strong>${escapeHtml(review.title)}</strong><span>${escapeHtml(review.parseStatus.replace(/_/g, " "))} | ${Math.round((review.confidence || 0) * 100)}% confidence</span></div>`).join("");
+  const uploadRows = uploads.map((file) => {
+    const review = state.syllabusReviews.map(normalizeSyllabusReview).find((item) => String(item.uploadId) === String(file.id));
+    return `<div class="upload-sheet-row"><div><strong>${escapeHtml(file.name)}</strong><span>${escapeHtml(file.textStatus)}${file.extractionMethod ? ` via ${escapeHtml(file.extractionMethod)}` : ""}${review ? ` | ${escapeHtml(review.parseStatus.replace(/_/g, " "))}` : ""}</span></div><div class="row-actions">${review ? `<button class="surface-action surface-action--small" data-domain="notebook">Review</button>` : `<button class="surface-action surface-action--small" data-syllabus-start="${escapeHtml(file.id)}">Review as syllabus</button>`}<button class="surface-action surface-action--small danger-action" data-upload-remove="${escapeHtml(file.id)}" aria-label="Remove ${escapeHtml(file.name)}">Remove</button></div></div>`;
+  }).join("");
+  const reviewRows = reviews.map((review) => `<div class="upload-sheet-row"><strong>${escapeHtml(review.title)}</strong><span>${escapeHtml(review.parseStatus.replace(/_/g, " "))} | ${Math.round((review.confidence || 0) * 100)}% confidence</span>${review.parseStatus === "confirmed" ? "" : `<button class="surface-action surface-action--small" data-syllabus-confirm="${escapeHtml(review.id)}">Confirm</button>`}</div>`).join("");
   panel.className = `upload-sheet theme-${prefs.theme} text-${prefs.fontScale}`;
   panel.innerHTML = `<div class="upload-sheet__scrim" data-upload-sheet-close></div><div class="upload-sheet__panel" role="dialog" aria-modal="true" aria-label="Upload source files"><div class="mobile-nav-grabber"></div><div class="upload-sheet__head"><div><div class="panel-label">source upload</div><h4>Upload without leaving ${escapeHtml(domain?.label || "this section")}</h4><p>Ember will extract text, run syllabus parsing, and create a review card in the background. You stay right where you are.</p></div><button class="surface-action surface-action--small" data-upload-sheet-close aria-label="Close upload">Close</button></div><label class="upload-zone upload-zone--sheet"><input type="file" multiple data-file-upload /><span>Choose syllabus, notes, PDFs, DOCX, TXT, or images</span><small>Parsed results stay in review until you confirm them.</small></label><div class="upload-sheet__stats"><article><div class="panel-label">recent files</div>${uploadRows || `<p class="row-subtitle">No files uploaded yet.</p>`}</article><article><div class="panel-label">review queue</div>${reviewRows || `<p class="row-subtitle">No review cards yet.</p>`}</article></div><div class="footer-note">Tip: confirming a syllabus now creates an Academy course and extracted assignment or exam tasks when the parser finds them.</div></div>`;
 }
@@ -4117,7 +4195,34 @@ function emberActionButton(label, action, className = "primary-action") {
 function renderEmberHomePanel(ember) {
   const priorities = ember.topThree.map((task) => `<div class="ember-priority"><div><strong>${escapeHtml(task.title)}</strong><span>${escapeHtml(task.due || "Today")} &middot; ${escapeHtml(task.course || task.domain || "task")}</span></div>${pill(task.urgent ? "high" : "today", task.urgent ? TOKENS.warn : TOKENS.command)}</div>`).join("");
   const states = ember.states.slice(0, 3).map((item) => `<span>${escapeHtml(item.stateKey.replace(/_/g, " "))}</span>`).join("");
-  return `<article class="panel span-8 ember-home-card" data-ember-home style="--accent:${TOKENS.command};"><div class="ember-card-head"><div class="ember-avatar">${emberLogoMark("Ember")}</div><div><div class="panel-label">EMBER</div><h3>${escapeHtml(ember.dashboard.title)}</h3></div></div><p class="ember-message">${escapeHtml(ember.dashboard.body)}</p><div class="ember-card-actions">${emberActionButton(ember.dashboard.ctaLabel, ember.dashboard.ctaAction?.type || "open_plan")}${emberActionButton("Why Ember said this", "why_ember", "surface-action")}</div><p class="footer-note">${escapeHtml(ember.dashboard.note)}</p><div class="ember-state-strip">${states}</div>${priorities ? `<div class="ember-priority-list"><div class="panel-label">what actually matters today</div>${priorities}</div>` : ""}</article>`;
+  const interaction = state.emberInteraction || {};
+  const response = interaction.response || "Ask Ember what changed, what to do next, or why the plan feels heavy.";
+  return `<article class="panel span-8 ember-home-card" data-ember-home style="--accent:${TOKENS.command};"><div class="ember-card-head"><div class="ember-avatar">${emberLogoMark("Ember")}</div><div><div class="panel-label">EMBER</div><h3>${escapeHtml(ember.dashboard.title)}</h3></div></div><p class="ember-message">${escapeHtml(ember.dashboard.body)}</p><div class="ember-card-actions">${emberActionButton(ember.dashboard.ctaLabel, ember.dashboard.ctaAction?.type || "open_plan")}${emberActionButton("Why Ember said this", "why_ember", "surface-action")}</div><div class="ember-talk-box"><label><span>Talk to Ember</span><input value="${escapeHtml(interaction.prompt || "")}" data-ember-prompt placeholder="Example: what should I do first?" /></label><div class="ember-card-actions"><button class="primary-action" data-ember-ask>Ask Ember</button><button class="surface-action" data-ember-quick="explain">Explain plan</button><button class="surface-action" data-ember-quick="next">Next move</button></div><p>${escapeHtml(response)}</p></div><p class="footer-note">${escapeHtml(ember.dashboard.note)}</p><div class="ember-state-strip">${states}</div>${priorities ? `<div class="ember-priority-list"><div class="panel-label">what actually matters today</div>${priorities}</div>` : ""}</article>`;
+}
+
+function buildEmberInteractionResponse(kind = "ask") {
+  const intel = getIntel();
+  const prompt = String(state.emberInteraction?.prompt || "").trim().toLowerCase();
+  const topTask = intel.topPriorities[0];
+  const conflict = intel.conflicts[0];
+  if (kind === "explain" || /why|explain|plan/.test(prompt)) {
+    return conflict
+      ? `${conflict.title}: ${conflict.text} I am using that conflict plus deadline pressure to keep the next plan conservative.`
+      : topTask
+        ? `I am prioritizing ${topTask.title} because ${topTask.reason || "it has the strongest deadline/load signal right now"}.`
+        : "I do not have enough assignments, shifts, or calendar blocks yet to explain a real plan.";
+  }
+  if (kind === "next" || /first|next|start|do/.test(prompt)) {
+    return topTask
+      ? `Start with ${topTask.title}. Do one focused block, then come back here before adding more.`
+      : "Add one assignment or class first. Ember needs a real school item before it can choose a meaningful next move.";
+  }
+  if (/upload|syllabus|file/.test(prompt)) {
+    return "Upload the syllabus, review the extracted dates, then confirm only the rows that look right. If you remove that syllabus later, Ember now removes the assignments it created from it.";
+  }
+  return topTask
+    ? `I see ${topTask.title} as the cleanest next move. If that feels wrong, tell me what changed and I will explain the tradeoff.`
+    : "I am ready, but I need one real class, task, shift, or file before I can be specific.";
 }
 
 function renderEmberPlannerPanel(ember) {
@@ -4165,9 +4270,36 @@ function simpleListPanel(title, accent, rows, emptyConfig = null) {
 
 function renderAcademy(intel) {
   const tab = state.subTabs.academy;
+  const activeCourse = state.courses.find((course) => String(course.id) === String(state.activeCourseId));
+  if (activeCourse) {
+    const assignments = courseTasks(activeCourse);
+    const openTasks = assignments.filter((task) => !task.done);
+    const doneTasks = assignments.filter((task) => task.done);
+    const sourceReview = activeCourse.sourceReviewId
+      ? state.syllabusReviews.map(normalizeSyllabusReview).find((review) => String(review.id) === String(activeCourse.sourceReviewId))
+      : null;
+    const sourceUpload = activeCourse.sourceUploadId
+      ? state.uploadedFiles.map(normalizeUpload).find((upload) => String(upload.id) === String(activeCourse.sourceUploadId))
+      : null;
+    const statCards = [
+      ["Open", openTasks.length],
+      ["Done", doneTasks.length],
+      ["Urgent", openTasks.filter((task) => task.urgent).length],
+      ["Source", courseSourceSummary(activeCourse)],
+    ].map(([label, value]) => `<div><span>${escapeHtml(label)}</span><strong>${escapeHtml(String(value))}</strong></div>`).join("");
+    const openRows = openTasks.map((task) => taskMarkup(task)).join("");
+    const doneRows = doneTasks.map((task) => taskMarkup(task)).join("");
+    const sourceCopy = sourceUpload
+      ? `${sourceUpload.name} - ${sourceReview?.parseStatus || "review"}`
+      : activeCourse.sourceStatus === "source_removed"
+        ? "The syllabus file was removed. Manual assignments can still be added here."
+        : "Manual class or connector-backed class.";
+    return `<section class="section-shell">${heroBand(intel)}<article class="panel course-detail-panel" style="--accent:${activeCourse.color || TOKENS.academy};"><button class="surface-action surface-action--small" data-course-close>&larr; All classes</button><div class="course-detail-hero"><div><div class="panel-label">class workspace</div><h3>${escapeHtml(activeCourse.name)}</h3><p>${escapeHtml(activeCourse.code || "Manual class")} &middot; ${escapeHtml(sourceCopy)}</p></div><button class="primary-action" data-manual-entry="assignment">Add assignment</button></div><div class="course-detail-stats">${statCards}</div></article><div class="dashboard-grid"><article class="panel span-8" style="--accent:${TOKENS.academy};"><div class="panel-label">assignments for this class</div><div class="section-list">${openRows || emptyState({ domain: "academy", title: "No open assignments in this class.", body: "Add one manually, upload a syllabus, or confirm extracted dates from Sources.", primaryLabel: "Add assignment", primaryDomain: "manual:assignment", secondaryLabel: "Upload syllabus", secondaryDomain: "upload", compact: true })}</div></article><article class="panel span-4" style="--accent:${TOKENS.ok};"><div class="panel-label">completed</div><div class="section-list">${doneRows || stateNotice("loading", "Nothing completed yet", "Finished work will collect here for this class.", "academy")}</div></article></div></section>`;
+  }
   const grades = state.courses.map((course) => {
     const hasGrade = course.grade !== null && course.grade !== undefined && course.grade !== "" && course.target !== null && course.target !== undefined && course.target !== "" && Number.isFinite(Number(course.grade)) && Number.isFinite(Number(course.target));
-    return `<div class="row" style="--accent:${course.color || TOKENS.academy};"><div class="row-copy"><div class="row-title">${escapeHtml(course.name)}</div><div class="row-subtitle">${escapeHtml(course.code)} &middot; ${escapeHtml(course.platform || course.plat || "")}</div></div><strong style="color:${hasGrade && course.grade < course.target ? TOKENS.warn : TOKENS.ok};">${hasGrade ? `${course.grade}%` : "No grade yet"}</strong></div>`;
+    const count = courseTasks(course).length;
+    return `<button class="row course-open-row" data-course-open="${escapeHtml(course.id)}" style="--accent:${course.color || TOKENS.academy};"><div class="row-copy"><div class="row-title">${escapeHtml(course.name)}</div><div class="row-subtitle">${escapeHtml(course.code)} &middot; ${escapeHtml(courseSourceSummary(course))} &middot; ${count} assignment${count === 1 ? "" : "s"}</div></div><strong style="color:${hasGrade && course.grade < course.target ? TOKENS.warn : TOKENS.ok};">${hasGrade ? `${course.grade}%` : "Open"}</strong></button>`;
   }).join("");
   const planner = intel.schedulePlan.filter((item) => item.domain === "academy").map((item) => `<div class="row" style="--accent:${TOKENS.academy};"><div class="row-badge mono">${item.time}</div><div class="row-copy"><div class="row-title">${item.label}</div><div class="row-subtitle">${item.note}</div></div></div>`).join("");
   const courses = state.tasks.filter((task) => task.domain === "academy").map((task) => taskMarkup(task)).join("");
@@ -4329,7 +4461,7 @@ function renderApp() {
   const prefs = normalizePreferences(state.preferences);
   const shellClass = `theme-${prefs.theme} density-${prefs.compactMode === "on" ? "compact" : prefs.density} text-${prefs.fontScale} layout-${prefs.layoutProfile} domain-${domain.id}`;
   const contentHtml = renderContentSafely(intel);
-  app.innerHTML = `<div class="app-shell ${shellClass}" style="--accent:${selectedAccent(domain.id)};"><a class="skip-link" href="#main-content">Skip to content</a><div class="ambient"><div class="orb orb--one"></div><div class="orb orb--two"></div><div class="orb orb--three"></div></div><aside class="sidebar ${state.sidebarCollapsed ? "is-collapsed" : ""}"><div class="brand"><div class="brand-mark">${emberLogoMark("Ember")}</div><div class="brand-copy"><h1>Ember</h1><p>Dawn OS</p></div></div><nav class="sidebar-nav" aria-label="Primary sections">${DOMAINS.map((item) => `<button class="nav-button ${state.activeDomain === item.id ? "is-active" : ""}" data-domain="${item.id}" style="--accent:${colorFor(item.id)};" aria-current="${state.activeDomain === item.id ? "page" : "false"}"><span class="nav-icon">${iconSvg(item.id, item.label)}</span><span class="nav-copy"><strong>${item.label}</strong><span>${item.blurb}</span></span></button>`).join("")}</nav><div class="sidebar-footer"><button class="collapse-button" data-collapse-sidebar aria-label="${state.sidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"}"><span>${state.sidebarCollapsed ? "&#9654;" : "&#9664;"}</span><span>${state.sidebarCollapsed ? "Expand" : "Collapse"}</span></button></div></aside><main class="main" id="main-content"><header class="topbar"><div class="topbar-title"><div class="topbar-icon">${emberLogoMark("Ember")}</div><div class="topbar-copy"><div class="topbar-heading-row"><h2>${escapeHtml(domain.label)}</h2><span class="dawn-os-chip">Full rework v8</span></div><p>${formatToday()} &middot; ${state.auth.user.email}</p></div></div><div class="topbar-metrics"><button class="mobile-menu-trigger" data-mobile-nav-open aria-label="Open mobile menu"><span>${iconSvg(domain.id, "Mobile menu")}</span><strong>Menu</strong></button><button class="command-trigger" data-command-open aria-label="Open command palette"><span>${iconSvg("command", "Command palette")}</span><strong>Search</strong><kbd>Ctrl K</kbd></button><div class="metric-pill"><span class="metric-dot"></span><span>Load</span><strong data-shell-load>${intel.loadDisplay || `${intel.loadScore}%`}</strong></div><div class="metric-pill"><span class="metric-dot" style="background:${TOKENS.command};"></span><span>Cloud</span><strong data-shell-cloud>${state.cloudSaveStatus}</strong></div><div class="metric-pill"><span class="metric-dot" data-shell-source-dot style="background:${statusTone(state.sourceConfig.lastSyncStatus)};"></span><span>Source</span><strong data-shell-source>${state.sourceConfig.lastSyncStatus}</strong></div><button class="metric-pill metric-button ${unreadNotifications().length ? "has-unread" : ""}" data-notification-toggle type="button" aria-label="Open notification center"><span class="metric-dot" data-shell-notification-dot style="background:${unreadNotifications().length ? TOKENS.warn : TOKENS.ok};"></span><span>Alerts</span><strong data-shell-notifications>${unreadNotifications().length}</strong></button><button class="upgrade-trigger ${subscriptionTier() === "free" ? "" : "is-active"}" data-paywall-open>${subscriptionTier() === "free" ? "Upgrade" : subscriptionTier() === "pro_plus" ? "Pro+" : "Pro"}</button><button class="surface-action" data-domain="command" data-scroll-personalization>Personalize</button><button class="surface-action" data-auth-signout>Sign Out</button><div class="mini-domain-rail" aria-label="Quick sections">${DOMAINS.filter((item) => item.id !== "command").map((item) => `<button class="stat-dot-button ${item.id === state.activeDomain ? "is-active" : ""}" data-domain="${item.id}" style="--dot:${colorFor(item.id)};" title="${item.label}" aria-label="Open ${item.label}"></button>`).join("")}</div></div></header><div class="content">${contentHtml}</div></main>${renderEmberDock()}${renderOnboarding()}${renderSectionHelp()}</div>`;
+  app.innerHTML = `<div class="app-shell ${shellClass}" style="--accent:${selectedAccent(domain.id)};"><a class="skip-link" href="#main-content">Skip to content</a><div class="ambient"><div class="orb orb--one"></div><div class="orb orb--two"></div><div class="orb orb--three"></div></div><aside class="sidebar ${state.sidebarCollapsed ? "is-collapsed" : ""}"><div class="brand"><div class="brand-mark">${emberLogoMark("Ember")}</div><div class="brand-copy"><h1>Ember</h1><p>Dawn OS</p></div></div><nav class="sidebar-nav" aria-label="Primary sections">${DOMAINS.map((item) => `<button class="nav-button ${state.activeDomain === item.id ? "is-active" : ""}" data-domain="${item.id}" style="--accent:${colorFor(item.id)};" aria-current="${state.activeDomain === item.id ? "page" : "false"}"><span class="nav-icon">${iconSvg(item.id, item.label)}</span><span class="nav-copy"><strong>${item.label}</strong><span>${item.blurb}</span></span></button>`).join("")}</nav><div class="sidebar-footer"><button class="collapse-button" data-collapse-sidebar aria-label="${state.sidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"}"><span>${state.sidebarCollapsed ? "&#9654;" : "&#9664;"}</span><span>${state.sidebarCollapsed ? "Expand" : "Collapse"}</span></button></div></aside><main class="main" id="main-content"><header class="topbar topbar--toolbelt"><div class="topbar-title"><div class="topbar-icon">${emberLogoMark("Ember")}</div><div class="topbar-copy"><div class="topbar-heading-row"><h2>Ember</h2><span class="topbar-mode">${escapeHtml(domain.label)}</span><span class="dawn-os-chip">Flow fix v9</span></div><p>${escapeHtml(domain.blurb)} &middot; ${formatToday()}</p></div></div><div class="topbar-metrics"><button class="mobile-menu-trigger" data-mobile-nav-open aria-label="Open mobile menu"><span>${iconSvg(domain.id, "Mobile menu")}</span><strong>Menu</strong></button><button class="command-trigger" data-command-open aria-label="Open command palette"><span>${iconSvg("command", "Command palette")}</span><strong>Search</strong><kbd>Ctrl K</kbd></button><div class="metric-pill"><span class="metric-dot"></span><span>Load</span><strong data-shell-load>${intel.loadDisplay || `${intel.loadScore}%`}</strong></div><div class="metric-pill"><span class="metric-dot" style="background:${TOKENS.command};"></span><span>Cloud</span><strong data-shell-cloud>${state.cloudSaveStatus}</strong></div><div class="metric-pill"><span class="metric-dot" data-shell-source-dot style="background:${statusTone(state.sourceConfig.lastSyncStatus)};"></span><span>Source</span><strong data-shell-source>${state.sourceConfig.lastSyncStatus}</strong></div><button class="metric-pill metric-button ${unreadNotifications().length ? "has-unread" : ""}" data-notification-toggle type="button" aria-label="Open notification center"><span class="metric-dot" data-shell-notification-dot style="background:${unreadNotifications().length ? TOKENS.warn : TOKENS.ok};"></span><span>Alerts</span><strong data-shell-notifications>${unreadNotifications().length}</strong></button><button class="upgrade-trigger ${subscriptionTier() === "free" ? "" : "is-active"}" data-paywall-open>${subscriptionTier() === "free" ? "Upgrade" : subscriptionTier() === "pro_plus" ? "Pro+" : "Pro"}</button><button class="surface-action" data-domain="command" data-scroll-personalization>Personalize</button><button class="surface-action" data-auth-signout>Sign Out</button><div class="mini-domain-rail" aria-label="Quick sections">${DOMAINS.filter((item) => item.id !== "command").map((item) => `<button class="stat-dot-button ${item.id === state.activeDomain ? "is-active" : ""}" data-domain="${item.id}" style="--dot:${colorFor(item.id)};" title="${item.label}" aria-label="Open ${item.label}"></button>`).join("")}</div></div></header><div class="content">${contentHtml}</div></main>${renderEmberDock()}${renderOnboarding()}${renderSectionHelp()}</div>`;
   state.lastPlanSnapshot = nextPlanSnapshot;
   persistPlanSnapshotOnly();
   renderToast();
@@ -4600,6 +4732,30 @@ doc?.addEventListener("click", async (event) => {
     }
     return;
   }
+  const emberAsk = target.closest("[data-ember-ask]");
+  if (emberAsk) {
+    state.emberInteraction = {
+      ...(state.emberInteraction || {}),
+      response: buildEmberInteractionResponse("ask"),
+    };
+    saveState();
+    await persistEmberAction("manual_prompt", { prompt: state.emberInteraction.prompt || "" });
+    rerender();
+    return;
+  }
+  const emberQuick = target.closest("[data-ember-quick]");
+  if (emberQuick) {
+    const kind = emberQuick.dataset.emberQuick || "ask";
+    state.emberInteraction = {
+      ...(state.emberInteraction || {}),
+      prompt: kind === "explain" ? "Explain this plan" : "What should I do next?",
+      response: buildEmberInteractionResponse(kind),
+    };
+    saveState();
+    await persistEmberAction(`quick_${kind}`, { surface: "dashboard" });
+    rerender();
+    return;
+  }
   if (target.matches("[data-manual-entry-close]") || target.closest(".manual-entry-sheet__scrim")) { closeManualEntrySheet(); return; }
   if (target.closest("[data-focus-top]")) {
     const intel = getIntel();
@@ -4653,6 +4809,20 @@ doc?.addEventListener("click", async (event) => {
   if (target.closest("[data-widget-reset]")) { resetCommandWidgets(); return; }
   const tab = target.closest("[data-tab-group]");
   if (tab) { state.subTabs[tab.dataset.tabGroup] = tab.dataset.tabValue; rerender(); return; }
+  const courseOpen = target.closest("[data-course-open]");
+  if (courseOpen) {
+    state.activeCourseId = courseOpen.dataset.courseOpen;
+    state.subTabs.academy = "grades";
+    saveState();
+    rerender();
+    return;
+  }
+  if (target.closest("[data-course-close]")) {
+    state.activeCourseId = null;
+    saveState();
+    rerender();
+    return;
+  }
   const task = target.closest("[data-task-id]");
   if (task) {
     const id = Number(task.dataset.taskId);
@@ -4811,6 +4981,12 @@ doc?.addEventListener("input", async (event) => {
   if (dump) { state.brainDump = dump.value; saveState(); return; }
   const checkinNote = target.closest("[data-checkin-note]");
   if (checkinNote) { state.checkin = { ...state.checkin, note: checkinNote.value }; saveState(); return; }
+  const emberPrompt = target.closest("[data-ember-prompt]");
+  if (emberPrompt) {
+    state.emberInteraction = { ...(state.emberInteraction || {}), prompt: emberPrompt.value };
+    saveState();
+    return;
+  }
   const noteTitle = target.closest("[data-note-title]");
   if (noteTitle) { await updateActiveNote({ title: noteTitle.value }); return; }
   const noteBody = target.closest("[data-note-body]");
