@@ -668,6 +668,7 @@ const state = {
   customThemes: [],
   themeDraft: null,
   uploadSheetOpen: false,
+  manualEntry: { open: false, type: "", error: "" },
 };
 state.customThemes = loadCustomThemes();
 state.themeDraft = defaultThemeDraft();
@@ -1975,11 +1976,6 @@ async function createNotebookNote({ domain = "notebook", title = "Untitled note"
   }
 }
 
-function promptText(message, fallback = "") {
-  if (!win?.prompt) return "";
-  return String(win.prompt(message, fallback) || "").trim();
-}
-
 function addManualTask({ domain, title, due = "Today", urgent = false, course = "" }) {
   const task = {
     id: nextNumericTaskId(),
@@ -2006,13 +2002,171 @@ function addManualScheduleBlock({ domain, label, time = "9:00", mins = 60 }) {
   return block;
 }
 
-async function handleManualEntry(type) {
+const MANUAL_ENTRY_CONFIG = {
+  course: {
+    eyebrow: "School",
+    title: "Add class",
+    body: "Create the class now. You can attach a syllabus or LMS connection later.",
+    submit: "Add class",
+    fields: [
+      { key: "code", label: "Class code", placeholder: "MATH 101", optional: true },
+      { key: "name", label: "Class name", placeholder: "Calculus I", required: true },
+    ],
+  },
+  assignment: {
+    eyebrow: "School",
+    title: "Enter assignment",
+    body: "Add one due date manually so School and Plan can use it right away.",
+    submit: "Add assignment",
+    fields: [
+      { key: "title", label: "Assignment title", placeholder: "Problem Set 4", required: true },
+      { key: "due", label: "Due date", placeholder: "Friday 11:59pm" },
+    ],
+  },
+  exam: {
+    eyebrow: "School",
+    title: "Add exam",
+    body: "Create an exam deadline without waiting for syllabus parsing.",
+    submit: "Add exam",
+    fields: [
+      { key: "title", label: "Exam title", placeholder: "Midterm 1", required: true },
+      { key: "due", label: "Exam date", placeholder: "Apr 21" },
+    ],
+  },
+  shift: {
+    eyebrow: "Shift Board",
+    title: "Add shift",
+    body: "Block work time manually before it collides with class, study, or sleep.",
+    submit: "Add shift",
+    fields: [
+      { key: "label", label: "Shift label", placeholder: "Campus lab shift", required: true },
+      { key: "time", label: "Start time", placeholder: "9:00" },
+      { key: "mins", label: "Length in minutes", placeholder: "240", inputType: "number" },
+    ],
+  },
+  time_block: {
+    eyebrow: "Plan",
+    title: "Add time block",
+    body: "Reserve time in the planner for something the solver should respect.",
+    submit: "Add block",
+    fields: [
+      { key: "label", label: "Block label", placeholder: "Study block", required: true },
+      { key: "time", label: "Start time", placeholder: "9:00" },
+      { key: "mins", label: "Length in minutes", placeholder: "60", inputType: "number" },
+    ],
+  },
+  rest_block: {
+    eyebrow: "Recovery",
+    title: "Add rest block",
+    body: "Protect recovery time without turning it into another productivity task.",
+    submit: "Add rest block",
+    fields: [
+      { key: "label", label: "Rest block label", placeholder: "Walk + reset", required: true },
+      { key: "time", label: "Start time", placeholder: "6:00" },
+      { key: "mins", label: "Length in minutes", placeholder: "45", inputType: "number" },
+    ],
+  },
+  work_task: {
+    eyebrow: "Work",
+    title: "Add work task",
+    body: "Track a work commitment without connecting a project tool.",
+    submit: "Add work task",
+    fields: [
+      { key: "title", label: "Task title", placeholder: "Submit timesheet", required: true },
+      { key: "due", label: "Due or target date", placeholder: "This week" },
+    ],
+  },
+  personal_task: {
+    eyebrow: "Money",
+    title: "Add life task",
+    body: "Add an errand, chore, or admin task when it should affect the plan.",
+    submit: "Add task",
+    fields: [
+      { key: "title", label: "Task title", placeholder: "Pay rent", required: true },
+      { key: "due", label: "Due or target date", placeholder: "This week" },
+    ],
+  },
+  goal: {
+    eyebrow: "Path",
+    title: "Add goal",
+    body: "Capture a goal as a schedulable next step, not just a vague idea.",
+    submit: "Add goal",
+    fields: [
+      { key: "title", label: "Goal or milestone", placeholder: "Finish portfolio project", required: true },
+      { key: "due", label: "Target date", placeholder: "This month" },
+    ],
+  },
+  bill: {
+    eyebrow: "Money",
+    title: "Add bill",
+    body: "Add a bill manually so Money can warn you before deadlines stack up.",
+    submit: "Add bill",
+    fields: [
+      { key: "name", label: "Bill name", placeholder: "Rent", required: true },
+      { key: "amount", label: "Amount", placeholder: "850", inputType: "number" },
+      { key: "due", label: "Due date", placeholder: "Apr 8" },
+    ],
+  },
+  income: {
+    eyebrow: "Money",
+    title: "Add income",
+    body: "Add income timing manually. Bank connections can stay optional.",
+    submit: "Add income",
+    fields: [
+      { key: "label", label: "Income label", placeholder: "Paycheck", required: true },
+      { key: "amount", label: "Amount", placeholder: "420", inputType: "number" },
+      { key: "date", label: "Expected date", placeholder: "This week" },
+    ],
+  },
+  budget: {
+    eyebrow: "Money",
+    title: "Set weekly target",
+    body: "Give Money a simple spending target without connecting accounts.",
+    submit: "Set target",
+    fields: [
+      { key: "amount", label: "Weekly spending target", placeholder: "75", inputType: "number", required: true },
+    ],
+  },
+  note: {
+    eyebrow: "Sources",
+    title: "Write note",
+    body: "Create a source note directly inside Ember.",
+    submit: "Create note",
+    fields: [
+      { key: "title", label: "Note title", placeholder: "Untitled note", required: true },
+    ],
+  },
+  future_note: {
+    eyebrow: "Path",
+    title: "Create path note",
+    body: "Capture career or goal context and link it to Path.",
+    submit: "Create note",
+    fields: [
+      { key: "title", label: "Note title", placeholder: "Career path note", required: true },
+    ],
+  },
+  source: {
+    eyebrow: "Sources",
+    title: "Manual source",
+    body: "Add a source placeholder when nothing connects cleanly yet.",
+    submit: "Create source",
+    fields: [
+      { key: "title", label: "Source title", placeholder: "Manual source", required: true },
+    ],
+  },
+};
+
+function manualValue(values, key, fallback = "") {
+  return String(values?.[key] || fallback || "").trim();
+}
+
+async function handleManualEntry(type, values = {}) {
   let created = null;
   let notifyTitle = "Manual item added";
   let notifyBody = "Ember updated from your manual entry.";
 
   if (type === "note" || type === "future_note" || type === "source") {
-    const title = promptText(type === "source" ? "Source title" : "Note title", type === "future_note" ? "Career path note" : type === "source" ? "Manual source" : "Untitled note");
+    const title = manualValue(values, "title", type === "future_note" ? "Career path note" : type === "source" ? "Manual source" : "Untitled note");
     if (!title) return;
     await createNotebookNote({
       domain: type === "future_note" ? "future" : "notebook",
@@ -2023,8 +2177,8 @@ async function handleManualEntry(type) {
   }
 
   if (type === "course") {
-    const code = promptText("Class code (optional)", "MATH 101");
-    const name = promptText("Class name", code || "New class");
+    const code = manualValue(values, "code", "Manual");
+    const name = manualValue(values, "name", code || "New class");
     if (!name) return;
     created = {
       id: localId("course"),
@@ -2044,9 +2198,9 @@ async function handleManualEntry(type) {
     notifyBody = `${name} is now available in School.`;
   } else if (type === "assignment" || type === "exam") {
     const fallbackCourse = state.courses[0]?.code || state.courses[0]?.name || "Manual";
-    const title = promptText(type === "exam" ? "Exam title" : "Assignment title", type === "exam" ? "Exam" : "Assignment");
+    const title = manualValue(values, "title", type === "exam" ? "Exam" : "Assignment");
     if (!title) return;
-    const due = promptText(type === "exam" ? "Exam date" : "Due date", "Today");
+    const due = manualValue(values, "due", "Today");
     created = addManualTask({
       domain: "academy",
       title,
@@ -2059,44 +2213,44 @@ async function handleManualEntry(type) {
     notifyBody = `${title} now appears in School deadlines.`;
   } else if (type === "shift" || type === "time_block" || type === "rest_block") {
     const domain = type === "shift" ? "works" : type === "rest_block" ? "mind" : "command";
-    const label = promptText(type === "shift" ? "Shift label" : type === "rest_block" ? "Rest block label" : "Time block label", type === "shift" ? "Work shift" : type === "rest_block" ? "Recovery block" : "Manual block");
+    const label = manualValue(values, "label", type === "shift" ? "Work shift" : type === "rest_block" ? "Recovery block" : "Manual block");
     if (!label) return;
-    const time = promptText("Start time", "9:00");
-    const mins = promptText("Minutes", type === "shift" ? "240" : "60");
+    const time = manualValue(values, "time", "9:00");
+    const mins = manualValue(values, "mins", type === "shift" ? "240" : "60");
     created = addManualScheduleBlock({ domain, label, time: time || "9:00", mins });
     if (type === "shift") state.subTabs.works = "shifts";
     notifyTitle = type === "shift" ? "Shift added" : "Time block added";
     notifyBody = `${label} is now part of the planner context.`;
   } else if (type === "work_task" || type === "personal_task" || type === "goal") {
     const domain = type === "work_task" ? "works" : type === "goal" ? "future" : "life";
-    const title = promptText(type === "goal" ? "Goal or milestone" : "Task title", type === "goal" ? "New goal" : "New task");
+    const title = manualValue(values, "title", type === "goal" ? "New goal" : "New task");
     if (!title) return;
-    const due = promptText("Target date or due date", "This week");
+    const due = manualValue(values, "due", "This week");
     created = addManualTask({ domain, title, due: due || "This week", urgent: false });
     if (type === "work_task") state.subTabs.works = "tasks";
     notifyTitle = type === "goal" ? "Goal added" : "Task added";
     notifyBody = `${title} now appears in ${DOMAINS.find((domainItem) => domainItem.id === domain)?.label || "Ember"}.`;
   } else if (type === "bill") {
-    const name = promptText("Bill name", "Rent");
+    const name = manualValue(values, "name", "Bill");
     if (!name) return;
-    const amount = promptText("Amount", "100");
-    const due = promptText("Due date", "This week");
+    const amount = manualValue(values, "amount", "0");
+    const due = manualValue(values, "due", "This week");
     created = { name, amount: String(amount || "").startsWith("$") ? amount : `$${amount || 0}`, due: due || "This week", soon: false, manual: true };
     state.bills = [created, ...state.bills];
     notifyTitle = "Bill added";
     notifyBody = `${name} is now part of Money and load context.`;
   } else if (type === "income") {
-    const label = promptText("Income label", "Paycheck");
+    const label = manualValue(values, "label", "Paycheck");
     if (!label) return;
-    const amount = Number(promptText("Amount", "100")) || 0;
-    const date = promptText("Expected date", "This week");
+    const amount = Number(manualValue(values, "amount", "0")) || 0;
+    const date = manualValue(values, "date", "This week");
     created = { label, amount, date: date || "This week", manual: true };
     state.paychecks = [created, ...state.paychecks];
     state.budget = { ...state.budget, income: Number(state.budget.income || 0) + amount, left: Number(state.budget.left || 0) + amount };
     notifyTitle = "Income added";
     notifyBody = `${label} now helps Ember estimate bill coverage.`;
   } else if (type === "budget") {
-    const amount = Number(promptText("Weekly spending target", "75")) || 0;
+    const amount = Number(manualValue(values, "amount", "0")) || 0;
     if (!amount) return;
     created = { weeklyTarget: amount };
     state.budget = { ...state.budget, weeklyTarget: amount, left: Number(state.budget.left || 0) || amount };
@@ -2831,6 +2985,39 @@ function closeUploadSheet() {
   renderUploadSheet();
 }
 
+function openManualEntrySheet(type) {
+  state.manualEntry = { open: true, type, error: "" };
+  renderManualEntrySheet();
+}
+
+function closeManualEntrySheet() {
+  state.manualEntry = { open: false, type: "", error: "" };
+  renderManualEntrySheet();
+}
+
+function renderManualEntrySheet() {
+  let panel = doc?.querySelector("[data-manual-entry-sheet]");
+  if (!state.manualEntry?.open) {
+    panel?.remove();
+    return;
+  }
+  const config = MANUAL_ENTRY_CONFIG[state.manualEntry.type];
+  if (!config) {
+    state.manualEntry = { open: false, type: "", error: "" };
+    panel?.remove();
+    return;
+  }
+  if (!panel) {
+    panel = doc.createElement("aside");
+    panel.setAttribute("data-manual-entry-sheet", "");
+    doc.body.appendChild(panel);
+  }
+  const prefs = normalizePreferences(state.preferences);
+  const fields = config.fields.map((field) => `<label class="manual-entry-field"><span>${escapeHtml(field.label)}${field.optional ? " <small>optional</small>" : ""}</span><input name="${escapeHtml(field.key)}" type="${escapeHtml(field.inputType || "text")}" placeholder="${escapeHtml(field.placeholder || "")}" ${field.required ? "required" : ""} /></label>`).join("");
+  panel.className = `manual-entry-sheet theme-${prefs.theme} text-${prefs.fontScale}`;
+  panel.innerHTML = `<div class="manual-entry-sheet__scrim" data-manual-entry-close></div><form class="manual-entry-sheet__panel" data-manual-entry-form="${escapeHtml(state.manualEntry.type)}" role="dialog" aria-modal="true" aria-label="${escapeHtml(config.title)}"><div class="mobile-nav-grabber"></div><div class="manual-entry-sheet__head"><div><div class="panel-label">${escapeHtml(config.eyebrow)}</div><h4>${escapeHtml(config.title)}</h4><p>${escapeHtml(config.body)}</p></div><button class="surface-action surface-action--small" type="button" data-manual-entry-close aria-label="Close manual entry">Close</button></div>${state.manualEntry.error ? `<div class="auth-error">${escapeHtml(state.manualEntry.error)}</div>` : ""}<div class="manual-entry-fields">${fields}</div><div class="manual-entry-actions"><button class="primary-action" type="submit">${escapeHtml(config.submit)}</button><button class="surface-action" type="button" data-manual-entry-close>Cancel</button></div><p class="footer-note">Connected when possible. Manual when needed.</p></form>`;
+}
+
 function themeButtonMarkup([id, theme]) {
   const prefs = normalizePreferences(state.preferences);
   const active = prefs.themeFamily === id;
@@ -3226,6 +3413,7 @@ function renderApp() {
     renderCommandPalette();
     renderMobileNavSheet();
     renderUploadSheet();
+    renderManualEntrySheet();
     renderAppearanceSettings();
     return;
   }
@@ -3246,6 +3434,7 @@ function renderApp() {
   renderCommandPalette();
   renderMobileNavSheet();
   renderUploadSheet();
+  renderManualEntrySheet();
   renderAppearanceSettings();
 }
 
@@ -3453,7 +3642,8 @@ doc?.addEventListener("click", async (event) => {
   if (target.closest("[data-upload-sheet-open]")) { state.uploadSheetOpen = true; renderUploadSheet(); return; }
   if (target.matches("[data-upload-sheet-close]") || target.closest(".upload-sheet__scrim")) { closeUploadSheet(); return; }
   const manualEntry = target.closest("[data-manual-entry]");
-  if (manualEntry) { await handleManualEntry(manualEntry.dataset.manualEntry); return; }
+  if (manualEntry) { openManualEntrySheet(manualEntry.dataset.manualEntry); return; }
+  if (target.matches("[data-manual-entry-close]") || target.closest(".manual-entry-sheet__scrim")) { closeManualEntrySheet(); return; }
   if (target.closest("[data-focus-top]")) { requestAnimationFrame(() => doc?.querySelector(".schedule-strip--solver")?.scrollIntoView({ block: "start", behavior: "smooth" })); return; }
   const uploadRemove = target.closest("[data-upload-remove]");
   if (uploadRemove) { await removeUploadedFile(uploadRemove.dataset.uploadRemove); return; }
@@ -3592,6 +3782,22 @@ doc?.addEventListener("click", async (event) => {
 
 doc?.addEventListener("submit", async (event) => {
   const target = event.target instanceof Element ? event.target : null;
+  if (target?.matches("[data-manual-entry-form]")) {
+    event.preventDefault();
+    const type = target.dataset.manualEntryForm;
+    const config = MANUAL_ENTRY_CONFIG[type];
+    const formData = new FormData(target);
+    const values = Object.fromEntries(formData.entries());
+    const missing = config?.fields.find((field) => field.required && !String(values[field.key] || "").trim());
+    if (missing) {
+      state.manualEntry = { ...state.manualEntry, error: `${missing.label} is required.` };
+      renderManualEntrySheet();
+      return;
+    }
+    closeManualEntrySheet();
+    await handleManualEntry(type, values);
+    return;
+  }
   if (!target?.matches("[data-auth-form]")) return;
   event.preventDefault();
   await handleAuthSubmit();
@@ -3666,6 +3872,11 @@ doc?.addEventListener("keydown", (event) => {
   if (state.uploadSheetOpen && event.key === "Escape") {
     event.preventDefault();
     closeUploadSheet();
+    return;
+  }
+  if (state.manualEntry?.open && event.key === "Escape") {
+    event.preventDefault();
+    closeManualEntrySheet();
     return;
   }
   if (state.appearancePanelOpen && event.key === "Escape") {
