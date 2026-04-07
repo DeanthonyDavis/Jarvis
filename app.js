@@ -330,6 +330,29 @@ const DEFAULT_ACADEMIC_PERIODS = [
   { id: "term-summer-2026", name: "Summer 2026", type: "summer_session", startDate: "2026-06-01", endDate: "2026-08-07", status: "upcoming", schoolName: "Current school" },
   { id: "term-fall-2026", name: "Fall 2026", type: "semester", startDate: "2026-08-24", endDate: "2026-12-11", status: "upcoming", schoolName: "Current school" },
 ];
+const REQUIREMENT_TEMPLATES = {
+  college: {
+    id: "requirements-college-starter",
+    name: "College starter audit",
+    profileType: "college",
+    groups: [
+      { id: "req-gen-ed", name: "General education", minCredits: 42, items: [{ title: "English composition", courseCode: "ENGL" }, { title: "History / government", courseCode: "HIST" }, { title: "Humanities elective", courseCode: "" }] },
+      { id: "req-math-science", name: "Math and science", minCredits: 18, items: [{ title: "College math sequence", courseCode: "MATH" }, { title: "Lab science", courseCode: "PHYS" }, { title: "Chemistry or biology", courseCode: "CHEM" }] },
+      { id: "req-major", name: "Major core", minCredits: 36, items: [{ title: "Major gateway course", courseCode: "" }, { title: "Upper-level major elective", courseCode: "" }] },
+    ],
+  },
+  high_school: {
+    id: "requirements-high-school-starter",
+    name: "High school graduation starter",
+    profileType: "high_school",
+    groups: [
+      { id: "req-hs-english", name: "English", minCredits: 4, items: [{ title: "English 9-12 sequence", courseCode: "ENGL" }] },
+      { id: "req-hs-math", name: "Math", minCredits: 4, items: [{ title: "Algebra / geometry / advanced math", courseCode: "MATH" }] },
+      { id: "req-hs-science", name: "Science", minCredits: 3, items: [{ title: "Biology / chemistry / physics", courseCode: "SCI" }] },
+      { id: "req-hs-electives", name: "Electives and pathway", minCredits: 6, items: [{ title: "Fine arts / CTE / world language", courseCode: "" }] },
+    ],
+  },
+};
 
 const SECTION_IDENTITY = {
   command: {
@@ -741,6 +764,7 @@ function defaultSnapshot() {
     courses: clone(COURSES),
     academicProfile: clone(DEFAULT_ACADEMIC_PROFILE),
     academicPeriods: clone(DEFAULT_ACADEMIC_PERIODS),
+    academicRequirements: [],
     activeAcademicPeriodId: DEFAULT_CURRENT_PERIOD_ID,
     schedule: clone(SCHEDULE),
     bills: clone(BILLS),
@@ -806,6 +830,7 @@ function emptyUserSnapshot() {
     courses: [],
     academicProfile: clone(DEFAULT_ACADEMIC_PROFILE),
     academicPeriods: clone(DEFAULT_ACADEMIC_PERIODS),
+    academicRequirements: [],
     activeAcademicPeriodId: DEFAULT_CURRENT_PERIOD_ID,
     schedule: [],
     bills: [],
@@ -844,6 +869,7 @@ function loadState() {
       courses: Array.isArray(saved.courses) ? saved.courses : defaults.courses,
       academicProfile: { ...DEFAULT_ACADEMIC_PROFILE, ...(saved.academicProfile || {}) },
       academicPeriods: Array.isArray(saved.academicPeriods) ? saved.academicPeriods : defaults.academicPeriods,
+      academicRequirements: Array.isArray(saved.academicRequirements) ? saved.academicRequirements : defaults.academicRequirements,
       activeAcademicPeriodId: saved.activeAcademicPeriodId || defaults.activeAcademicPeriodId,
       schedule: Array.isArray(saved.schedule) ? saved.schedule : defaults.schedule,
       bills: Array.isArray(saved.bills) ? saved.bills : defaults.bills,
@@ -962,6 +988,7 @@ function sanitizeLoadedStateSnapshot(snapshot) {
     ...snapshot,
     academicProfile: { ...DEFAULT_ACADEMIC_PROFILE, ...(snapshot.academicProfile || {}) },
     academicPeriods,
+    academicRequirements: Array.isArray(snapshot.academicRequirements) ? snapshot.academicRequirements.map(normalizeRequirementSet) : [],
     activeAcademicPeriodId: academicPeriods.some((period) => String(period.id) === String(snapshot.activeAcademicPeriodId))
       ? snapshot.activeAcademicPeriodId
       : academicPeriods.find((period) => period.status === "current")?.id || academicPeriods[0]?.id || DEFAULT_CURRENT_PERIOD_ID,
@@ -1045,9 +1072,13 @@ function currentAcademicPeriodId(periods = state?.academicPeriods || DEFAULT_ACA
 function normalizeCourseRecord(course = {}, periods = state?.academicPeriods || DEFAULT_ACADEMIC_PERIODS) {
   const periodId = course.academicPeriodId || course.academic_period_id || currentAcademicPeriodId(periods);
   const status = COURSE_STATUSES.includes(course.status) ? course.status : "active";
+  const fallbackId = String(course.code || course.course_code || course.name || course.title || "manual-course")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-|-$/g, "") || "manual-course";
   return {
     ...course,
-    id: course.id ?? localId("course"),
+    id: course.id ?? `course-${fallbackId}-${periodId}`,
     name: safeSavedText(course.name || course.title || "Untitled class", 120),
     code: safeSavedText(course.code || course.course_code || "Manual", 40),
     academicPeriodId: periodId,
@@ -1060,6 +1091,28 @@ function normalizeCourseRecord(course = {}, periods = state?.academicPeriods || 
 
 function normalizeCourses(courses = state?.courses || [], periods = state?.academicPeriods || DEFAULT_ACADEMIC_PERIODS) {
   return Array.isArray(courses) ? courses.map((course) => normalizeCourseRecord(course, periods)) : [];
+}
+
+function normalizeRequirementSet(set = {}) {
+  const fallbackId = String(set.name || set.profileType || set.profile_type || "requirement-plan")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-|-$/g, "") || "requirement-plan";
+  return {
+    id: set.id || `requirements-${fallbackId}`,
+    name: safeSavedText(set.name || "Requirement plan", 120),
+    profileType: set.profileType || set.profile_type || "college",
+    groups: Array.isArray(set.groups) ? set.groups.map((group, groupIndex) => ({
+      id: group.id || `group-${groupIndex + 1}`,
+      name: safeSavedText(group.name || `Group ${groupIndex + 1}`, 120),
+      minCredits: Number(group.minCredits || group.min_credits || 0) || 0,
+      items: Array.isArray(group.items) ? group.items.map((item, itemIndex) => ({
+        id: item.id || `item-${groupIndex + 1}-${itemIndex + 1}`,
+        title: safeSavedText(item.title || "Requirement", 120),
+        courseCode: safeSavedText(item.courseCode || item.course_code || "", 40),
+      })) : [],
+    })) : [],
+  };
 }
 
 function visibleCourses({ includeArchived = false, periodId = state?.activeAcademicPeriodId } = {}) {
@@ -1482,6 +1535,7 @@ function saveState() {
       courses: normalizeCourses(state.courses, state.academicPeriods),
       academicProfile: state.academicProfile,
       academicPeriods: normalizeAcademicPeriods(state.academicPeriods),
+      academicRequirements: Array.isArray(state.academicRequirements) ? state.academicRequirements.map(normalizeRequirementSet) : [],
       activeAcademicPeriodId: state.activeAcademicPeriodId,
       schedule: state.schedule,
       bills: state.bills,
@@ -1526,6 +1580,7 @@ function userWorkspaceState() {
     courses: normalizeCourses(state.courses, state.academicPeriods),
     academicProfile: state.academicProfile,
     academicPeriods: normalizeAcademicPeriods(state.academicPeriods),
+    academicRequirements: Array.isArray(state.academicRequirements) ? state.academicRequirements.map(normalizeRequirementSet) : [],
     activeAcademicPeriodId: state.activeAcademicPeriodId,
     schedule: state.schedule,
     bills: state.bills,
@@ -1567,6 +1622,7 @@ function applyWorkspaceState(workspace) {
   state.tasks = Array.isArray(workspace?.tasks) ? workspace.tasks : base.tasks;
   state.academicProfile = { ...DEFAULT_ACADEMIC_PROFILE, ...(workspace?.academicProfile || base.academicProfile || {}) };
   state.academicPeriods = normalizeAcademicPeriods(workspace?.academicPeriods || base.academicPeriods);
+  state.academicRequirements = Array.isArray(workspace?.academicRequirements) ? workspace.academicRequirements.map(normalizeRequirementSet) : [];
   state.activeAcademicPeriodId = state.academicPeriods.some((period) => String(period.id) === String(workspace?.activeAcademicPeriodId))
     ? workspace.activeAcademicPeriodId
     : currentAcademicPeriodId(state.academicPeriods);
@@ -3776,6 +3832,47 @@ function closeActiveAcademicPeriod() {
   });
 }
 
+function requirementItemStatus(item, courses = normalizeCourses(state.courses, state.academicPeriods)) {
+  const code = normalizedKey(item.courseCode).replace(/\|/g, "");
+  if (!code) return { status: "manual_review", label: "Needs mapping", tone: TOKENS.notebook };
+  const matches = courses.filter((course) => normalizedKey(course.code).includes(code));
+  if (matches.some((course) => course.status === "completed")) return { status: "satisfied", label: "Satisfied", tone: TOKENS.ok };
+  if (matches.some((course) => course.status === "active")) return { status: "in_progress", label: "In progress", tone: TOKENS.academy };
+  if (matches.some((course) => course.status === "planned")) return { status: "planned", label: "Planned", tone: TOKENS.future };
+  return { status: "missing", label: "Missing", tone: TOKENS.warn };
+}
+
+function renderRequirementsPanel() {
+  const requirements = Array.isArray(state.academicRequirements) ? state.academicRequirements.map(normalizeRequirementSet) : [];
+  if (!requirements.length) {
+    return `<article class="panel span-12" style="--accent:${TOKENS.academy};">${emptyState({ domain: "academy", title: "No requirement plan yet.", body: "Start with a college or high-school template, then replace it with an uploaded degree sheet or counselor checklist later.", compact: true })}<div class="requirement-template-actions"><button class="primary-action" data-requirement-template="college">Use college starter</button><button class="surface-action" data-requirement-template="high_school">Use high-school starter</button><button class="surface-action" data-upload-sheet-open>Upload checklist</button></div></article>`;
+  }
+  const rows = requirements.map((set) => `<article class="panel span-12 requirement-set" style="--accent:${set.profileType === "high_school" ? TOKENS.future : TOKENS.academy};"><div class="panel-label">${escapeHtml(set.profileType.replace(/_/g, " "))} audit</div><h3>${escapeHtml(set.name)}</h3><div class="requirement-grid">${set.groups.map((group) => `<section class="requirement-group"><div class="requirement-group__head"><strong>${escapeHtml(group.name)}</strong><span>${group.minCredits ? `${group.minCredits} credits` : "rule group"}</span></div>${group.items.map((item) => { const status = requirementItemStatus(item); return `<div class="requirement-item" style="--accent:${status.tone};"><div><strong>${escapeHtml(item.title)}</strong><span>${escapeHtml(item.courseCode || "Manual match needed")}</span></div>${pill(status.label, status.tone)}</div>`; }).join("")}</section>`).join("")}</div></article>`).join("");
+  return rows;
+}
+
+function applyRequirementTemplate(templateKey) {
+  const template = REQUIREMENT_TEMPLATES[templateKey];
+  if (!template) return;
+  state.academicRequirements = [normalizeRequirementSet(clone(template))];
+  state.academicProfile = {
+    ...state.academicProfile,
+    schoolType: template.profileType,
+    programType: template.profileType === "high_school" ? "graduation_path" : "degree",
+    programName: template.name,
+    totalCreditsRequired: template.profileType === "high_school" ? 24 : 120,
+  };
+  state.subTabs.academy = "requirements";
+  saveState();
+  rerender();
+  notifyUser({
+    type: "requirement_template",
+    title: "Requirement plan started",
+    body: `${template.name} is now available in School Progress. Replace it with your real catalog or counselor sheet when ready.`,
+    severity: "success",
+  });
+}
+
 function renderEmberSplashScene() {
   return `<div class="ember-splash-scene" role="img" aria-label="Ember dawn horizon"><div class="ember-splash-sky"></div><div class="ember-sun" aria-hidden="true"></div><div class="ember-horizon-glow" aria-hidden="true"></div><svg class="ember-treeline" viewBox="0 0 320 88" aria-hidden="true"><path d="M0 76h320v12H0V76Zm5 0 18-32 14 32h12l18-46 20 46h16l17-34 13 34h16l28-56 30 56h14l18-38 17 38h17l16-30 16 30h14v12H0V76Z"></path></svg><div class="ember-reflection" aria-hidden="true"></div><div class="ember-ground" aria-hidden="true"></div><div class="ember-wordmark">${emberLogoMark("Ember")}<span>Ember</span><small>School, work, money, and energy in one morning plan.</small></div><div class="dawn-palette-strip" role="img" aria-label="Dawn to Dusk palette"><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span></div><div class="ember-tap-hint"><span></span><small>sign in to enter</small></div></div>`;
 }
@@ -4571,7 +4668,7 @@ function renderAcademy(intel) {
   }).join("");
   const archived = visibleCourses({ includeArchived: true, periodId: null }).map((course) => `<div class="row" style="--accent:${course.status === "completed" ? TOKENS.ok : course.status === "dropped" ? TOKENS.warn : TOKENS.notebook};"><div class="row-copy"><div class="row-title">${escapeHtml(course.name)}</div><div class="row-subtitle">${escapeHtml(course.code)} &middot; ${escapeHtml(course.status)} &middot; ${escapeHtml(periods.find((period) => String(period.id) === String(course.academicPeriodId))?.name || "No term")}</div></div><div class="row-actions"><button class="surface-action surface-action--small" data-course-open="${escapeHtml(course.id)}">Open</button><button class="surface-action surface-action--small" data-course-status="${escapeHtml(course.id)}" data-status-value="active">Restore</button></div></div>`).join("");
   const progressPanel = `<div class="dashboard-grid"><article class="panel span-5 degree-progress-panel" style="--accent:${TOKENS.academy};"><div class="panel-label">degree progress</div><h3>${escapeHtml(state.academicProfile?.programName || "Academic path")}</h3>${gauge(progress.pct, TOKENS.academy, "completed credits", `${progress.completedCredits} of ${progress.totalRequired}`, `${progress.pct}%`)}</article><article class="panel span-7" style="--accent:${TOKENS.future};"><div class="panel-label">credit picture</div><div class="course-detail-stats"><div><span>Completed</span><strong>${progress.completedCredits}</strong></div><div><span>In progress</span><strong>${progress.activeCredits}</strong></div><div><span>Planned</span><strong>${progress.plannedCredits}</strong></div><div><span>Remaining</span><strong>${progress.remainingCredits}</strong></div></div><div class="footer-note" style="margin-top:1rem;">Current term: ${escapeHtml(progress.currentPeriod?.name || "None")} &middot; Next term: ${escapeHtml(progress.upcomingPeriod?.name || "Create one")}</div></article><article class="panel span-12" style="--accent:${TOKENS.warn};"><div class="panel-label">semester rollover</div><h3 class="empty-title">Close the current term when grades settle.</h3><p class="row-subtitle">Ember will move the current term to past, mark active classes with no open work as completed, and archive unfinished active classes for review instead of deleting anything.</p><button class="primary-action" data-close-academic-period>Close current term</button></article></div>`;
-  return `<section class="section-shell">${heroBand(intel)}<div class="academic-period-strip">${periodTabs}<button class="surface-action" data-manual-entry="academic_period">New term</button></div><div class="tab-strip" style="--accent:${TOKENS.academy};">${tabButton("academy", "grades", tab, TOKENS.academy, "classes")}${tabButton("academy", "planner", tab, TOKENS.academy, "study plan")}${tabButton("academy", "courses", tab, TOKENS.academy, "deadlines")}${tabButton("academy", "roadmap", tab, TOKENS.academy, "roadmap")}${tabButton("academy", "progress", tab, TOKENS.academy, "progress")}${tabButton("academy", "archive", tab, TOKENS.academy, "archive")}</div>${tab === "grades" ? simpleListPanel(`${activePeriod?.name || "Current term"} classes`, TOKENS.academy, grades, { domain: "academy", title: "No active classes in this term.", body: "Add a class, upload a syllabus, or select a different semester.", primaryLabel: "Add class", primaryDomain: "manual:course", secondaryLabel: "Upload syllabus", secondaryDomain: "upload", tertiaryLabel: "Connect school", tertiaryDomain: "command" }) : ""}${tab === "planner" ? simpleListPanel("study plan", TOKENS.academy, planner, { domain: "academy", title: "No study plan yet.", body: "Add an assignment or exam manually so Ember can place a real study block.", primaryLabel: "Enter assignment", primaryDomain: "manual:assignment", secondaryLabel: "Add exam", secondaryDomain: "manual:exam", tertiaryLabel: "Upload syllabus", tertiaryDomain: "upload" }) : ""}${tab === "courses" ? simpleListPanel("deadlines", TOKENS.warn, courses, { domain: "academy", title: "No academic deadlines yet.", body: "Deadlines can come from a syllabus, LMS sync, or manual entry.", primaryLabel: "Enter assignment", primaryDomain: "manual:assignment", secondaryLabel: "Add exam", secondaryDomain: "manual:exam", tertiaryLabel: "Upload syllabus", tertiaryDomain: "upload" }) : ""}${tab === "roadmap" ? `<div class="roadmap-grid">${roadmap}</div>` : ""}${tab === "progress" ? progressPanel : ""}${tab === "archive" ? simpleListPanel("archived and completed classes", TOKENS.notebook, archived, { domain: "academy", title: "No archived classes yet.", body: "Completed, dropped, and archived classes will live here instead of cluttering the current semester.", primaryLabel: "Add class", primaryDomain: "manual:course", compact: true }) : ""}</section>`;
+  return `<section class="section-shell">${heroBand(intel)}<div class="academic-period-strip">${periodTabs}<button class="surface-action" data-manual-entry="academic_period">New term</button></div><div class="tab-strip" style="--accent:${TOKENS.academy};">${tabButton("academy", "grades", tab, TOKENS.academy, "classes")}${tabButton("academy", "planner", tab, TOKENS.academy, "study plan")}${tabButton("academy", "courses", tab, TOKENS.academy, "deadlines")}${tabButton("academy", "roadmap", tab, TOKENS.academy, "roadmap")}${tabButton("academy", "progress", tab, TOKENS.academy, "progress")}${tabButton("academy", "requirements", tab, TOKENS.academy, "requirements")}${tabButton("academy", "archive", tab, TOKENS.academy, "archive")}</div>${tab === "grades" ? simpleListPanel(`${activePeriod?.name || "Current term"} classes`, TOKENS.academy, grades, { domain: "academy", title: "No active classes in this term.", body: "Add a class, upload a syllabus, or select a different semester.", primaryLabel: "Add class", primaryDomain: "manual:course", secondaryLabel: "Upload syllabus", secondaryDomain: "upload", tertiaryLabel: "Connect school", tertiaryDomain: "command" }) : ""}${tab === "planner" ? simpleListPanel("study plan", TOKENS.academy, planner, { domain: "academy", title: "No study plan yet.", body: "Add an assignment or exam manually so Ember can place a real study block.", primaryLabel: "Enter assignment", primaryDomain: "manual:assignment", secondaryLabel: "Add exam", secondaryDomain: "manual:exam", tertiaryLabel: "Upload syllabus", tertiaryDomain: "upload" }) : ""}${tab === "courses" ? simpleListPanel("deadlines", TOKENS.warn, courses, { domain: "academy", title: "No academic deadlines yet.", body: "Deadlines can come from a syllabus, LMS sync, or manual entry.", primaryLabel: "Enter assignment", primaryDomain: "manual:assignment", secondaryLabel: "Add exam", secondaryDomain: "manual:exam", tertiaryLabel: "Upload syllabus", tertiaryDomain: "upload" }) : ""}${tab === "roadmap" ? `<div class="roadmap-grid">${roadmap}</div>` : ""}${tab === "progress" ? progressPanel : ""}${tab === "requirements" ? `<div class="dashboard-grid">${renderRequirementsPanel()}</div>` : ""}${tab === "archive" ? simpleListPanel("archived and completed classes", TOKENS.notebook, archived, { domain: "academy", title: "No archived classes yet.", body: "Completed, dropped, and archived classes will live here instead of cluttering the current semester.", primaryLabel: "Add class", primaryDomain: "manual:course", compact: true }) : ""}</section>`;
 }
 
 function renderWorks(intel) {
@@ -4733,7 +4830,7 @@ function renderApp() {
   const prefs = normalizePreferences(state.preferences);
   const shellClass = `theme-${prefs.theme} density-${prefs.compactMode === "on" ? "compact" : prefs.density} text-${prefs.fontScale} layout-${prefs.layoutProfile} domain-${domain.id}`;
   const contentHtml = renderContentSafely(intel);
-  app.innerHTML = `<div class="app-shell ${shellClass}" style="--accent:${selectedAccent(domain.id)};"><a class="skip-link" href="#main-content">Skip to content</a><div class="ambient"><div class="orb orb--one"></div><div class="orb orb--two"></div><div class="orb orb--three"></div></div><aside class="sidebar ${state.sidebarCollapsed ? "is-collapsed" : ""}"><div class="brand"><div class="brand-mark">${emberLogoMark("Ember")}</div><div class="brand-copy"><h1>Ember</h1><p>Dawn OS</p></div></div><nav class="sidebar-nav" aria-label="Primary sections">${DOMAINS.map((item) => `<button class="nav-button ${state.activeDomain === item.id ? "is-active" : ""}" data-domain="${item.id}" style="--accent:${colorFor(item.id)};" aria-current="${state.activeDomain === item.id ? "page" : "false"}"><span class="nav-icon">${iconSvg(item.id, item.label)}</span><span class="nav-copy"><strong>${item.label}</strong><span>${item.blurb}</span></span></button>`).join("")}</nav><div class="sidebar-footer"><button class="collapse-button" data-collapse-sidebar aria-label="${state.sidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"}"><span>${state.sidebarCollapsed ? "&#9654;" : "&#9664;"}</span><span>${state.sidebarCollapsed ? "Expand" : "Collapse"}</span></button></div></aside><main class="main" id="main-content"><header class="topbar topbar--toolbelt"><div class="topbar-title"><div class="topbar-icon">${emberLogoMark("Ember")}</div><div class="topbar-copy"><div class="topbar-heading-row"><h2>Ember</h2><span class="topbar-mode">${escapeHtml(domain.label)}</span><span class="dawn-os-chip">Academic progress v11</span></div><p>${escapeHtml(domain.blurb)} &middot; ${formatToday()}</p></div></div><div class="topbar-metrics"><button class="mobile-menu-trigger" data-mobile-nav-open aria-label="Open mobile menu"><span>${iconSvg(domain.id, "Mobile menu")}</span><strong>Menu</strong></button><button class="command-trigger" data-command-open aria-label="Open command palette"><span>${iconSvg("command", "Command palette")}</span><strong>Search</strong><kbd>Ctrl K</kbd></button><div class="metric-pill"><span class="metric-dot"></span><span>Load</span><strong data-shell-load>${intel.loadDisplay || `${intel.loadScore}%`}</strong></div><div class="metric-pill"><span class="metric-dot" style="background:${TOKENS.command};"></span><span>Cloud</span><strong data-shell-cloud>${state.cloudSaveStatus}</strong></div><div class="metric-pill"><span class="metric-dot" data-shell-source-dot style="background:${statusTone(state.sourceConfig.lastSyncStatus)};"></span><span>Source</span><strong data-shell-source>${state.sourceConfig.lastSyncStatus}</strong></div><button class="metric-pill metric-button ${unreadNotifications().length ? "has-unread" : ""}" data-notification-toggle type="button" aria-label="Open notification center"><span class="metric-dot" data-shell-notification-dot style="background:${unreadNotifications().length ? TOKENS.warn : TOKENS.ok};"></span><span>Alerts</span><strong data-shell-notifications>${unreadNotifications().length}</strong></button><button class="upgrade-trigger ${subscriptionTier() === "free" ? "" : "is-active"}" data-paywall-open>${subscriptionTier() === "free" ? "Upgrade" : subscriptionTier() === "pro_plus" ? "Pro+" : "Pro"}</button><button class="surface-action" data-domain="command" data-scroll-personalization>Personalize</button><button class="surface-action" data-auth-signout>Sign Out</button><div class="mini-domain-rail" aria-label="Quick sections">${DOMAINS.filter((item) => item.id !== "command").map((item) => `<button class="stat-dot-button ${item.id === state.activeDomain ? "is-active" : ""}" data-domain="${item.id}" style="--dot:${colorFor(item.id)};" title="${item.label}" aria-label="Open ${item.label}"></button>`).join("")}</div></div></header><div class="content">${contentHtml}</div></main>${renderEmberDock()}${renderOnboarding()}${renderSectionHelp()}</div>`;
+  app.innerHTML = `<div class="app-shell ${shellClass}" style="--accent:${selectedAccent(domain.id)};"><a class="skip-link" href="#main-content">Skip to content</a><div class="ambient"><div class="orb orb--one"></div><div class="orb orb--two"></div><div class="orb orb--three"></div></div><aside class="sidebar ${state.sidebarCollapsed ? "is-collapsed" : ""}"><div class="brand"><div class="brand-mark">${emberLogoMark("Ember")}</div><div class="brand-copy"><h1>Ember</h1><p>Dawn OS</p></div></div><nav class="sidebar-nav" aria-label="Primary sections">${DOMAINS.map((item) => `<button class="nav-button ${state.activeDomain === item.id ? "is-active" : ""}" data-domain="${item.id}" style="--accent:${colorFor(item.id)};" aria-current="${state.activeDomain === item.id ? "page" : "false"}"><span class="nav-icon">${iconSvg(item.id, item.label)}</span><span class="nav-copy"><strong>${item.label}</strong><span>${item.blurb}</span></span></button>`).join("")}</nav><div class="sidebar-footer"><button class="collapse-button" data-collapse-sidebar aria-label="${state.sidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"}"><span>${state.sidebarCollapsed ? "&#9654;" : "&#9664;"}</span><span>${state.sidebarCollapsed ? "Expand" : "Collapse"}</span></button></div></aside><main class="main" id="main-content"><header class="topbar topbar--toolbelt"><div class="topbar-title"><div class="topbar-icon">${emberLogoMark("Ember")}</div><div class="topbar-copy"><div class="topbar-heading-row"><h2>Ember</h2><span class="topbar-mode">${escapeHtml(domain.label)}</span><span class="dawn-os-chip">Academic requirements v12</span></div><p>${escapeHtml(domain.blurb)} &middot; ${formatToday()}</p></div></div><div class="topbar-metrics"><button class="mobile-menu-trigger" data-mobile-nav-open aria-label="Open mobile menu"><span>${iconSvg(domain.id, "Mobile menu")}</span><strong>Menu</strong></button><button class="command-trigger" data-command-open aria-label="Open command palette"><span>${iconSvg("command", "Command palette")}</span><strong>Search</strong><kbd>Ctrl K</kbd></button><div class="metric-pill"><span class="metric-dot"></span><span>Load</span><strong data-shell-load>${intel.loadDisplay || `${intel.loadScore}%`}</strong></div><div class="metric-pill"><span class="metric-dot" style="background:${TOKENS.command};"></span><span>Cloud</span><strong data-shell-cloud>${state.cloudSaveStatus}</strong></div><div class="metric-pill"><span class="metric-dot" data-shell-source-dot style="background:${statusTone(state.sourceConfig.lastSyncStatus)};"></span><span>Source</span><strong data-shell-source>${state.sourceConfig.lastSyncStatus}</strong></div><button class="metric-pill metric-button ${unreadNotifications().length ? "has-unread" : ""}" data-notification-toggle type="button" aria-label="Open notification center"><span class="metric-dot" data-shell-notification-dot style="background:${unreadNotifications().length ? TOKENS.warn : TOKENS.ok};"></span><span>Alerts</span><strong data-shell-notifications>${unreadNotifications().length}</strong></button><button class="upgrade-trigger ${subscriptionTier() === "free" ? "" : "is-active"}" data-paywall-open>${subscriptionTier() === "free" ? "Upgrade" : subscriptionTier() === "pro_plus" ? "Pro+" : "Pro"}</button><button class="surface-action" data-domain="command" data-scroll-personalization>Personalize</button><button class="surface-action" data-auth-signout>Sign Out</button><div class="mini-domain-rail" aria-label="Quick sections">${DOMAINS.filter((item) => item.id !== "command").map((item) => `<button class="stat-dot-button ${item.id === state.activeDomain ? "is-active" : ""}" data-domain="${item.id}" style="--dot:${colorFor(item.id)};" title="${item.label}" aria-label="Open ${item.label}"></button>`).join("")}</div></div></header><div class="content">${contentHtml}</div></main>${renderEmberDock()}${renderOnboarding()}${renderSectionHelp()}</div>`;
   state.lastPlanSnapshot = nextPlanSnapshot;
   persistPlanSnapshotOnly();
   renderToast();
@@ -5091,6 +5188,11 @@ doc?.addEventListener("click", async (event) => {
   }
   if (target.closest("[data-close-academic-period]")) {
     closeActiveAcademicPeriod();
+    return;
+  }
+  const requirementTemplate = target.closest("[data-requirement-template]");
+  if (requirementTemplate) {
+    applyRequirementTemplate(requirementTemplate.dataset.requirementTemplate);
     return;
   }
   const courseOpen = target.closest("[data-course-open]");

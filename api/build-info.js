@@ -1,4 +1,4 @@
-const BUILD_ID = "academic-progress-11";
+const BUILD_ID = "academic-requirements-12";
 
 export default function handler(_req, res) {
   res.status(200).json({
@@ -10,6 +10,6 @@ export default function handler(_req, res) {
     repo: process.env.VERCEL_GIT_REPO_SLUG || "",
     deploymentUrl: process.env.VERCEL_URL || "",
     checkedAt: new Date().toISOString(),
-    markers: ["Academic progress v11", "ember-dock", "styles.css?v=academic-progress-11", "app.js?v=academic-progress-11"],
+    markers: ["Academic requirements v12", "ember-dock", "styles.css?v=academic-requirements-12", "app.js?v=academic-requirements-12"],
   });
 }
