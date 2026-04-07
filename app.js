@@ -479,6 +479,51 @@ const SCHEDULE_MODES = {
   },
 };
 
+const DOMAIN_ATMOSPHERES = {
+  command: {
+    label: "Dawn board",
+    title: "Start with the next honest move.",
+    body: "A warm read on school, work, money, and energy before the day gets loud.",
+    temperature: "dawn",
+  },
+  academy: {
+    label: "Forest study",
+    title: "School has its own terrain.",
+    body: "Classes, syllabi, exams, and assignment risk stay grouped so they do not blur into everything else.",
+    temperature: "forest",
+  },
+  works: {
+    label: "Shift light",
+    title: "Work hours stay visible.",
+    body: "Shifts, pay impact, and collisions get their own board before they damage the week.",
+    temperature: "copper",
+  },
+  life: {
+    label: "Money weather",
+    title: "Know what is safe before you spend.",
+    body: "Bills, income, subscriptions, and weekly targets stay separate from the school planner.",
+    temperature: "gold",
+  },
+  future: {
+    label: "Long road",
+    title: "Turn goals into steps.",
+    body: "Career and semester direction stay quieter until there is a real next action.",
+    temperature: "sky",
+  },
+  mind: {
+    label: "Dusk recovery",
+    title: "Recovery changes the plan.",
+    body: "Check-ins and rest blocks shape the schedule without making the app feel clinical.",
+    temperature: "violet",
+  },
+  notebook: {
+    label: "Source desk",
+    title: "Keep evidence separate until you approve it.",
+    body: "Uploads, notes, and syllabus extractions stay inspectable before they touch your calendar.",
+    temperature: "paper",
+  },
+};
+
 const DOMAIN_ICONS = {
   command: "M8 2.5 3.5 9h4L5.5 17.5 14 7h-4l2-4.5Z",
   academy: "M2.5 7.5 10 3.5l7.5 4-7.5 4-7.5-4ZM5.5 10v3.2c1.5 1.5 7.5 1.5 9 0V10",
@@ -3757,6 +3802,13 @@ function heroActionButton([label, action], index) {
   return `<button class="${className}" data-domain="${escapeHtml(action)}">${escapeHtml(label)}</button>`;
 }
 
+function emberAtmosphereBand(intel) {
+  const domain = activeDomain();
+  const atmosphere = DOMAIN_ATMOSPHERES[domain.id] || DOMAIN_ATMOSPHERES.command;
+  const loadValue = intel.loadDisplay || `${intel.loadScore}%`;
+  return `<section class="ember-atmosphere ember-atmosphere--${escapeHtml(domain.id)}" style="--accent:${colorFor(domain.id)};"><div class="ember-atmosphere__orb" aria-hidden="true">${emberLogoMark("Ember")}</div><div class="ember-atmosphere__copy"><div class="panel-label">${escapeHtml(atmosphere.label)}</div><h2>${escapeHtml(atmosphere.title)}</h2><p>${escapeHtml(atmosphere.body)}</p></div><div class="ember-atmosphere__meta"><span>${escapeHtml(atmosphere.temperature)}</span><strong>${escapeHtml(loadValue)}</strong><small>${escapeHtml(state.scheduleMode || "balanced")} plan</small></div></section>`;
+}
+
 function heroBand(intel) {
   const domain = activeDomain();
   const identity = SECTION_IDENTITY[domain.id] || SECTION_IDENTITY.command;
@@ -3775,7 +3827,7 @@ function heroBand(intel) {
     mind: [state.checkin.energy || "--", burnoutRisk(intel), state.schedule.filter((item) => item.domain === "mind").length, loadValue],
     notebook: [state.uploadedFiles.length, state.syllabusReviews.length, state.notes.length, state.syllabusReviews.filter((review) => review.parseStatus === "needs_review").length],
   }[domain.id] || [loadValue, intel.openUrgentCount, `${intel.solverSummary.scheduledMinutes}m`, intel.solverSummary.hardGuardrails];
-  return `<section class="hero-band hero-band--${domain.id}" style="--accent:${colorFor(domain.id)};"><div class="hero-copy"><div class="eyebrow">${iconSvg(domain.id)}<span>${escapeHtml(identity.eyebrow)}</span></div><h3>${escapeHtml(identity.title)}</h3><p>${escapeHtml(identity.body)}</p><div class="hero-actions">${identity.actions.map(heroActionButton).join("")}${pill(loadMode, intel.loadScore >= 70 ? TOKENS.warn : colorFor(domain.id))}</div></div><div class="hero-stats">${identity.stats.map((label, index) => `<div class="hero-stat"><span>${escapeHtml(label)}</span><strong>${escapeHtml(statValues[index] ?? "--")}</strong></div>`).join("")}</div></section>`;
+  return `${emberAtmosphereBand(intel)}<section class="hero-band hero-band--${domain.id}" style="--accent:${colorFor(domain.id)};"><div class="hero-copy"><div class="eyebrow">${iconSvg(domain.id)}<span>${escapeHtml(identity.eyebrow)}</span></div><h3>${escapeHtml(identity.title)}</h3><p>${escapeHtml(identity.body)}</p><div class="hero-actions">${identity.actions.map(heroActionButton).join("")}${pill(loadMode, intel.loadScore >= 70 ? TOKENS.warn : colorFor(domain.id))}</div></div><div class="hero-stats">${identity.stats.map((label, index) => `<div class="hero-stat"><span>${escapeHtml(label)}</span><strong>${escapeHtml(statValues[index] ?? "--")}</strong></div>`).join("")}</div></section>`;
 }
 
 function renderConstraintPanel(intel) {
@@ -4109,7 +4161,7 @@ function renderApp() {
   if (latestPlanChanges.status !== "stable") state.lastPlanChanges = latestPlanChanges;
   intel.planChanges = state.lastPlanChanges || latestPlanChanges;
   const prefs = normalizePreferences(state.preferences);
-  const shellClass = `theme-${prefs.theme} density-${prefs.compactMode === "on" ? "compact" : prefs.density} text-${prefs.fontScale} layout-${prefs.layoutProfile}`;
+  const shellClass = `theme-${prefs.theme} density-${prefs.compactMode === "on" ? "compact" : prefs.density} text-${prefs.fontScale} layout-${prefs.layoutProfile} domain-${domain.id}`;
   const gradient = currentThemeDefinition().tokens;
   app.innerHTML = `<div class="app-shell ${shellClass}" style="--accent:${selectedAccent(domain.id)}; --student-gradient:${gradient.gradientA}; --student-gradient-soft:${gradient.gradientB};"><a class="skip-link" href="#main-content">Skip to content</a><div class="ambient"><div class="orb orb--one"></div><div class="orb orb--two"></div><div class="orb orb--three"></div></div><aside class="sidebar ${state.sidebarCollapsed ? "is-collapsed" : ""}"><div class="brand"><div class="brand-mark">${emberLogoMark("Ember")}</div><div class="brand-copy"><h1>Ember</h1><p>Dawn OS</p></div></div><nav class="sidebar-nav" aria-label="Primary sections">${DOMAINS.map((item) => `<button class="nav-button ${state.activeDomain === item.id ? "is-active" : ""}" data-domain="${item.id}" style="--accent:${colorFor(item.id)};" aria-current="${state.activeDomain === item.id ? "page" : "false"}"><span class="nav-icon">${iconSvg(item.id, item.label)}</span><span class="nav-copy"><strong>${item.label}</strong><span>${item.blurb}</span></span></button>`).join("")}</nav><div class="sidebar-footer"><button class="collapse-button" data-collapse-sidebar aria-label="${state.sidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"}"><span>${state.sidebarCollapsed ? "&#9654;" : "&#9664;"}</span><span>${state.sidebarCollapsed ? "Expand" : "Collapse"}</span></button></div></aside><main class="main" id="main-content"><header class="topbar"><div class="topbar-title"><div class="topbar-icon">${iconSvg(domain.id, domain.label)}</div><div class="topbar-copy"><h2>Ember ${domain.label}</h2><p>${formatToday()} &middot; ${state.auth.user.email}</p></div></div><div class="topbar-metrics"><button class="mobile-menu-trigger" data-mobile-nav-open aria-label="Open mobile menu"><span>${iconSvg(domain.id, "Mobile menu")}</span><strong>Menu</strong></button><button class="command-trigger" data-command-open aria-label="Open command palette"><span>${iconSvg("command", "Command palette")}</span><strong>Search</strong><kbd>Ctrl K</kbd></button><div class="metric-pill"><span class="metric-dot"></span><span>Load</span><strong data-shell-load>${intel.loadDisplay || `${intel.loadScore}%`}</strong></div><div class="metric-pill"><span class="metric-dot" style="background:${TOKENS.command};"></span><span>Cloud</span><strong data-shell-cloud>${state.cloudSaveStatus}</strong></div><div class="metric-pill"><span class="metric-dot" data-shell-source-dot style="background:${statusTone(state.sourceConfig.lastSyncStatus)};"></span><span>Source</span><strong data-shell-source>${state.sourceConfig.lastSyncStatus}</strong></div><button class="metric-pill metric-button ${unreadNotifications().length ? "has-unread" : ""}" data-notification-toggle type="button" aria-label="Open notification center"><span class="metric-dot" data-shell-notification-dot style="background:${unreadNotifications().length ? TOKENS.warn : TOKENS.ok};"></span><span>Alerts</span><strong data-shell-notifications>${unreadNotifications().length}</strong></button><button class="upgrade-trigger ${subscriptionTier() === "free" ? "" : "is-active"}" data-paywall-open>${subscriptionTier() === "free" ? "Upgrade" : subscriptionTier() === "pro_plus" ? "Pro+" : "Pro"}</button><button class="surface-action" data-domain="command" data-scroll-personalization>Personalize</button><button class="surface-action" data-auth-signout>Sign Out</button><div class="mini-domain-rail" aria-label="Quick sections">${DOMAINS.filter((item) => item.id !== "command").map((item) => `<button class="stat-dot-button ${item.id === state.activeDomain ? "is-active" : ""}" data-domain="${item.id}" style="--dot:${colorFor(item.id)};" title="${item.label}" aria-label="Open ${item.label}"></button>`).join("")}</div></div></header><div class="content">${renderContent(intel)}</div></main>${renderOnboarding()}${renderSectionHelp()}</div>`;
   state.lastPlanSnapshot = nextPlanSnapshot;

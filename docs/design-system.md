@@ -60,6 +60,7 @@ This file defines the current product UI rules so new screens feel intentional i
 - Personalization: Plan controls for theme, density, type scale, accent profile, and layout profile.
 - Appearance settings: curated Dawn, Void, Retro, Floral, Solar, Arctic, Forest, Candy, and Midnight themes plus custom My Theme builder, surface opacity, blur, border style, motion, compact mode, and accent override.
 - Brand welcome: the auth surface uses the Dawn horizon scene as Ember's product poster. Keep it warm, mobile-first, and specific to school/work/money planning instead of turning it into a generic AI splash page.
+- Logged-in atmosphere: `.ember-atmosphere` is the main visual anchor for app screens. Each domain must use a distinct temperature modifier so the user can tell where they are before reading the page title.
 - Widgets: Plan layout controls for visible/hidden state, pinned priority, manual ordering, and profile-specific Guided/Operator/Focus layouts.
 - Activity: Plan audit panel for setup, upload, syllabus, note, and connector actions.
 - Navigation: app-wide command palette for sections, setup surfaces, uploads, connectors, notifications, and scheduler panels.

@@ -82,6 +82,7 @@ You can still open `index.html` directly for a static-only pass, but the local s
 - Curated Ember themes: Dawn, Void, Retro, Floral, Solar, Arctic, Forest, Candy, and Midnight
 - "My Theme" builder for custom background, surface, text, accent, gradient, and preview settings saved locally under `ember_themes`
 - Dawn-to-Dusk brand system with a warm horizon default, flame app mark, animated auth welcome surface, and selectable gradient profiles including Dawn to Dusk, Study Neon, Campus Sunrise, Library Blue, Focus Lime, and Exam Ember
+- Logged-in Dawn OS atmosphere band with domain-specific screen temperatures so School, Work, Money, Path, Recovery, and Sources feel visually distinct instead of sharing one generic dashboard shell
 - A more student-planner visual direction with desk-board language, notebook-line texture, quieter surfaces, and less generic AI-dashboard glow
 - Plan widget controls for pinning, hiding, restoring, manual ordering, and resetting the dashboard layout
 - Profile-specific widget layouts for Guided, Operator, and Focus Plan views
