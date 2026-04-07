@@ -1,14 +1,14 @@
 export const TOKENS = {
-  command: "#7c6dfa",
-  academy: "#38bdf8",
-  works: "#34d399",
-  life: "#fb923c",
-  future: "#c084fc",
-  mind: "#f472b6",
-  notebook: "#94a3b8",
-  ok: "#4ade80",
-  warn: "#fbbf24",
-  danger: "#f87171",
+  command: "var(--cmd)",
+  academy: "var(--acad)",
+  works: "var(--work)",
+  life: "var(--life)",
+  future: "var(--fut)",
+  mind: "var(--mind)",
+  notebook: "var(--note)",
+  ok: "var(--ok)",
+  warn: "var(--warn)",
+  danger: "var(--danger)",
 };
 
 export const DOMAINS = [

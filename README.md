@@ -71,6 +71,9 @@ You can still open `index.html` directly for a static-only pass, but the local s
 - Design-system primitives for icon sizing, spacing, typography, cards, form states, inline notices, loading placeholders, and empty states
 - Empty states across Command Center, Academy, Works, Life, Future, Mind, and Notebook so missing data feels intentional
 - Personalization controls for theme, density, font scale, accent profile, and layout profile
+- Bottom-right Appearance Settings panel with live CSS-variable theme switching, card blur, surface opacity, animation, compact mode, border personality, and accent override controls
+- Curated Ember themes: Void, Retro, Floral, Solar, Arctic, Forest, Candy, and Midnight
+- "My Theme" builder for custom background, surface, text, accent, gradient, and preview settings saved locally under `ember_themes`
 - Student optimizer visual direction with selectable gradient profiles: Study Neon, Campus Sunrise, Library Blue, Focus Lime, and Exam Ember
 - Command Center widget controls for pinning, hiding, restoring, manual ordering, and resetting the dashboard layout
 - Profile-specific widget layouts for Guided, Operator, and Focus Command Center views

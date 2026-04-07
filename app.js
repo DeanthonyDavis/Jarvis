@@ -63,18 +63,182 @@ const storage =
       };
 
 const STORAGE_KEY = "apex-universal-state";
+const CUSTOM_THEMES_KEY = "ember_themes";
 const AUTO_SYNC_MS = 60 * 1000;
 const CLOUD_SAVE_MS = 900;
 const clone = (value) => JSON.parse(JSON.stringify(value));
 
+const EMBER_THEMES = {
+  void: {
+    name: "Void",
+    vibe: "Deep space, electric",
+    personality: "High-contrast nebula glow for late-night planning.",
+    tokens: {
+      bg: "#050508",
+      surface: "#12121f",
+      surfaceStrong: "#1c1b2e",
+      border: "#7c6dfa",
+      accent1: "#7c6dfa",
+      accent2: "#f472b6",
+      accent3: "#38bdf8",
+      text: "#f3f2ff",
+      textSecondary: "#aaa8c4",
+      textSoft: "#6d6b8e",
+      gradientA: "radial-gradient(circle at 18% 12%, rgba(124, 109, 250, 0.3), transparent 30%), radial-gradient(circle at 86% 18%, rgba(244, 114, 182, 0.24), transparent 30%), linear-gradient(145deg, #03040b 0%, #08091a 45%, #050508 100%)",
+      gradientB: "linear-gradient(135deg, rgba(124, 109, 250, 0.2), rgba(244, 114, 182, 0.12), rgba(255, 255, 255, 0.025))",
+      glow: "rgba(124, 109, 250, 0.4)",
+    },
+  },
+  retro: {
+    name: "Retro",
+    vibe: "80s synthwave, neon",
+    personality: "Hot pink, cyan, and arcade yellow for high-energy focus.",
+    tokens: {
+      bg: "#0d0221",
+      surface: "#1a0533",
+      surfaceStrong: "#2a074f",
+      border: "#ff2d78",
+      accent1: "#ff2d78",
+      accent2: "#00f5ff",
+      accent3: "#ffe600",
+      text: "#ffffff",
+      textSecondary: "#cc99ff",
+      textSoft: "#8f68c8",
+      gradientA: "linear-gradient(135deg, #ff2d78 0%, #7b2fff 52%, #00f5ff 100%)",
+      gradientB: "linear-gradient(90deg, rgba(0, 245, 255, 0.24), rgba(255, 45, 120, 0.22), rgba(255, 230, 0, 0.12))",
+      glow: "rgba(255, 45, 120, 0.4)",
+    },
+  },
+  floral: {
+    name: "Floral",
+    vibe: "Soft botanical, organic",
+    personality: "Blush, sage, and cream for a softer planning environment.",
+    tokens: {
+      bg: "#1a1016",
+      surface: "#231520",
+      surfaceStrong: "#33212e",
+      border: "#d4789a",
+      accent1: "#f2a7c3",
+      accent2: "#8fbc8f",
+      accent3: "#e8d5c4",
+      text: "#f5ede8",
+      textSecondary: "#c4a0b0",
+      textSoft: "#8f7482",
+      gradientA: "radial-gradient(circle at 20% 12%, rgba(242, 167, 195, 0.3), transparent 32%), radial-gradient(circle at 88% 18%, rgba(143, 188, 143, 0.22), transparent 32%), linear-gradient(160deg, #1a1016 0%, #2a1824 58%, #15110f 100%)",
+      gradientB: "linear-gradient(160deg, rgba(232, 213, 196, 0.18), rgba(212, 120, 154, 0.18), rgba(143, 188, 143, 0.1))",
+      glow: "rgba(242, 167, 195, 0.35)",
+    },
+  },
+  solar: {
+    name: "Solar",
+    vibe: "Warm golden hour",
+    personality: "Amber, terracotta, and sand for a calm daylight push.",
+    tokens: {
+      bg: "#160d07",
+      surface: "#26170d",
+      surfaceStrong: "#3a2414",
+      border: "#d97706",
+      accent1: "#f59e0b",
+      accent2: "#c65f33",
+      accent3: "#f5d6a1",
+      text: "#fff7ed",
+      textSecondary: "#e7b98b",
+      textSoft: "#a9825f",
+      gradientA: "linear-gradient(90deg, #3a1808 0%, #b45309 52%, #f5d6a1 100%)",
+      gradientB: "linear-gradient(180deg, rgba(245, 158, 11, 0.2), rgba(198, 95, 51, 0.16), rgba(255, 255, 255, 0.03))",
+      glow: "rgba(245, 158, 11, 0.38)",
+    },
+  },
+  arctic: {
+    name: "Arctic",
+    vibe: "Cold, clean, minimal",
+    personality: "Ice blue, white, and steel for a quiet reset.",
+    tokens: {
+      bg: "#071016",
+      surface: "#0e1b24",
+      surfaceStrong: "#172b38",
+      border: "#9bd8ff",
+      accent1: "#9bd8ff",
+      accent2: "#f8fbff",
+      accent3: "#7891a5",
+      text: "#f8fbff",
+      textSecondary: "#b5cadb",
+      textSoft: "#7a91a6",
+      gradientA: "radial-gradient(circle at 28% 4%, rgba(248, 251, 255, 0.26), transparent 30%), radial-gradient(circle at 84% 18%, rgba(155, 216, 255, 0.24), transparent 34%), linear-gradient(145deg, #071016 0%, #102334 62%, #071016 100%)",
+      gradientB: "linear-gradient(135deg, rgba(155, 216, 255, 0.18), rgba(248, 251, 255, 0.1), rgba(120, 145, 165, 0.12))",
+      glow: "rgba(155, 216, 255, 0.34)",
+    },
+  },
+  forest: {
+    name: "Forest",
+    vibe: "Earthy, grounded, calm",
+    personality: "Moss, bark, and copper for low-noise planning.",
+    tokens: {
+      bg: "#07100a",
+      surface: "#101b12",
+      surfaceStrong: "#1c2b1d",
+      border: "#8b6f47",
+      accent1: "#84a98c",
+      accent2: "#8b5e34",
+      accent3: "#c47f45",
+      text: "#edf7e8",
+      textSecondary: "#abc5a7",
+      textSoft: "#71866d",
+      gradientA: "radial-gradient(circle at 12% 18%, rgba(132, 169, 140, 0.24), transparent 34%), radial-gradient(circle at 88% 12%, rgba(196, 127, 69, 0.18), transparent 32%), linear-gradient(145deg, #07100a 0%, #142516 55%, #090d08 100%)",
+      gradientB: "linear-gradient(145deg, rgba(132, 169, 140, 0.16), rgba(139, 94, 52, 0.14), rgba(196, 127, 69, 0.1))",
+      glow: "rgba(132, 169, 140, 0.34)",
+    },
+  },
+  candy: {
+    name: "Candy",
+    vibe: "Playful, soft pastels",
+    personality: "Lavender, peach, and mint for a friendlier first-run feel.",
+    tokens: {
+      bg: "#15101f",
+      surface: "#221a30",
+      surfaceStrong: "#302640",
+      border: "#c4b5fd",
+      accent1: "#c4b5fd",
+      accent2: "#fecdd3",
+      accent3: "#a7f3d0",
+      text: "#fff7fb",
+      textSecondary: "#decff2",
+      textSoft: "#a895bd",
+      gradientA: "radial-gradient(circle at 18% 10%, rgba(196, 181, 253, 0.32), transparent 32%), radial-gradient(circle at 84% 18%, rgba(254, 205, 211, 0.26), transparent 30%), radial-gradient(circle at 50% 88%, rgba(167, 243, 208, 0.18), transparent 32%), linear-gradient(145deg, #15101f 0%, #241733 100%)",
+      gradientB: "linear-gradient(135deg, rgba(196, 181, 253, 0.18), rgba(254, 205, 211, 0.16), rgba(167, 243, 208, 0.12))",
+      glow: "rgba(196, 181, 253, 0.34)",
+    },
+  },
+  midnight: {
+    name: "Midnight",
+    vibe: "Dark luxury, deep navy",
+    personality: "Navy, gold, and ivory for a premium command-room feel.",
+    tokens: {
+      bg: "#030816",
+      surface: "#081225",
+      surfaceStrong: "#101c33",
+      border: "#c8a74a",
+      accent1: "#d4af37",
+      accent2: "#243b73",
+      accent3: "#f8f1d8",
+      text: "#f8f1d8",
+      textSecondary: "#b8c0d9",
+      textSoft: "#77829e",
+      gradientA: "radial-gradient(circle at 18% 12%, rgba(212, 175, 55, 0.22), transparent 32%), radial-gradient(circle at 86% 18%, rgba(36, 59, 115, 0.34), transparent 34%), linear-gradient(145deg, #030816 0%, #071126 62%, #02040c 100%)",
+      gradientB: "linear-gradient(145deg, rgba(212, 175, 55, 0.16), rgba(36, 59, 115, 0.22), rgba(248, 241, 216, 0.08))",
+      glow: "rgba(212, 175, 55, 0.34)",
+    },
+  },
+};
+
 const HELP_COPY = {
   command: ["Command Center", "Start here. Tune constraints, review setup progress, and sync sources before trusting the schedule."],
-  academy: ["Academy", "Add courses or connect an LMS. If you have a syllabus, upload it from Notebook so deadlines can become tasks."],
+  academy: ["Academy", "Add courses or connect an LMS. If you have a syllabus, upload it from any section so deadlines can become reviewed tasks."],
   works: ["Works", "Connect shifts, project tasks, or job-search reminders so work pressure is blocked before it collides with school."],
   life: ["Life", "Add bills and finance sources only when you are ready. Ember treats this as sensitive, opt-in data."],
   future: ["Future", "Turn goals into scheduled action. Start with one target, then connect portfolio and learning sources."],
   mind: ["Mind", "Use check-ins as scheduler signals. Low energy should change the plan, not become another failure point."],
-  notebook: ["Notebook", "Upload syllabi, PDFs, notes, and assignment sheets here. Ember will attach them as sources before deeper parsing is connected."],
+  notebook: ["Notebook", "Review notes and uploaded sources here. You can upload from any section without being moved out of your current flow."],
 };
 
 const CONNECTOR_TEMPLATES = [
@@ -158,8 +322,15 @@ const DEFAULT_PREFERENCES = {
   density: "comfortable",
   fontScale: "standard",
   accentProfile: "domain",
+  themeFamily: "void",
   gradientProfile: "study-neon",
   layoutProfile: "guided",
+  surfaceOpacity: 72,
+  cardBlur: 24,
+  borderStyle: "soft",
+  animations: "on",
+  compactMode: "off",
+  accentOverride: "off",
 };
 
 const PREFERENCE_OPTIONS = {
@@ -187,6 +358,7 @@ const PREFERENCE_OPTIONS = {
     ["future", "Future"],
     ["mind", "Mind"],
   ],
+  themeFamily: Object.entries(EMBER_THEMES).map(([value, theme]) => [value, theme.name]),
   gradientProfile: [
     ["study-neon", "Study Neon"],
     ["campus-sunrise", "Campus Sunrise"],
@@ -198,6 +370,23 @@ const PREFERENCE_OPTIONS = {
     ["guided", "Guided"],
     ["operator", "Operator"],
     ["focus", "Focus"],
+  ],
+  borderStyle: [
+    ["sharp", "Sharp"],
+    ["soft", "Soft"],
+    ["glow", "Glow"],
+  ],
+  animations: [
+    ["on", "On"],
+    ["off", "Off"],
+  ],
+  compactMode: [
+    ["off", "Off"],
+    ["on", "On"],
+  ],
+  accentOverride: [
+    ["off", "Off"],
+    ["on", "On"],
   ],
 };
 
@@ -420,8 +609,14 @@ const state = {
   commandPaletteQuery: "",
   commandPaletteIndex: 0,
   mobileNavOpen: false,
+  appearancePanelOpen: false,
+  themeBuilderOpen: false,
+  customThemes: [],
+  themeDraft: null,
   uploadSheetOpen: false,
 };
+state.customThemes = loadCustomThemes();
+state.themeDraft = defaultThemeDraft();
 
 const app = doc?.querySelector("#app") || null;
 const colorFor = (domain) => TOKENS[domain] || TOKENS.command;
@@ -488,13 +683,21 @@ function listOrEmpty(rows, emptyConfig) {
 
 function normalizePreferences(preferences = {}) {
   const isValid = (key, value) => PREFERENCE_OPTIONS[key]?.some(([option]) => option === value);
+  const clampNumber = (value, fallback, min, max) => Math.max(min, Math.min(max, Number(value ?? fallback) || fallback));
   return {
     theme: isValid("theme", preferences.theme) ? preferences.theme : DEFAULT_PREFERENCES.theme,
     density: isValid("density", preferences.density) ? preferences.density : DEFAULT_PREFERENCES.density,
     fontScale: isValid("fontScale", preferences.fontScale) ? preferences.fontScale : DEFAULT_PREFERENCES.fontScale,
     accentProfile: isValid("accentProfile", preferences.accentProfile) ? preferences.accentProfile : DEFAULT_PREFERENCES.accentProfile,
+    themeFamily: isValid("themeFamily", preferences.themeFamily) || preferences.themeFamily?.startsWith("custom:") ? preferences.themeFamily : DEFAULT_PREFERENCES.themeFamily,
     gradientProfile: isValid("gradientProfile", preferences.gradientProfile) ? preferences.gradientProfile : DEFAULT_PREFERENCES.gradientProfile,
     layoutProfile: isValid("layoutProfile", preferences.layoutProfile) ? preferences.layoutProfile : DEFAULT_PREFERENCES.layoutProfile,
+    surfaceOpacity: clampNumber(preferences.surfaceOpacity, DEFAULT_PREFERENCES.surfaceOpacity, 18, 96),
+    cardBlur: clampNumber(preferences.cardBlur, DEFAULT_PREFERENCES.cardBlur, 0, 42),
+    borderStyle: isValid("borderStyle", preferences.borderStyle) ? preferences.borderStyle : DEFAULT_PREFERENCES.borderStyle,
+    animations: isValid("animations", preferences.animations) ? preferences.animations : DEFAULT_PREFERENCES.animations,
+    compactMode: isValid("compactMode", preferences.compactMode) ? preferences.compactMode : DEFAULT_PREFERENCES.compactMode,
+    accentOverride: isValid("accentOverride", preferences.accentOverride) ? preferences.accentOverride : DEFAULT_PREFERENCES.accentOverride,
   };
 }
 
@@ -558,6 +761,147 @@ function selectedAccent(domainId = activeDomain()?.id || "command") {
 
 function selectedGradient(profile = state.preferences?.gradientProfile || DEFAULT_PREFERENCES.gradientProfile) {
   return GRADIENT_PRESETS[profile] || GRADIENT_PRESETS[DEFAULT_PREFERENCES.gradientProfile];
+}
+
+function loadCustomThemes() {
+  try {
+    const parsed = JSON.parse(storage.getItem(CUSTOM_THEMES_KEY) || "[]");
+    return Array.isArray(parsed) ? parsed.filter((theme) => theme?.id && theme?.tokens).slice(0, 24) : [];
+  } catch {
+    return [];
+  }
+}
+
+function saveCustomThemes() {
+  storage.setItem(CUSTOM_THEMES_KEY, JSON.stringify(state.customThemes || []));
+}
+
+function defaultThemeDraft(base = EMBER_THEMES.void) {
+  const tokens = base.tokens || EMBER_THEMES.void.tokens;
+  return {
+    name: "My Ember Theme",
+    background: tokens.bg,
+    surface: tokens.surface,
+    border: tokens.border,
+    primary: tokens.accent1,
+    secondary: tokens.accent2,
+    highlight: tokens.accent3,
+    text: tokens.text,
+    textSecondary: tokens.textSecondary,
+    gradientStyle: "linear",
+    gradientAngle: 135,
+    gradientColorA: tokens.accent1,
+    gradientColorB: tokens.accent2,
+  };
+}
+
+function themeFromDraft(draft = state.themeDraft) {
+  const style = draft.gradientStyle || "linear";
+  const angle = Number(draft.gradientAngle || 135);
+  const gradientA = style === "radial"
+    ? `radial-gradient(circle at 20% 14%, ${draft.gradientColorA}, transparent 34%), radial-gradient(circle at 86% 18%, ${draft.gradientColorB}, transparent 34%), linear-gradient(145deg, ${draft.background}, ${draft.surface})`
+    : style === "conic"
+      ? `conic-gradient(from ${angle}deg at 50% 28%, ${draft.gradientColorA}, ${draft.gradientColorB}, ${draft.background}, ${draft.gradientColorA})`
+      : `linear-gradient(${angle}deg, ${draft.background} 0%, ${draft.gradientColorA} 48%, ${draft.gradientColorB} 100%)`;
+  return {
+    id: draft.id || `custom-${Date.now()}`,
+    name: draft.name || "My Ember Theme",
+    vibe: "Custom",
+    personality: "Saved from the My Theme builder.",
+    custom: true,
+    tokens: {
+      bg: draft.background,
+      surface: draft.surface,
+      surfaceStrong: draft.surface,
+      border: draft.border,
+      accent1: draft.primary,
+      accent2: draft.secondary,
+      accent3: draft.highlight,
+      text: draft.text,
+      textSecondary: draft.textSecondary,
+      textSoft: draft.textSecondary,
+      gradientA,
+      gradientB: `linear-gradient(135deg, ${draft.primary}33, ${draft.secondary}22, ${draft.highlight}18)`,
+      glow: `${draft.primary}66`,
+    },
+  };
+}
+
+function currentThemeDefinition() {
+  const prefs = normalizePreferences(state.preferences);
+  if (String(prefs.themeFamily).startsWith("custom:")) {
+    const id = prefs.themeFamily.replace("custom:", "");
+    return state.customThemes.find((theme) => theme.id === id) || EMBER_THEMES.void;
+  }
+  return EMBER_THEMES[prefs.themeFamily] || EMBER_THEMES.void;
+}
+
+function hexToRgba(hex, opacity = 1) {
+  const value = String(hex || "").replace("#", "");
+  if (value.length !== 6) return hex;
+  const numeric = Number.parseInt(value, 16);
+  const r = (numeric >> 16) & 255;
+  const g = (numeric >> 8) & 255;
+  const b = numeric & 255;
+  return `rgba(${r}, ${g}, ${b}, ${Math.max(0, Math.min(1, opacity))})`;
+}
+
+function applyTheme(theme = currentThemeDefinition()) {
+  const root = doc?.documentElement;
+  if (!root) return;
+  const prefs = normalizePreferences(state.preferences);
+  const tokens = theme.tokens || EMBER_THEMES.void.tokens;
+  const opacity = prefs.surfaceOpacity / 100;
+  const domain = prefs.accentOverride === "on"
+    ? {
+        cmd: tokens.accent1,
+        acad: tokens.accent1,
+        work: tokens.accent1,
+        life: tokens.accent1,
+        fut: tokens.accent1,
+        mind: tokens.accent1,
+        note: tokens.accent1,
+      }
+    : {
+        cmd: tokens.accent1,
+        acad: tokens.accent2,
+        work: tokens.accent3,
+        life: tokens.border,
+        fut: tokens.accent2,
+        mind: tokens.accent1,
+        note: tokens.textSecondary,
+      };
+  const vars = {
+    bg: tokens.bg,
+    panel: hexToRgba(tokens.surface, opacity),
+    "panel-strong": hexToRgba(tokens.surfaceStrong || tokens.surface, Math.min(1, opacity + 0.18)),
+    border: hexToRgba(tokens.border, prefs.borderStyle === "sharp" ? 0.42 : 0.24),
+    text: tokens.text,
+    "text-muted": tokens.textSecondary,
+    "text-soft": tokens.textSoft || tokens.textSecondary,
+    "cmd": domain.cmd,
+    "acad": domain.acad,
+    "work": domain.work,
+    "life": domain.life,
+    "fut": domain.fut,
+    "mind": domain.mind,
+    "note": domain.note,
+    "theme-glow": tokens.glow,
+    "student-gradient": tokens.gradientA,
+    "student-gradient-soft": tokens.gradientB,
+    "card-blur": `${prefs.cardBlur}px`,
+    "theme-border-radius": prefs.borderStyle === "sharp" ? "18px" : prefs.borderStyle === "glow" ? "34px" : "28px",
+    "theme-transition": prefs.animations === "on" ? "background 300ms ease, color 300ms ease, border-color 300ms ease, box-shadow 300ms ease" : "none",
+  };
+  Object.entries(vars).forEach(([key, value]) => root.style.setProperty(`--${key}`, value));
+  root.toggleAttribute("data-reduce-ember-motion", prefs.animations === "off");
+}
+
+function syncShellPreferenceClasses() {
+  const shell = doc?.querySelector(".app-shell");
+  if (!shell) return;
+  const prefs = normalizePreferences(state.preferences);
+  shell.className = `app-shell theme-${prefs.theme} density-${prefs.compactMode === "on" ? "compact" : prefs.density} text-${prefs.fontScale} layout-${prefs.layoutProfile}`;
 }
 
 function saveState() {
@@ -2228,6 +2572,85 @@ function closeUploadSheet() {
   renderUploadSheet();
 }
 
+function themeButtonMarkup([id, theme]) {
+  const prefs = normalizePreferences(state.preferences);
+  const active = prefs.themeFamily === id;
+  return `<button class="theme-card ${active ? "is-active" : ""}" data-appearance-theme="${escapeHtml(id)}" style="--theme-card-gradient:${theme.tokens.gradientA}; --accent:${theme.tokens.accent1};" aria-pressed="${active}"><span class="theme-card__swatch"></span><strong>${escapeHtml(theme.name)}</strong><small>${escapeHtml(theme.vibe)}</small></button>`;
+}
+
+function customThemeButtonMarkup(theme) {
+  const prefs = normalizePreferences(state.preferences);
+  const id = `custom:${theme.id}`;
+  const active = prefs.themeFamily === id;
+  return `<button class="theme-card ${active ? "is-active" : ""}" data-appearance-theme="${escapeHtml(id)}" style="--theme-card-gradient:${theme.tokens.gradientA}; --accent:${theme.tokens.accent1};" aria-pressed="${active}"><span class="theme-card__swatch"></span><strong>${escapeHtml(theme.name)}</strong><small>Custom theme</small></button>`;
+}
+
+function builderField(label, key, type = "color", extra = "") {
+  return `<label class="builder-field"><span>${escapeHtml(label)}</span><input type="${type}" value="${escapeHtml(state.themeDraft?.[key] ?? "")}" data-theme-draft="${escapeHtml(key)}" ${extra} /></label>`;
+}
+
+function renderThemeBuilderLegacy() {
+  if (!state.themeBuilderOpen) return "";
+  const preview = themeFromDraft(state.themeDraft);
+  return `<div class="theme-builder"><div class="settings-subhead"><div><div class="panel-label">my theme</div><h4>Build your own Ember.</h4></div><button class="surface-action surface-action--small" data-theme-builder-close>Close</button></div><div class="theme-builder-grid"><section><div class="subtle-label">Base</div>${builderField("Theme name", "name", "text")}${builderField("Background", "background")}${builderField("Surface", "surface")}${builderField("Text", "text")}${builderField("Text secondary", "textSecondary")}</section><section><div class="subtle-label">Accent colors</div>${builderField("Primary", "primary")}${builderField("Secondary", "secondary")}${builderField("Highlight", "highlight")}${builderField("Border", "border")}<label class="builder-field"><span>Gradient style</span><select data-theme-draft="gradientStyle">${["linear", "radial", "conic"].map((value) => `<option value="${value}" ${state.themeDraft.gradientStyle === value ? "selected" : ""}>${value}</option>`).join("")}</select></label><label class="builder-field"><span>Gradient angle</span><input type="range" min="0" max="360" value="${Number(state.themeDraft.gradientAngle || 135)}" data-theme-draft="gradientAngle" /></label></section><section class="builder-preview" style="--theme-card-gradient:${preview.tokens.gradientA}; --accent:${preview.tokens.accent1};"><div class="panel-label">live preview</div><h4>${escapeHtml(preview.name)}</h4><p>${escapeHtml(preview.personality)}</p><div class="preview-mini-card"><strong>Study block</strong><span>45m focus · source-grounded</span></div><button class="primary-action" data-theme-save>Save to My Themes</button></section></div></div>`;
+}
+
+function renderThemeBuilderMarkup() {
+  if (!state.themeBuilderOpen) return "";
+  const preview = themeFromDraft(state.themeDraft);
+  return `<div class="theme-builder"><div class="settings-subhead"><div><div class="panel-label">my theme</div><h4>Build your own Ember.</h4></div><button class="surface-action surface-action--small" data-theme-builder-close>Close</button></div><div class="theme-builder-grid"><section><div class="subtle-label">Base</div>${builderField("Theme name", "name", "text")}${builderField("Background", "background")}${builderField("Surface", "surface")}${builderField("Text", "text")}${builderField("Text secondary", "textSecondary")}</section><section><div class="subtle-label">Accent colors</div>${builderField("Primary", "primary")}${builderField("Secondary", "secondary")}${builderField("Highlight", "highlight")}${builderField("Border", "border")}${builderField("Gradient color A", "gradientColorA")}${builderField("Gradient color B", "gradientColorB")}<label class="builder-field"><span>Gradient style</span><select data-theme-draft="gradientStyle">${["linear", "radial", "conic"].map((value) => `<option value="${value}" ${state.themeDraft.gradientStyle === value ? "selected" : ""}>${value}</option>`).join("")}</select></label><label class="builder-field"><span>Gradient angle</span><input type="range" min="0" max="360" value="${Number(state.themeDraft.gradientAngle || 135)}" data-theme-draft="gradientAngle" /></label></section><section class="builder-preview" style="--theme-card-gradient:${preview.tokens.gradientA}; --accent:${preview.tokens.accent1};"><div class="panel-label">live preview</div><h4>${escapeHtml(preview.name)}</h4><p>${escapeHtml(preview.personality)}</p><div class="preview-mini-card"><strong>Study block</strong><span>45m focus - source-grounded</span></div><button class="primary-action" data-theme-save>Save to My Themes</button></section></div></div>`;
+}
+
+function renderThemeBuilder() {
+  return renderThemeBuilderMarkup();
+}
+
+function renderAppearanceSettings() {
+  let panel = doc?.querySelector("[data-appearance-settings]");
+  const prefs = normalizePreferences(state.preferences);
+  if (!state.auth.user) {
+    panel?.remove();
+    return;
+  }
+  if (!panel) {
+    panel = doc.createElement("aside");
+    panel.setAttribute("data-appearance-settings", "");
+    doc.body.appendChild(panel);
+  }
+  const current = currentThemeDefinition();
+  const themeRows = Object.entries(EMBER_THEMES).map(themeButtonMarkup).join("");
+  const customRows = (state.customThemes || []).map(customThemeButtonMarkup).join("");
+  panel.className = `appearance-settings ${state.appearancePanelOpen ? "is-open" : ""} theme-${prefs.theme} text-${prefs.fontScale}`;
+  panel.innerHTML = `<button class="appearance-fab" data-appearance-toggle aria-label="${state.appearancePanelOpen ? "Close appearance settings" : "Open appearance settings"}" aria-expanded="${state.appearancePanelOpen}">${iconSvg("command", "Appearance settings")}</button>${state.appearancePanelOpen ? `<div class="appearance-panel" role="dialog" aria-modal="false" aria-label="Appearance settings"><div class="appearance-head"><div><div class="panel-label">appearance settings</div><h3>Make Ember yours.</h3><p>${escapeHtml(current.personality)}</p></div><button class="surface-action surface-action--small" data-appearance-toggle>Close</button></div><section><div class="settings-subhead"><div><div class="panel-label">themes</div><h4>Curated collections</h4></div>${pill(current.name, current.tokens.accent1)}</div><div class="theme-card-grid">${themeRows}</div></section><section><div class="settings-subhead"><div><div class="panel-label">my themes</div><h4>Saved identities</h4></div><button class="surface-action surface-action--small" data-theme-builder-open>+ Create New Theme</button></div><div class="theme-card-grid theme-card-grid--custom">${customRows || `<div class="empty-theme-row">No saved themes yet. Create one and it will live here.</div>`}</div>${renderThemeBuilder()}</section><section><div class="settings-subhead"><div><div class="panel-label">feel</div><h4>Reading and motion</h4></div></div><div class="settings-control-grid"><label><span>Font size</span><input type="range" min="0" max="2" value="${["standard", "large", "xl"].indexOf(prefs.fontScale)}" data-appearance-range="fontScale" /></label><label><span>Card blur</span><input type="range" min="0" max="42" value="${prefs.cardBlur}" data-appearance-number="cardBlur" /></label><label><span>Surface opacity</span><input type="range" min="18" max="96" value="${prefs.surfaceOpacity}" data-appearance-number="surfaceOpacity" /></label></div><div class="settings-toggle-row">${PREFERENCE_OPTIONS.borderStyle.map(([value, label]) => `<button class="preference-chip ${prefs.borderStyle === value ? "is-active" : ""}" data-appearance-pref="borderStyle" data-appearance-value="${value}">${label}</button>`).join("")}${PREFERENCE_OPTIONS.animations.map(([value, label]) => `<button class="preference-chip ${prefs.animations === value ? "is-active" : ""}" data-appearance-pref="animations" data-appearance-value="${value}">Animations ${label}</button>`).join("")}${PREFERENCE_OPTIONS.compactMode.map(([value, label]) => `<button class="preference-chip ${prefs.compactMode === value ? "is-active" : ""}" data-appearance-pref="compactMode" data-appearance-value="${value}">Compact ${label}</button>`).join("")}</div></section><section class="accent-override-row"><div><div class="panel-label">accent override</div><p>Override domain colors with your theme accent.</p></div><button class="toggle-chip ${prefs.accentOverride === "on" ? "is-active" : ""}" data-appearance-pref="accentOverride" data-appearance-value="${prefs.accentOverride === "on" ? "off" : "on"}"><strong>${prefs.accentOverride === "on" ? "On" : "Off"}</strong></button></section></div>` : ""}`;
+}
+
+function updateAppearancePreference(key, value) {
+  const fontScaleValues = ["standard", "large", "xl"];
+  const nextValue = key === "fontScale" && /^\d+$/.test(String(value)) ? fontScaleValues[Number(value)] || "standard" : value;
+  state.preferences = normalizePreferences({ ...(state.preferences || DEFAULT_PREFERENCES), [key]: nextValue });
+  applyTheme();
+  syncShellPreferenceClasses();
+  saveState();
+  scheduleCloudSave();
+  renderAppearanceSettings();
+}
+
+function updateThemeDraft(key, value) {
+  state.themeDraft = { ...(state.themeDraft || defaultThemeDraft()), [key]: value };
+  renderAppearanceSettings();
+}
+
+function saveThemeDraft() {
+  const theme = themeFromDraft(state.themeDraft);
+  state.customThemes = [theme, ...(state.customThemes || []).filter((item) => item.id !== theme.id)].slice(0, 12);
+  saveCustomThemes();
+  updateAppearancePreference("themeFamily", `custom:${theme.id}`);
+  state.themeBuilderOpen = false;
+  state.themeDraft = defaultThemeDraft(theme);
+  renderAppearanceSettings();
+  void notifyUser({ type: "theme_saved", title: "Theme saved", body: `${theme.name} is now available in My Themes.`, severity: "success" });
+}
+
 function heroBand(intel) {
   const domain = activeDomain();
   const loadValue = intel.loadDisplay || `${intel.loadScore}%`;
@@ -2517,6 +2940,8 @@ function renderContent(intel) {
 
 function renderApp() {
   if (!app) return;
+  state.preferences = normalizePreferences(state.preferences);
+  applyTheme();
   if (!state.auth.ready || !state.auth.user) {
     renderAuthShell();
     renderToast();
@@ -2524,6 +2949,7 @@ function renderApp() {
     renderCommandPalette();
     renderMobileNavSheet();
     renderUploadSheet();
+    renderAppearanceSettings();
     return;
   }
   const domain = activeDomain();
@@ -2533,9 +2959,9 @@ function renderApp() {
   if (latestPlanChanges.status !== "stable") state.lastPlanChanges = latestPlanChanges;
   intel.planChanges = state.lastPlanChanges || latestPlanChanges;
   const prefs = normalizePreferences(state.preferences);
-  const shellClass = `theme-${prefs.theme} density-${prefs.density} text-${prefs.fontScale} layout-${prefs.layoutProfile}`;
-  const gradient = selectedGradient(prefs.gradientProfile);
-  app.innerHTML = `<div class="app-shell ${shellClass}" style="--accent:${selectedAccent(domain.id)}; --student-gradient:${gradient.css}; --student-gradient-soft:${gradient.soft};"><a class="skip-link" href="#main-content">Skip to content</a><div class="ambient"><div class="orb orb--one"></div><div class="orb orb--two"></div><div class="orb orb--three"></div></div><aside class="sidebar ${state.sidebarCollapsed ? "is-collapsed" : ""}"><div class="brand"><div class="brand-mark">${iconSvg("command")}</div><div class="brand-copy"><h1>Ember</h1><p>Universal 2.0</p></div></div><nav class="sidebar-nav" aria-label="Primary sections">${DOMAINS.map((item) => `<button class="nav-button ${state.activeDomain === item.id ? "is-active" : ""}" data-domain="${item.id}" style="--accent:${colorFor(item.id)};" aria-current="${state.activeDomain === item.id ? "page" : "false"}"><span class="nav-icon">${iconSvg(item.id, item.label)}</span><span class="nav-copy"><strong>${item.label}</strong><span>${item.blurb}</span></span></button>`).join("")}</nav><div class="sidebar-footer"><button class="collapse-button" data-collapse-sidebar aria-label="${state.sidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"}"><span>${state.sidebarCollapsed ? "&#9654;" : "&#9664;"}</span><span>${state.sidebarCollapsed ? "Expand" : "Collapse"}</span></button></div></aside><main class="main" id="main-content"><header class="topbar"><div class="topbar-title"><div class="topbar-icon">${iconSvg(domain.id, domain.label)}</div><div class="topbar-copy"><h2>Ember ${domain.label}</h2><p>${formatToday()} &middot; ${state.auth.user.email}</p></div></div><div class="topbar-metrics"><button class="mobile-menu-trigger" data-mobile-nav-open aria-label="Open mobile menu"><span>${iconSvg(domain.id, "Mobile menu")}</span><strong>Menu</strong></button><button class="command-trigger" data-command-open aria-label="Open command palette"><span>${iconSvg("command", "Command palette")}</span><strong>Search</strong><kbd>Ctrl K</kbd></button><div class="metric-pill"><span class="metric-dot"></span><span>Load</span><strong data-shell-load>${intel.loadDisplay || `${intel.loadScore}%`}</strong></div><div class="metric-pill"><span class="metric-dot" style="background:${TOKENS.command};"></span><span>Cloud</span><strong data-shell-cloud>${state.cloudSaveStatus}</strong></div><div class="metric-pill"><span class="metric-dot" data-shell-source-dot style="background:${statusTone(state.sourceConfig.lastSyncStatus)};"></span><span>Source</span><strong data-shell-source>${state.sourceConfig.lastSyncStatus}</strong></div><button class="metric-pill metric-button ${unreadNotifications().length ? "has-unread" : ""}" data-notification-toggle type="button" aria-label="Open notification center"><span class="metric-dot" data-shell-notification-dot style="background:${unreadNotifications().length ? TOKENS.warn : TOKENS.ok};"></span><span>Alerts</span><strong data-shell-notifications>${unreadNotifications().length}</strong></button><button class="surface-action" data-domain="command" data-scroll-personalization>Personalize</button><button class="surface-action" data-auth-signout>Sign Out</button><div class="mini-domain-rail" aria-label="Quick sections">${DOMAINS.filter((item) => item.id !== "command").map((item) => `<button class="stat-dot-button ${item.id === state.activeDomain ? "is-active" : ""}" data-domain="${item.id}" style="--dot:${colorFor(item.id)};" title="${item.label}" aria-label="Open ${item.label}"></button>`).join("")}</div></div></header><div class="content">${renderContent(intel)}</div></main>${renderOnboarding()}${renderSectionHelp()}</div>`;
+  const shellClass = `theme-${prefs.theme} density-${prefs.compactMode === "on" ? "compact" : prefs.density} text-${prefs.fontScale} layout-${prefs.layoutProfile}`;
+  const gradient = currentThemeDefinition().tokens;
+  app.innerHTML = `<div class="app-shell ${shellClass}" style="--accent:${selectedAccent(domain.id)}; --student-gradient:${gradient.gradientA}; --student-gradient-soft:${gradient.gradientB};"><a class="skip-link" href="#main-content">Skip to content</a><div class="ambient"><div class="orb orb--one"></div><div class="orb orb--two"></div><div class="orb orb--three"></div></div><aside class="sidebar ${state.sidebarCollapsed ? "is-collapsed" : ""}"><div class="brand"><div class="brand-mark">${iconSvg("command")}</div><div class="brand-copy"><h1>Ember</h1><p>Universal 2.0</p></div></div><nav class="sidebar-nav" aria-label="Primary sections">${DOMAINS.map((item) => `<button class="nav-button ${state.activeDomain === item.id ? "is-active" : ""}" data-domain="${item.id}" style="--accent:${colorFor(item.id)};" aria-current="${state.activeDomain === item.id ? "page" : "false"}"><span class="nav-icon">${iconSvg(item.id, item.label)}</span><span class="nav-copy"><strong>${item.label}</strong><span>${item.blurb}</span></span></button>`).join("")}</nav><div class="sidebar-footer"><button class="collapse-button" data-collapse-sidebar aria-label="${state.sidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"}"><span>${state.sidebarCollapsed ? "&#9654;" : "&#9664;"}</span><span>${state.sidebarCollapsed ? "Expand" : "Collapse"}</span></button></div></aside><main class="main" id="main-content"><header class="topbar"><div class="topbar-title"><div class="topbar-icon">${iconSvg(domain.id, domain.label)}</div><div class="topbar-copy"><h2>Ember ${domain.label}</h2><p>${formatToday()} &middot; ${state.auth.user.email}</p></div></div><div class="topbar-metrics"><button class="mobile-menu-trigger" data-mobile-nav-open aria-label="Open mobile menu"><span>${iconSvg(domain.id, "Mobile menu")}</span><strong>Menu</strong></button><button class="command-trigger" data-command-open aria-label="Open command palette"><span>${iconSvg("command", "Command palette")}</span><strong>Search</strong><kbd>Ctrl K</kbd></button><div class="metric-pill"><span class="metric-dot"></span><span>Load</span><strong data-shell-load>${intel.loadDisplay || `${intel.loadScore}%`}</strong></div><div class="metric-pill"><span class="metric-dot" style="background:${TOKENS.command};"></span><span>Cloud</span><strong data-shell-cloud>${state.cloudSaveStatus}</strong></div><div class="metric-pill"><span class="metric-dot" data-shell-source-dot style="background:${statusTone(state.sourceConfig.lastSyncStatus)};"></span><span>Source</span><strong data-shell-source>${state.sourceConfig.lastSyncStatus}</strong></div><button class="metric-pill metric-button ${unreadNotifications().length ? "has-unread" : ""}" data-notification-toggle type="button" aria-label="Open notification center"><span class="metric-dot" data-shell-notification-dot style="background:${unreadNotifications().length ? TOKENS.warn : TOKENS.ok};"></span><span>Alerts</span><strong data-shell-notifications>${unreadNotifications().length}</strong></button><button class="surface-action" data-domain="command" data-scroll-personalization>Personalize</button><button class="surface-action" data-auth-signout>Sign Out</button><div class="mini-domain-rail" aria-label="Quick sections">${DOMAINS.filter((item) => item.id !== "command").map((item) => `<button class="stat-dot-button ${item.id === state.activeDomain ? "is-active" : ""}" data-domain="${item.id}" style="--dot:${colorFor(item.id)};" title="${item.label}" aria-label="Open ${item.label}"></button>`).join("")}</div></div></header><div class="content">${renderContent(intel)}</div></main>${renderOnboarding()}${renderSectionHelp()}</div>`;
   state.lastPlanSnapshot = nextPlanSnapshot;
   persistPlanSnapshotOnly();
   renderToast();
@@ -2543,6 +2969,7 @@ function renderApp() {
   renderCommandPalette();
   renderMobileNavSheet();
   renderUploadSheet();
+  renderAppearanceSettings();
 }
 
 function processBrainDump(text) {
@@ -2736,6 +3163,14 @@ doc?.addEventListener("click", async (event) => {
   const target = event.target instanceof Element ? event.target : null;
   if (!target) return;
   const shouldCloseMobileNav = Boolean(target.closest("[data-mobile-nav-close]"));
+  if (target.closest("[data-appearance-toggle]")) { state.appearancePanelOpen = !state.appearancePanelOpen; renderAppearanceSettings(); return; }
+  const appearanceTheme = target.closest("[data-appearance-theme]");
+  if (appearanceTheme) { updateAppearancePreference("themeFamily", appearanceTheme.dataset.appearanceTheme); return; }
+  const appearancePref = target.closest("[data-appearance-pref]");
+  if (appearancePref) { updateAppearancePreference(appearancePref.dataset.appearancePref, appearancePref.dataset.appearanceValue); return; }
+  if (target.closest("[data-theme-builder-open]")) { state.themeBuilderOpen = true; state.themeDraft = defaultThemeDraft(currentThemeDefinition()); renderAppearanceSettings(); return; }
+  if (target.closest("[data-theme-builder-close]")) { state.themeBuilderOpen = false; renderAppearanceSettings(); return; }
+  if (target.closest("[data-theme-save]")) { saveThemeDraft(); return; }
   if (target.closest("[data-mobile-nav-open]")) { state.mobileNavOpen = true; renderMobileNavSheet(); return; }
   if (target.matches("[data-mobile-nav-close]") || target.closest(".mobile-nav-sheet__scrim")) { closeMobileNavSheet(); return; }
   if (target.closest("[data-upload-sheet-open]")) { state.uploadSheetOpen = true; renderUploadSheet(); return; }
@@ -2757,7 +3192,7 @@ doc?.addEventListener("click", async (event) => {
   if (target.closest("[data-collapse-sidebar]")) { state.sidebarCollapsed = !state.sidebarCollapsed; rerender(); return; }
   const preferenceButton = target.closest("[data-preference-key]");
   if (preferenceButton) { updatePreference(preferenceButton.dataset.preferenceKey, preferenceButton.dataset.preferenceValue); return; }
-  if (target.closest("[data-preference-reset]")) { state.preferences = clone(DEFAULT_PREFERENCES); rerender(); return; }
+  if (target.closest("[data-preference-reset]")) { state.preferences = normalizePreferences(clone(DEFAULT_PREFERENCES)); applyTheme(); rerender(); return; }
   const widgetToggle = target.closest("[data-widget-toggle]");
   if (widgetToggle) {
     const widget = commandWidgets().find((item) => item.id === widgetToggle.dataset.widgetToggle);
@@ -2884,6 +3319,12 @@ doc?.addEventListener("input", async (event) => {
     renderCommandPalette();
     return;
   }
+  const appearanceNumber = target.closest("[data-appearance-number]");
+  if (appearanceNumber) { updateAppearancePreference(appearanceNumber.dataset.appearanceNumber, appearanceNumber.value); return; }
+  const appearanceRange = target.closest("[data-appearance-range]");
+  if (appearanceRange) { updateAppearancePreference(appearanceRange.dataset.appearanceRange, appearanceRange.value); return; }
+  const themeDraftInput = target.closest("[data-theme-draft]");
+  if (themeDraftInput) { updateThemeDraft(themeDraftInput.dataset.themeDraft, themeDraftInput.value); return; }
   const search = target.closest("[data-note-search]");
   if (search) {
     const value = search.value;
@@ -2937,6 +3378,12 @@ doc?.addEventListener("keydown", (event) => {
   if (state.uploadSheetOpen && event.key === "Escape") {
     event.preventDefault();
     closeUploadSheet();
+    return;
+  }
+  if (state.appearancePanelOpen && event.key === "Escape") {
+    event.preventDefault();
+    state.appearancePanelOpen = false;
+    renderAppearanceSettings();
     return;
   }
   if (!state.commandPaletteOpen) return;

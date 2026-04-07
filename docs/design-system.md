@@ -1,10 +1,10 @@
-# APEX UI System
+# Ember UI System
 
 This file defines the current product UI rules so new screens feel intentional instead of fragmented.
 
 ## Foundations
 
-- Mobile-first: design phone layouts first, then expand to tablet and desktop. APEX should feel like a mobile app with optional desktop power views, not a desktop dashboard squeezed onto a phone.
+- Mobile-first: design phone layouts first, then expand to tablet and desktop. Ember should feel like a mobile app with optional desktop power views, not a desktop dashboard squeezed onto a phone.
 - Icon sizes: use `--icon-sm`, `--icon-md`, and `--icon-lg`. Domain navigation icons default to `--icon-md`; empty-state icons use `--icon-lg`.
 - Spacing scale: use `--space-1` through `--space-6` for gaps and padding. Prefer fewer, larger gaps over crowded micro-spacing.
 - Type scale: use `--type-xs`, `--type-sm`, `--type-md`, `--type-lg`, and `--type-xl`. Panel labels stay uppercase and small; section titles should be short and direct.
@@ -27,11 +27,14 @@ This file defines the current product UI rules so new screens feel intentional i
 - Mobile shell: hide desktop-only sidebars below tablet widths. The phone experience should rely on bottom sheets, single-column content, and topbar quick actions.
 - Touch targets: primary actions, surface actions, navigation rows, and icon-only buttons should be at least 44px tall on touch layouts.
 - Safe areas: preserve `viewport-fit=cover` behavior and use `env(safe-area-inset-*)` where fixed or edge-aligned UI touches mobile browser chrome.
+- Appearance: use the bottom-right `.appearance-settings` panel for visual identity controls. Theme switching must update CSS custom properties on `:root` instead of rerendering the full shell.
+- Theme tokens: curated themes and custom themes must provide `bg`, `surface`, `surfaceStrong`, `border`, `accent1`, `accent2`, `accent3`, `text`, `textSecondary`, `textSoft`, `gradientA`, `gradientB`, and `glow`.
+- Custom themes: save user-created themes in localStorage under `ember_themes` and treat them the same as built-in themes once loaded.
 
 ## Empty-State Copy Rules
 
 - Say what is missing: "No classes imported yet."
-- Say why it matters: "APEX will not invent grade data."
+- Say why it matters: "Ember will not invent grade data."
 - Offer the next action: "Upload syllabus" or "Open connectors."
 - Keep the tone calm and operational. Avoid marketing copy in app surfaces.
 
@@ -46,6 +49,7 @@ This file defines the current product UI rules so new screens feel intentional i
 - Notebook: empty notes, uploads, and syllabus review queue.
 - Ingestion: source uploads show extraction status, parser method, preview text, and review confidence without scheduling unconfirmed data.
 - Personalization: Command Center controls for theme, density, type scale, accent profile, and layout profile.
+- Appearance settings: curated Void, Retro, Floral, Solar, Arctic, Forest, Candy, and Midnight themes plus custom My Theme builder, surface opacity, blur, border style, motion, compact mode, and accent override.
 - Widgets: Command Center layout controls for visible/hidden state, pinned priority, manual ordering, and profile-specific Guided/Operator/Focus layouts.
 - Activity: Command Center audit panel for setup, upload, syllabus, note, and connector actions.
 - Navigation: app-wide command palette for sections, setup surfaces, uploads, connectors, notifications, and scheduler panels.
