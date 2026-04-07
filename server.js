@@ -3,6 +3,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { readFile, writeFile, access } from "node:fs/promises";
 import { extractAndParseUpload } from "./ingestion.js";
+import { runEmberHourlyScan, scanIsAuthorized } from "./ember-scan.js";
 
 import {
   INITIAL_TASKS,
@@ -407,6 +408,31 @@ const server = http.createServer(async (req, res) => {
       sendJson(res, 200, result);
     } catch (error) {
       sendJson(res, 500, { error: error instanceof Error ? error.message : "Ingestion failed." });
+    }
+    return;
+  }
+
+  if (pathname === "/api/ember/hourly-scan" && ["GET", "POST"].includes(req.method)) {
+    const persistRequested = req.method === "GET" || url.searchParams.get("persist") === "1";
+    if (persistRequested && !scanIsAuthorized(req)) {
+      sendJson(res, 401, { error: "Unauthorized Ember scan. Set EMBER_SCAN_SECRET or CRON_SECRET and send it as a bearer token." });
+      return;
+    }
+    try {
+      const payload = req.method === "POST" ? await readJson(req) : {};
+      const result = await runEmberHourlyScan({
+        state: payload.state || null,
+        userId: payload.userId || null,
+        workspaceId: payload.workspaceId || null,
+        surface: payload.surface || url.searchParams.get("surface") || "dashboard",
+        persist: Boolean(payload.persist ?? persistRequested),
+        limit: Number(payload.limit || url.searchParams.get("limit") || 25),
+        now: payload.now ? new Date(payload.now) : new Date(),
+      });
+      sendJson(res, 200, result);
+    } catch (error) {
+      console.error("ember-hourly-scan failed", error);
+      sendJson(res, 500, { error: error instanceof Error ? error.message : "Ember scan failed." });
     }
     return;
   }

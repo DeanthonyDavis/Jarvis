@@ -134,10 +134,11 @@ function renderDashboardMessage(primaryState, { state, intel }) {
 
 function buildPlannerTake(primaryState, intel) {
   if (primaryState.stateKey === "conflict_day") {
+    const day = primaryState.context?.dayName || "Today";
     return {
-      title: "Thursday does not work if everything stays fixed.",
+      title: `${day} does not work if everything stays fixed.`,
       body: "Class, work, and serious tasks need more breathing room. I can move flexible work and keep locked blocks visible.",
-      actions: ["Fix Thursday", "Keep it manual"],
+      actions: [`Fix ${day}`, "Keep it manual"],
     };
   }
   if (primaryState.stateKey === "burnout_risk") {
