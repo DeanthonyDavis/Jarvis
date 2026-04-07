@@ -8,6 +8,12 @@ const NOTE_TABLE = "apex_notes";
 const INTEGRATION_TABLE = "apex_integrations";
 const INTEGRATION_EVENT_TABLE = "apex_integration_events";
 const ACTIVITY_TABLE = "apex_activity_log";
+const EMBER_CHECK_IN_TABLE = "apex_user_check_ins";
+const EMBER_STATE_TABLE = "apex_ember_states";
+const EMBER_ACTION_TABLE = "apex_ember_actions";
+const EMBER_MESSAGE_TABLE = "apex_ember_messages";
+const EMBER_MEMORY_TABLE = "apex_ember_memory";
+const EMBER_NOTIFICATION_EVENT_TABLE = "apex_ember_notification_events";
 
 export async function loadRuntimeConfig() {
   if (typeof fetch === "undefined") return { supabaseUrl: "", supabaseAnonKey: "" };
@@ -461,6 +467,154 @@ export async function createActivityLogRecord(client, workspaceId, userId, activ
       source: activity.source || "app",
     })
     .select("id, workspace_id, user_id, entity_type, entity_id, action_type, before_state, after_state, source, created_at")
+    .single();
+  if (error) throw error;
+  return data;
+}
+
+export async function createEmberCheckInRecord(client, workspaceId, userId, checkin) {
+  const { data, error } = await client
+    .from(EMBER_CHECK_IN_TABLE)
+    .insert({
+      workspace_id: workspaceId || null,
+      user_id: userId,
+      mood_score: Number(checkin.moodScore ?? checkin.mood ?? 3),
+      energy_score: Number(checkin.energyScore ?? checkin.energy ?? 3),
+      stress_score: checkin.stressScore ?? checkin.stress ?? null,
+      note: checkin.note || null,
+    })
+    .select("id, workspace_id, user_id, mood_score, energy_score, stress_score, note, created_at, updated_at")
+    .single();
+  if (error) throw error;
+  return data;
+}
+
+export async function loadEmberStateRecords(client, workspaceId, userId) {
+  const { data, error } = await client
+    .from(EMBER_STATE_TABLE)
+    .select("id, workspace_id, user_id, state_key, severity, context, is_active, detected_at, resolved_at, updated_at")
+    .eq("workspace_id", workspaceId)
+    .eq("user_id", userId)
+    .eq("is_active", true)
+    .order("detected_at", { ascending: false })
+    .limit(25);
+  if (error) throw error;
+  return data || [];
+}
+
+export async function createEmberStateRecord(client, workspaceId, userId, emberState) {
+  const { data, error } = await client
+    .from(EMBER_STATE_TABLE)
+    .insert({
+      workspace_id: workspaceId || null,
+      user_id: userId,
+      state_key: emberState.stateKey || emberState.state_key || "steady",
+      severity: emberState.severity || "low",
+      context: emberState.context || {},
+      is_active: emberState.isActive ?? emberState.is_active ?? true,
+      detected_at: emberState.detectedAt || emberState.detected_at || new Date().toISOString(),
+      resolved_at: emberState.resolvedAt || emberState.resolved_at || null,
+    })
+    .select("id, workspace_id, user_id, state_key, severity, context, is_active, detected_at, resolved_at, updated_at")
+    .single();
+  if (error) throw error;
+  return data;
+}
+
+export async function createEmberActionRecord(client, workspaceId, userId, action) {
+  const { data, error } = await client
+    .from(EMBER_ACTION_TABLE)
+    .insert({
+      workspace_id: workspaceId || null,
+      user_id: userId,
+      state_id: action.stateId || action.state_id || null,
+      action_type: action.actionType || action.action_type || "suggest_plan",
+      target_type: action.targetType || action.target_type || null,
+      target_id: action.targetId || action.target_id || null,
+      action_payload: action.actionPayload || action.action_payload || {},
+    })
+    .select("id, workspace_id, user_id, state_id, action_type, target_type, target_id, action_payload, created_at, updated_at")
+    .single();
+  if (error) throw error;
+  return data;
+}
+
+export async function loadEmberMessageRecords(client, workspaceId, userId) {
+  const { data, error } = await client
+    .from(EMBER_MESSAGE_TABLE)
+    .select("id, workspace_id, user_id, state_id, surface, message_type, title, body, cta_label, cta_action, metadata, delivered_at, created_at, updated_at")
+    .eq("workspace_id", workspaceId)
+    .eq("user_id", userId)
+    .order("created_at", { ascending: false })
+    .limit(40);
+  if (error) throw error;
+  return data || [];
+}
+
+export async function createEmberMessageRecord(client, workspaceId, userId, message) {
+  const { data, error } = await client
+    .from(EMBER_MESSAGE_TABLE)
+    .insert({
+      workspace_id: workspaceId || null,
+      user_id: userId,
+      state_id: message.stateId || message.state_id || null,
+      surface: message.surface || "dashboard",
+      message_type: message.messageType || message.message_type || "guidance",
+      title: message.title || null,
+      body: message.body || "",
+      cta_label: message.ctaLabel || message.cta_label || null,
+      cta_action: message.ctaAction || message.cta_action || null,
+      metadata: message.metadata || {},
+      delivered_at: message.deliveredAt || message.delivered_at || null,
+    })
+    .select("id, workspace_id, user_id, state_id, surface, message_type, title, body, cta_label, cta_action, metadata, delivered_at, created_at, updated_at")
+    .single();
+  if (error) throw error;
+  return data;
+}
+
+export async function upsertEmberMemoryRecord(client, workspaceId, userId, memory) {
+  const { data, error } = await client
+    .from(EMBER_MEMORY_TABLE)
+    .upsert({
+      workspace_id: workspaceId || null,
+      user_id: userId,
+      memory_key: memory.memoryKey || memory.memory_key,
+      memory_value: memory.memoryValue || memory.memory_value || {},
+      confidence: Number(memory.confidence ?? 1),
+      updated_at: new Date().toISOString(),
+    }, { onConflict: "user_id,memory_key" })
+    .select("id, workspace_id, user_id, memory_key, memory_value, confidence, created_at, updated_at")
+    .single();
+  if (error) throw error;
+  return data;
+}
+
+export async function loadEmberNotificationEventRecords(client, workspaceId, userId) {
+  const { data, error } = await client
+    .from(EMBER_NOTIFICATION_EVENT_TABLE)
+    .select("id, workspace_id, user_id, message_id, channel, event_key, sent_at, status, metadata")
+    .eq("workspace_id", workspaceId)
+    .eq("user_id", userId)
+    .order("sent_at", { ascending: false })
+    .limit(80);
+  if (error) throw error;
+  return data || [];
+}
+
+export async function createEmberNotificationEventRecord(client, workspaceId, userId, event) {
+  const { data, error } = await client
+    .from(EMBER_NOTIFICATION_EVENT_TABLE)
+    .insert({
+      workspace_id: workspaceId || null,
+      user_id: userId,
+      message_id: event.messageId || event.message_id || null,
+      channel: event.channel || "in_app",
+      event_key: event.eventKey || event.event_key || "ember_message",
+      status: event.status || "sent",
+      metadata: event.metadata || {},
+    })
+    .select("id, workspace_id, user_id, message_id, channel, event_key, sent_at, status, metadata")
     .single();
   if (error) throw error;
   return data;

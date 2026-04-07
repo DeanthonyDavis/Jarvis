@@ -9,6 +9,11 @@ import {
 } from "./ember-engine.js";
 import {
   createActivityLogRecord,
+  createEmberActionRecord,
+  createEmberCheckInRecord,
+  createEmberMessageRecord,
+  createEmberNotificationEventRecord,
+  createEmberStateRecord,
   createIntegrationEventRecord,
   createNotificationRecord,
   createNoteRecord,
@@ -23,6 +28,9 @@ import {
   loadNoteRecords,
   loadIntegrationRecords,
   loadActivityLogRecords,
+  loadEmberMessageRecords,
+  loadEmberNotificationEventRecords,
+  loadEmberStateRecords,
   loadSyllabusRecords,
   loadUploadRecords,
   loadUserWorkspace,
@@ -71,6 +79,7 @@ const STORAGE_KEY = "apex-universal-state";
 const CUSTOM_THEMES_KEY = "ember_themes";
 const AUTO_SYNC_MS = 60 * 1000;
 const CLOUD_SAVE_MS = 900;
+let emberSyncTimer = null;
 const clone = (value) => JSON.parse(JSON.stringify(value));
 
 const EMBER_THEMES = {
@@ -622,6 +631,7 @@ function defaultSnapshot() {
     notifications: [],
     notificationPanelOpen: false,
     notificationStatus: "local",
+    ember: { states: [], messages: [], notificationEvents: [], lastSnapshotKey: "" },
     activityLog: [],
     integrations: clone(CONNECTOR_TEMPLATES).map((item) => ({
       ...item,
@@ -717,6 +727,12 @@ function loadState() {
       notifications: Array.isArray(saved.notifications) ? saved.notifications : defaults.notifications,
       notificationPanelOpen: Boolean(saved.notificationPanelOpen),
       notificationStatus: saved.notificationStatus || defaults.notificationStatus,
+      ember: {
+        states: Array.isArray(saved.ember?.states) ? saved.ember.states : [],
+        messages: Array.isArray(saved.ember?.messages) ? saved.ember.messages : [],
+        notificationEvents: Array.isArray(saved.ember?.notificationEvents) ? saved.ember.notificationEvents : [],
+        lastSnapshotKey: saved.ember?.lastSnapshotKey || "",
+      },
       activityLog: Array.isArray(saved.activityLog) ? saved.activityLog : defaults.activityLog,
       integrations: Array.isArray(saved.integrations) ? saved.integrations : defaults.integrations,
       noteSearch: saved.noteSearch || "",
@@ -1174,6 +1190,7 @@ function saveState() {
       notifications: state.notifications,
       notificationPanelOpen: state.notificationPanelOpen,
       notificationStatus: state.notificationStatus,
+      ember: state.ember,
       activityLog: state.activityLog,
       integrations: state.integrations,
       noteSearch: state.noteSearch,
@@ -1211,6 +1228,7 @@ function userWorkspaceState() {
     workspace: state.workspace,
     notifications: state.notifications,
     notificationStatus: state.notificationStatus,
+    ember: state.ember,
     activityLog: state.activityLog,
     integrations: state.integrations,
     noteSearch: state.noteSearch,
@@ -1252,6 +1270,13 @@ function applyWorkspaceState(workspace) {
   state.workspace = { ...base.workspace, ...(workspace?.workspace || {}) };
   state.notifications = Array.isArray(workspace?.notifications) ? workspace.notifications : base.notifications;
   state.notificationStatus = workspace?.notificationStatus || base.notificationStatus;
+  state.ember = {
+    ...base.ember,
+    ...(workspace?.ember || {}),
+    states: Array.isArray(workspace?.ember?.states) ? workspace.ember.states : base.ember.states,
+    messages: Array.isArray(workspace?.ember?.messages) ? workspace.ember.messages : base.ember.messages,
+    notificationEvents: Array.isArray(workspace?.ember?.notificationEvents) ? workspace.ember.notificationEvents : base.ember.notificationEvents,
+  };
   state.activityLog = Array.isArray(workspace?.activityLog) ? workspace.activityLog : base.activityLog;
   state.notificationPanelOpen = Boolean(workspace?.notificationPanelOpen);
   state.integrations = Array.isArray(workspace?.integrations) ? workspace.integrations : base.integrations;
@@ -1396,6 +1421,49 @@ function normalizeActivity(record) {
   };
 }
 
+function normalizeEmberState(record) {
+  return {
+    id: record.id || localId("ember_state"),
+    stateKey: record.stateKey || record.state_key || "steady",
+    severity: record.severity || "low",
+    context: record.context || {},
+    isActive: record.isActive ?? record.is_active ?? true,
+    detectedAt: record.detectedAt || record.detected_at || new Date().toISOString(),
+    resolvedAt: record.resolvedAt || record.resolved_at || null,
+    local: Boolean(record.local),
+  };
+}
+
+function normalizeEmberMessage(record) {
+  return {
+    id: record.id || localId("ember_message"),
+    stateId: record.stateId || record.state_id || null,
+    surface: record.surface || "dashboard",
+    messageType: record.messageType || record.message_type || "guidance",
+    title: record.title || "",
+    body: record.body || "",
+    ctaLabel: record.ctaLabel || record.cta_label || "",
+    ctaAction: record.ctaAction || record.cta_action || null,
+    metadata: record.metadata || {},
+    deliveredAt: record.deliveredAt || record.delivered_at || null,
+    createdAt: record.createdAt || record.created_at || new Date().toISOString(),
+    local: Boolean(record.local),
+  };
+}
+
+function normalizeEmberNotificationEvent(record) {
+  return {
+    id: record.id || localId("ember_notification_event"),
+    messageId: record.messageId || record.message_id || null,
+    channel: record.channel || "in_app",
+    eventKey: record.eventKey || record.event_key || "ember_message",
+    sentAt: record.sentAt || record.sent_at || new Date().toISOString(),
+    status: record.status || "sent",
+    metadata: record.metadata || {},
+    local: Boolean(record.local),
+  };
+}
+
 function activityLabel(activity) {
   const labels = {
     upload: "Upload",
@@ -1406,6 +1474,7 @@ function activityLabel(activity) {
     scheduler: "Scheduler",
     source: "Source",
     mind: "Recovery",
+    ember: "Ember",
     task: "Task",
     onboarding: "Onboarding",
   };
@@ -1808,6 +1877,142 @@ async function logActivity(activity) {
   }
 }
 
+function emberSnapshotKey(surface, ember) {
+  const sourceMessage = surface === "planner" ? ember.planner : surface === "upload_review" ? ember.upload : ember.dashboard;
+  return [
+    surface,
+    ember.primaryState?.stateKey || "steady",
+    ember.primaryState?.severity || "low",
+    sourceMessage?.title || "",
+    sourceMessage?.body || "",
+  ].join("::");
+}
+
+function appendLocalEmberSnapshot(surface, ember) {
+  const key = emberSnapshotKey(surface, ember);
+  if (state.ember.lastSnapshotKey === key) return null;
+  const primary = normalizeEmberState({ ...ember.primaryState, local: true });
+  const sourceMessage = surface === "planner"
+    ? ember.planner
+    : surface === "upload_review"
+      ? ember.upload
+      : ember.dashboard;
+  const message = normalizeEmberMessage({
+    local: true,
+    stateId: primary.id,
+    surface,
+    messageType: primary.severity === "high" ? "warning" : "guidance",
+    title: sourceMessage.title,
+    body: sourceMessage.body,
+    ctaLabel: sourceMessage.ctaLabel,
+    ctaAction: sourceMessage.ctaAction,
+    metadata: {
+      stateKey: primary.stateKey,
+      severity: primary.severity,
+      note: sourceMessage.note || "",
+    },
+  });
+  state.ember = {
+    ...state.ember,
+    lastSnapshotKey: key,
+    states: [primary, ...(state.ember.states || [])].slice(0, 40),
+    messages: [message, ...(state.ember.messages || [])].slice(0, 60),
+  };
+  saveState();
+  return { key, primary, message };
+}
+
+async function persistEmberSnapshot(surface = "dashboard") {
+  const intel = getIntel();
+  const ember = buildEmberIntelligence({ state, intel });
+  const snapshot = appendLocalEmberSnapshot(surface, ember);
+  if (!snapshot || !state.workspace.phase2Enabled || !state.workspace.id || !state.auth.client || !state.auth.user) return snapshot;
+  try {
+    const cloudState = normalizeEmberState(await createEmberStateRecord(state.auth.client, state.workspace.id, state.auth.user.id, snapshot.primary));
+    const cloudMessage = normalizeEmberMessage(await createEmberMessageRecord(state.auth.client, state.workspace.id, state.auth.user.id, {
+      ...snapshot.message,
+      stateId: cloudState.id,
+    }));
+    state.ember = {
+      ...state.ember,
+      states: state.ember.states.map((item) => item.id === snapshot.primary.id ? cloudState : item),
+      messages: state.ember.messages.map((item) => item.id === snapshot.message.id ? cloudMessage : item),
+    };
+
+    if (cloudState.severity === "high") {
+      const eventKey = `${surface}:${cloudState.stateKey}:${new Date().toISOString().slice(0, 10)}`;
+      const recent = (state.ember.notificationEvents || []).some((item) => item.eventKey === eventKey);
+      if (!recent) {
+        const event = normalizeEmberNotificationEvent(await createEmberNotificationEventRecord(state.auth.client, state.workspace.id, state.auth.user.id, {
+          messageId: cloudMessage.id,
+          channel: "in_app",
+          eventKey,
+          metadata: { surface, severity: cloudState.severity, stateKey: cloudState.stateKey },
+        }));
+        state.ember.notificationEvents = [event, ...(state.ember.notificationEvents || [])].slice(0, 80);
+      }
+    }
+    saveState();
+  } catch (error) {
+    state.workspace = {
+      ...state.workspace,
+      error: error instanceof Error ? error.message : "Ember persistence unavailable.",
+    };
+    saveState();
+  }
+  return snapshot;
+}
+
+function queueEmberSnapshotSync(surface = "dashboard") {
+  if (!win || !state.auth.user) return;
+  clearTimeout(emberSyncTimer);
+  emberSyncTimer = win.setTimeout(() => {
+    persistEmberSnapshot(surface);
+  }, 500);
+}
+
+async function persistEmberCheckIn() {
+  if (!state.workspace.phase2Enabled || !state.workspace.id || !state.auth.client || !state.auth.user) return;
+  try {
+    await createEmberCheckInRecord(state.auth.client, state.workspace.id, state.auth.user.id, {
+      mood: state.checkin.mood,
+      energy: state.checkin.energy,
+      stress: state.checkin.stress || null,
+      note: state.checkin.note || "",
+    });
+  } catch (error) {
+    state.workspace = {
+      ...state.workspace,
+      error: error instanceof Error ? error.message : "Check-in persistence unavailable.",
+    };
+    saveState();
+  }
+}
+
+async function persistEmberAction(actionType, actionPayload = {}) {
+  logActivity({
+    entityType: "ember",
+    actionType,
+    afterState: {
+      summary: `Ember action requested: ${actionType.replace(/_/g, " ")}`,
+      ...actionPayload,
+    },
+  });
+  if (!state.workspace.phase2Enabled || !state.workspace.id || !state.auth.client || !state.auth.user) return;
+  try {
+    await createEmberActionRecord(state.auth.client, state.workspace.id, state.auth.user.id, {
+      actionType,
+      actionPayload,
+    });
+  } catch (error) {
+    state.workspace = {
+      ...state.workspace,
+      error: error instanceof Error ? error.message : "Ember action persistence unavailable.",
+    };
+    saveState();
+  }
+}
+
 async function ingestUploadedFile(file, uploadRecord) {
   const upload = normalizeUpload(uploadRecord);
   state.uploadedFiles = state.uploadedFiles.map((item) => item.id === upload.id ? { ...item, textStatus: "processing" } : item);
@@ -1867,6 +2072,7 @@ async function ingestUploadedFile(file, uploadRecord) {
         textStatus: extraction.textStatus,
       },
     });
+    await persistEmberSnapshot("upload_review");
   } catch (error) {
     state.uploadedFiles = state.uploadedFiles.map((item) => item.id === upload.id ? { ...item, textStatus: "failed", extractionWarnings: [error instanceof Error ? error.message : "Ingestion failed."] } : item);
     saveState();
@@ -3880,6 +4086,7 @@ function renderApp() {
   renderManualEntrySheet();
   renderPaywallSheet();
   renderAppearanceSettings();
+  queueEmberSnapshotSync(state.activeDomain === "notebook" ? "upload_review" : state.activeDomain === "command" ? "dashboard" : "dashboard");
 }
 
 function processBrainDump(text) {
@@ -4115,6 +4322,10 @@ doc?.addEventListener("click", async (event) => {
       state.activeDomain = "command";
       rerender();
       requestAnimationFrame(() => doc?.querySelector(action === "open_conflicts" ? "[data-conflict-panel]" : ".schedule-strip--solver")?.scrollIntoView({ block: "start", behavior: "smooth" }));
+      if (action === "fix_plan") {
+        await persistEmberAction("suggest_plan", { surface: "planner", requestedAction: "fix_plan" });
+        await persistEmberSnapshot("planner");
+      }
     } else if (action === "open_recovery") {
       state.activeDomain = "mind";
       rerender();
@@ -4264,7 +4475,7 @@ doc?.addEventListener("click", async (event) => {
   if (target.closest("[data-apply-source]")) { try { applySourcePayload(state.sourceConfig.draftPayload, "manual payload"); } catch (error) { state.sourceConfig = { ...state.sourceConfig, lastSyncStatus: "error", lastError: error instanceof Error ? error.message : "Invalid payload" }; rerender(); } return; }
   if (target.closest("[data-sync-source]")) { await syncRemoteSource(); scheduleAutoSync(); return; }
   if (target.closest("[data-reset-source]")) { state.sourceConfig = { ...state.sourceConfig, lastSyncStatus: "idle", lastError: "" }; rerender(); return; }
-  if (target.closest("[data-submit-checkin]")) { if (state.checkin.energy && state.checkin.focus && state.checkin.mood) { state.checkin.submitted = true; rerender(); notifyUser({ type: "mind_checkin", title: "Check-in logged", body: "Ember will treat this as schedule context, not a therapy score.", severity: "success" }); logActivity({ entityType: "mind", actionType: "checkin_logged", afterState: { summary: "Daily check-in logged", energy: state.checkin.energy, focus: state.checkin.focus, mood: state.checkin.mood, note: state.checkin.note || "" } }); } return; }
+  if (target.closest("[data-submit-checkin]")) { if (state.checkin.energy && state.checkin.focus && state.checkin.mood) { state.checkin.submitted = true; rerender(); notifyUser({ type: "mind_checkin", title: "Check-in logged", body: "Ember will treat this as schedule context, not a therapy score.", severity: "success" }); logActivity({ entityType: "mind", actionType: "checkin_logged", afterState: { summary: "Daily check-in logged", energy: state.checkin.energy, focus: state.checkin.focus, mood: state.checkin.mood, note: state.checkin.note || "" } }); await persistEmberCheckIn(); await persistEmberSnapshot("dashboard"); } return; }
   if (target.closest("[data-reset-checkin]")) { state.checkin = { energy: 0, focus: 0, mood: 0, note: "", submitted: false }; rerender(); return; }
   if (target.closest("[data-process-dump]")) { if (state.brainDump.trim()) { state.processedDump = processBrainDump(state.brainDump); rerender(); } return; }
   if (target.closest("[data-clear-dump]")) { state.brainDump = ""; state.processedDump = null; rerender(); return; }
@@ -4502,6 +4713,19 @@ async function loadRelationalWorkspaceForUser(user) {
     if (syllabi.length) state.syllabusReviews = syllabi.map(normalizeSyllabusReview);
     const activity = await loadActivityLogRecords(state.auth.client, workspace.id);
     if (activity.length) state.activityLog = activity.map(normalizeActivity);
+    try {
+      const emberStates = await loadEmberStateRecords(state.auth.client, workspace.id, user.id);
+      const emberMessages = await loadEmberMessageRecords(state.auth.client, workspace.id, user.id);
+      const emberEvents = await loadEmberNotificationEventRecords(state.auth.client, workspace.id, user.id);
+      state.ember = {
+        ...state.ember,
+        states: emberStates.map(normalizeEmberState),
+        messages: emberMessages.map(normalizeEmberMessage),
+        notificationEvents: emberEvents.map(normalizeEmberNotificationEvent),
+      };
+    } catch (error) {
+      state.ember = { ...state.ember, error: error instanceof Error ? error.message : "Ember tables unavailable." };
+    }
   } catch (error) {
     state.workspace = {
       id: null,

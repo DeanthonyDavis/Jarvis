@@ -50,7 +50,7 @@ This file defines the current product UI rules so new screens feel intentional i
 - Money: empty safe-to-spend, next bills, and life admin states with manual bill/income/target options.
 - Money MVP: safe-to-spend should lead, followed by manual accounts, transactions, recurring bills/subscriptions, income/paydays, and savings goals. Bank linking is an enhancement, not a gate.
 - Upgrade moments: never paywall signup. Use the Ember paywall only when intent is clear: syllabus parsing, LMS sync, automatic weekly planning, conflict fixing, or upload limits. Always show a manual/free alternative beside the upgrade action.
-- Ember Phase 1: dashboard home-base card, planner take panel, upload review guidance, and check-in copy are live. Backend tables for states/actions/messages/memory exist in the Phase 2 schema, but scheduled scans, durable planner moves, and real push delivery are later phases.
+- Ember Phase 1: dashboard home-base card, planner take panel, upload review guidance, and check-in copy are live. Backend tables for states/actions/messages/memory exist in the Phase 2 schema, and the client now persists check-ins plus deduped state/message snapshots when those tables are available. Scheduled scans, durable planner moves, and real push delivery are later phases.
 - Path: empty goals and milestones with manual goal/note options.
 - Recovery: empty recovery signal and insight states with check-in/rest-block options.
 - Sources: empty notes, uploads, and syllabus review queue with upload and manual-source options.
