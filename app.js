@@ -73,6 +73,7 @@ const storage =
     : {
         getItem: () => null,
         setItem: () => {},
+        removeItem: () => {},
       };
 
 const STORAGE_KEY = "apex-universal-state";
@@ -81,6 +82,23 @@ const AUTO_SYNC_MS = 60 * 1000;
 const CLOUD_SAVE_MS = 900;
 let emberSyncTimer = null;
 const clone = (value) => JSON.parse(JSON.stringify(value));
+
+if (win?.history && "scrollRestoration" in win.history) {
+  win.history.scrollRestoration = "manual";
+}
+
+function handleResetQuery() {
+  if (!win) return;
+  const params = new URLSearchParams(win.location.search);
+  if (!params.has("reset")) return;
+  storage.removeItem(STORAGE_KEY);
+  storage.removeItem(CUSTOM_THEMES_KEY);
+  params.delete("reset");
+  const query = params.toString();
+  win.location.replace(`${win.location.pathname}${query ? `?${query}` : ""}${win.location.hash || ""}`);
+}
+
+handleResetQuery();
 
 const EMBER_THEMES = {
   dawn: {
@@ -872,6 +890,21 @@ const localId = (prefix) => `${prefix}-${Date.now()}-${Math.random().toString(16
 const normalizedKey = (...parts) => parts.map((part) => String(part || "").trim().toLowerCase().replace(/\s+/g, " ")).join("|");
 const nextNumericTaskId = () => Math.max(0, ...state.tasks.map((task) => Number(task.id) || 0)) + 1;
 const unreadNotifications = () => state.notifications.filter((item) => !item.read_at && !item.dismissed_at && !item.resolved_at);
+function scrollAppToTop() {
+  requestAnimationFrame(() => {
+    doc?.querySelector(".app-shell")?.scrollTo?.({ top: 0, behavior: "auto" });
+    doc?.querySelector(".main")?.scrollTo?.({ top: 0, behavior: "auto" });
+    win?.scrollTo?.({ top: 0, behavior: "auto" });
+  });
+}
+
+function setActiveDomain(domainId, { preserveScroll = false } = {}) {
+  if (!DOMAINS.some((domain) => domain.id === domainId)) return;
+  const changed = state.activeDomain !== domainId;
+  state.activeDomain = domainId;
+  if (changed && !preserveScroll) scrollAppToTop();
+}
+
 function constraintsForMode(modeKey = state.scheduleMode) {
   const mode = SCHEDULE_MODES[modeKey] || SCHEDULE_MODES.balanced;
   const base = normalizeConstraints(state.constraints);
@@ -3564,7 +3597,7 @@ function executeCommandPaletteAction(actionId) {
     state.widgets.commandProfiles[profile] = commandWidgets().map((widget) => (widget.id === item.widgetId ? { ...widget, visible: true } : widget));
     state.widgets.command = state.widgets.commandProfiles.guided;
   }
-  if (item.domain) state.activeDomain = item.domain;
+  if (item.domain) setActiveDomain(item.domain);
   rerender();
   scrollToSelectorAfterRender(item.scrollSelector);
 }
@@ -4154,6 +4187,15 @@ function renderContent(intel) {
   }
 }
 
+function renderContentSafely(intel) {
+  try {
+    return renderContent(intel);
+  } catch (error) {
+    console.error("Ember content render failed", error);
+    return `<section class="section-shell"><article class="panel panel--empty span-12" style="--accent:${TOKENS.warn};"><div class="panel-label">recovery mode</div><h3 class="empty-title">Ember hit a bad saved view.</h3><p class="row-subtitle">The shell is still okay. Clear local UI state or switch sections to keep going while we protect the app from this data shape.</p><div class="source-actions"><button class="primary-action" data-reset-local-state>Reset local UI</button><button class="surface-action" data-domain="command">Open Plan</button><button class="surface-action" data-upload-sheet-open>Manage uploads</button></div></article></section>`;
+  }
+}
+
 function renderApp() {
   if (!app) return;
   state.preferences = normalizePreferences(state.preferences);
@@ -4179,7 +4221,8 @@ function renderApp() {
   const prefs = normalizePreferences(state.preferences);
   const shellClass = `theme-${prefs.theme} density-${prefs.compactMode === "on" ? "compact" : prefs.density} text-${prefs.fontScale} layout-${prefs.layoutProfile} domain-${domain.id}`;
   const gradient = currentThemeDefinition().tokens;
-  app.innerHTML = `<div class="app-shell ${shellClass}" style="--accent:${selectedAccent(domain.id)}; --student-gradient:${gradient.gradientA}; --student-gradient-soft:${gradient.gradientB};"><a class="skip-link" href="#main-content">Skip to content</a><div class="ambient"><div class="orb orb--one"></div><div class="orb orb--two"></div><div class="orb orb--three"></div></div><aside class="sidebar ${state.sidebarCollapsed ? "is-collapsed" : ""}"><div class="brand"><div class="brand-mark">${emberLogoMark("Ember")}</div><div class="brand-copy"><h1>Ember</h1><p>Dawn OS</p></div></div><nav class="sidebar-nav" aria-label="Primary sections">${DOMAINS.map((item) => `<button class="nav-button ${state.activeDomain === item.id ? "is-active" : ""}" data-domain="${item.id}" style="--accent:${colorFor(item.id)};" aria-current="${state.activeDomain === item.id ? "page" : "false"}"><span class="nav-icon">${iconSvg(item.id, item.label)}</span><span class="nav-copy"><strong>${item.label}</strong><span>${item.blurb}</span></span></button>`).join("")}</nav><div class="sidebar-footer"><button class="collapse-button" data-collapse-sidebar aria-label="${state.sidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"}"><span>${state.sidebarCollapsed ? "&#9654;" : "&#9664;"}</span><span>${state.sidebarCollapsed ? "Expand" : "Collapse"}</span></button></div></aside><main class="main" id="main-content"><header class="topbar"><div class="topbar-title"><div class="topbar-icon">${emberLogoMark("Ember")}</div><div class="topbar-copy"><div class="topbar-heading-row"><h2>${escapeHtml(domain.label)}</h2><span class="dawn-os-chip">Full rework v4</span></div><p>${formatToday()} &middot; ${state.auth.user.email}</p></div></div><div class="topbar-metrics"><button class="mobile-menu-trigger" data-mobile-nav-open aria-label="Open mobile menu"><span>${iconSvg(domain.id, "Mobile menu")}</span><strong>Menu</strong></button><button class="command-trigger" data-command-open aria-label="Open command palette"><span>${iconSvg("command", "Command palette")}</span><strong>Search</strong><kbd>Ctrl K</kbd></button><div class="metric-pill"><span class="metric-dot"></span><span>Load</span><strong data-shell-load>${intel.loadDisplay || `${intel.loadScore}%`}</strong></div><div class="metric-pill"><span class="metric-dot" style="background:${TOKENS.command};"></span><span>Cloud</span><strong data-shell-cloud>${state.cloudSaveStatus}</strong></div><div class="metric-pill"><span class="metric-dot" data-shell-source-dot style="background:${statusTone(state.sourceConfig.lastSyncStatus)};"></span><span>Source</span><strong data-shell-source>${state.sourceConfig.lastSyncStatus}</strong></div><button class="metric-pill metric-button ${unreadNotifications().length ? "has-unread" : ""}" data-notification-toggle type="button" aria-label="Open notification center"><span class="metric-dot" data-shell-notification-dot style="background:${unreadNotifications().length ? TOKENS.warn : TOKENS.ok};"></span><span>Alerts</span><strong data-shell-notifications>${unreadNotifications().length}</strong></button><button class="upgrade-trigger ${subscriptionTier() === "free" ? "" : "is-active"}" data-paywall-open>${subscriptionTier() === "free" ? "Upgrade" : subscriptionTier() === "pro_plus" ? "Pro+" : "Pro"}</button><button class="surface-action" data-domain="command" data-scroll-personalization>Personalize</button><button class="surface-action" data-auth-signout>Sign Out</button><div class="mini-domain-rail" aria-label="Quick sections">${DOMAINS.filter((item) => item.id !== "command").map((item) => `<button class="stat-dot-button ${item.id === state.activeDomain ? "is-active" : ""}" data-domain="${item.id}" style="--dot:${colorFor(item.id)};" title="${item.label}" aria-label="Open ${item.label}"></button>`).join("")}</div></div></header><div class="content">${renderContent(intel)}</div></main>${renderEmberDock()}${renderOnboarding()}${renderSectionHelp()}</div>`;
+  const contentHtml = renderContentSafely(intel);
+  app.innerHTML = `<div class="app-shell ${shellClass}" style="--accent:${selectedAccent(domain.id)}; --student-gradient:${gradient.gradientA}; --student-gradient-soft:${gradient.gradientB};"><a class="skip-link" href="#main-content">Skip to content</a><div class="ambient"><div class="orb orb--one"></div><div class="orb orb--two"></div><div class="orb orb--three"></div></div><aside class="sidebar ${state.sidebarCollapsed ? "is-collapsed" : ""}"><div class="brand"><div class="brand-mark">${emberLogoMark("Ember")}</div><div class="brand-copy"><h1>Ember</h1><p>Dawn OS</p></div></div><nav class="sidebar-nav" aria-label="Primary sections">${DOMAINS.map((item) => `<button class="nav-button ${state.activeDomain === item.id ? "is-active" : ""}" data-domain="${item.id}" style="--accent:${colorFor(item.id)};" aria-current="${state.activeDomain === item.id ? "page" : "false"}"><span class="nav-icon">${iconSvg(item.id, item.label)}</span><span class="nav-copy"><strong>${item.label}</strong><span>${item.blurb}</span></span></button>`).join("")}</nav><div class="sidebar-footer"><button class="collapse-button" data-collapse-sidebar aria-label="${state.sidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"}"><span>${state.sidebarCollapsed ? "&#9654;" : "&#9664;"}</span><span>${state.sidebarCollapsed ? "Expand" : "Collapse"}</span></button></div></aside><main class="main" id="main-content"><header class="topbar"><div class="topbar-title"><div class="topbar-icon">${emberLogoMark("Ember")}</div><div class="topbar-copy"><div class="topbar-heading-row"><h2>${escapeHtml(domain.label)}</h2><span class="dawn-os-chip">Full rework v5</span></div><p>${formatToday()} &middot; ${state.auth.user.email}</p></div></div><div class="topbar-metrics"><button class="mobile-menu-trigger" data-mobile-nav-open aria-label="Open mobile menu"><span>${iconSvg(domain.id, "Mobile menu")}</span><strong>Menu</strong></button><button class="command-trigger" data-command-open aria-label="Open command palette"><span>${iconSvg("command", "Command palette")}</span><strong>Search</strong><kbd>Ctrl K</kbd></button><div class="metric-pill"><span class="metric-dot"></span><span>Load</span><strong data-shell-load>${intel.loadDisplay || `${intel.loadScore}%`}</strong></div><div class="metric-pill"><span class="metric-dot" style="background:${TOKENS.command};"></span><span>Cloud</span><strong data-shell-cloud>${state.cloudSaveStatus}</strong></div><div class="metric-pill"><span class="metric-dot" data-shell-source-dot style="background:${statusTone(state.sourceConfig.lastSyncStatus)};"></span><span>Source</span><strong data-shell-source>${state.sourceConfig.lastSyncStatus}</strong></div><button class="metric-pill metric-button ${unreadNotifications().length ? "has-unread" : ""}" data-notification-toggle type="button" aria-label="Open notification center"><span class="metric-dot" data-shell-notification-dot style="background:${unreadNotifications().length ? TOKENS.warn : TOKENS.ok};"></span><span>Alerts</span><strong data-shell-notifications>${unreadNotifications().length}</strong></button><button class="upgrade-trigger ${subscriptionTier() === "free" ? "" : "is-active"}" data-paywall-open>${subscriptionTier() === "free" ? "Upgrade" : subscriptionTier() === "pro_plus" ? "Pro+" : "Pro"}</button><button class="surface-action" data-domain="command" data-scroll-personalization>Personalize</button><button class="surface-action" data-auth-signout>Sign Out</button><div class="mini-domain-rail" aria-label="Quick sections">${DOMAINS.filter((item) => item.id !== "command").map((item) => `<button class="stat-dot-button ${item.id === state.activeDomain ? "is-active" : ""}" data-domain="${item.id}" style="--dot:${colorFor(item.id)};" title="${item.label}" aria-label="Open ${item.label}"></button>`).join("")}</div></div></header><div class="content">${contentHtml}</div></main>${renderEmberDock()}${renderOnboarding()}${renderSectionHelp()}</div>`;
   state.lastPlanSnapshot = nextPlanSnapshot;
   persistPlanSnapshotOnly();
   renderToast();
@@ -4408,6 +4451,12 @@ doc?.addEventListener("click", async (event) => {
   if (target.matches("[data-upload-sheet-close]") || target.closest(".upload-sheet__scrim")) { closeUploadSheet(); return; }
   if (target.closest("[data-paywall-open]")) { openPaywall("auto_plan", { feature: "upgrade_button" }); return; }
   if (target.matches("[data-paywall-close]") || target.closest(".paywall-sheet__scrim")) { closePaywall(); return; }
+  if (target.closest("[data-reset-local-state]")) {
+    storage.removeItem(STORAGE_KEY);
+    storage.removeItem(CUSTOM_THEMES_KEY);
+    win?.location.reload();
+    return;
+  }
   const planSelect = target.closest("[data-plan-select]");
   if (planSelect) { selectPlan(planSelect.dataset.planSelect); return; }
   const paywallSecondary = target.closest("[data-paywall-secondary]");
@@ -4423,7 +4472,7 @@ doc?.addEventListener("click", async (event) => {
   if (emberAction) {
     const action = emberAction.dataset.emberAction;
     if (["open_plan", "open_conflicts", "fix_plan", "manual_review"].includes(action)) {
-      state.activeDomain = "command";
+      setActiveDomain("command");
       rerender();
       requestAnimationFrame(() => doc?.querySelector(action === "open_conflicts" ? "[data-conflict-panel]" : ".schedule-strip--solver")?.scrollIntoView({ block: "start", behavior: "smooth" }));
       if (action === "fix_plan") {
@@ -4431,10 +4480,10 @@ doc?.addEventListener("click", async (event) => {
         await persistEmberSnapshot("planner");
       }
     } else if (action === "open_recovery") {
-      state.activeDomain = "mind";
+      setActiveDomain("mind");
       rerender();
     } else if (action === "open_sources") {
-      state.activeDomain = "notebook";
+      setActiveDomain("notebook");
       rerender();
     } else if (action === "why_ember") {
       pushToast("Ember is using urgency, conflicts, load, check-ins, and source confidence.");
@@ -4461,7 +4510,7 @@ doc?.addEventListener("click", async (event) => {
   if (commandAction) { if (shouldCloseMobileNav) state.mobileNavOpen = false; executeCommandPaletteAction(commandAction.dataset.commandAction); renderMobileNavSheet(); return; }
   const domainButton = target.closest("[data-domain]");
   if (domainButton) {
-    state.activeDomain = domainButton.dataset.domain;
+    setActiveDomain(domainButton.dataset.domain);
     if (shouldCloseMobileNav) state.mobileNavOpen = false;
     rerender();
     if (domainButton.matches("[data-scroll-personalization]")) {
@@ -4940,7 +4989,7 @@ async function handleSignOut() {
 win?.addEventListener("storage", (event) => {
   if (event.key !== STORAGE_KEY || !event.newValue) return;
   const next = loadState();
-  state.activeDomain = next.activeDomain;
+  setActiveDomain(next.activeDomain || state.activeDomain);
   state.sidebarCollapsed = next.sidebarCollapsed;
   state.tasks = next.tasks;
   state.courses = next.courses;
@@ -4976,5 +5025,6 @@ win?.addEventListener("storage", (event) => {
 
 if (app) {
   renderApp();
+  scrollAppToTop();
   bootstrapAuth();
 }

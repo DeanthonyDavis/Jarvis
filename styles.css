@@ -1207,7 +1207,9 @@ textarea:focus-visible {
   width: min(100% - clamp(1.5rem, 4vw, 3rem), 1180px);
   margin: 0 auto;
   padding: clamp(1.15rem, 2vw, 1.8rem) 0 calc(8rem + env(safe-area-inset-bottom));
+  min-height: calc(100dvh - 8rem);
   overflow: visible;
+  overflow-anchor: none;
   -webkit-overflow-scrolling: touch;
 }
 
@@ -1215,6 +1217,7 @@ textarea:focus-visible {
   display: flex;
   flex-direction: column;
   gap: 1.6rem;
+  min-height: 20rem;
   animation: fadeInUp 320ms ease;
 }
 
