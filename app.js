@@ -1110,6 +1110,7 @@ function normalizeRequirementSet(set = {}) {
         id: item.id || `item-${groupIndex + 1}-${itemIndex + 1}`,
         title: safeSavedText(item.title || "Requirement", 120),
         courseCode: safeSavedText(item.courseCode || item.course_code || "", 40),
+        overrideStatus: ["satisfied", "waived", "transfer"].includes(item.overrideStatus || item.override_status) ? (item.overrideStatus || item.override_status) : "",
       })) : [],
     })) : [],
   };
@@ -3833,6 +3834,9 @@ function closeActiveAcademicPeriod() {
 }
 
 function requirementItemStatus(item, courses = normalizeCourses(state.courses, state.academicPeriods)) {
+  if (item.overrideStatus === "satisfied") return { status: "satisfied", label: "Manually satisfied", tone: TOKENS.ok };
+  if (item.overrideStatus === "waived") return { status: "waived", label: "Waived", tone: TOKENS.future };
+  if (item.overrideStatus === "transfer") return { status: "transfer", label: "Transfer credit", tone: TOKENS.command };
   const code = normalizedKey(item.courseCode).replace(/\|/g, "");
   if (!code) return { status: "manual_review", label: "Needs mapping", tone: TOKENS.notebook };
   const matches = courses.filter((course) => normalizedKey(course.code).includes(code));
@@ -3847,8 +3851,38 @@ function renderRequirementsPanel() {
   if (!requirements.length) {
     return `<article class="panel span-12" style="--accent:${TOKENS.academy};">${emptyState({ domain: "academy", title: "No requirement plan yet.", body: "Start with a college or high-school template, then replace it with an uploaded degree sheet or counselor checklist later.", compact: true })}<div class="requirement-template-actions"><button class="primary-action" data-requirement-template="college">Use college starter</button><button class="surface-action" data-requirement-template="high_school">Use high-school starter</button><button class="surface-action" data-upload-sheet-open>Upload checklist</button></div></article>`;
   }
-  const rows = requirements.map((set) => `<article class="panel span-12 requirement-set" style="--accent:${set.profileType === "high_school" ? TOKENS.future : TOKENS.academy};"><div class="panel-label">${escapeHtml(set.profileType.replace(/_/g, " "))} audit</div><h3>${escapeHtml(set.name)}</h3><div class="requirement-grid">${set.groups.map((group) => `<section class="requirement-group"><div class="requirement-group__head"><strong>${escapeHtml(group.name)}</strong><span>${group.minCredits ? `${group.minCredits} credits` : "rule group"}</span></div>${group.items.map((item) => { const status = requirementItemStatus(item); return `<div class="requirement-item" style="--accent:${status.tone};"><div><strong>${escapeHtml(item.title)}</strong><span>${escapeHtml(item.courseCode || "Manual match needed")}</span></div>${pill(status.label, status.tone)}</div>`; }).join("")}</section>`).join("")}</div></article>`).join("");
+  const rows = requirements.map((set) => {
+    const groups = set.groups.map((group) => {
+      const items = group.items.map((item) => {
+        const status = requirementItemStatus(item);
+        const actionPayload = `${set.id}|${group.id}|${item.id}`;
+        const overrideActions = item.overrideStatus
+          ? `<button class="surface-action surface-action--tiny" data-requirement-override="${escapeHtml(actionPayload)}" data-override-status="">Clear</button>`
+          : `<button class="surface-action surface-action--tiny" data-requirement-override="${escapeHtml(actionPayload)}" data-override-status="satisfied">Satisfy</button><button class="surface-action surface-action--tiny" data-requirement-override="${escapeHtml(actionPayload)}" data-override-status="transfer">Transfer</button><button class="surface-action surface-action--tiny" data-requirement-override="${escapeHtml(actionPayload)}" data-override-status="waived">Waive</button>`;
+        return `<div class="requirement-item" style="--accent:${status.tone};"><div><strong>${escapeHtml(item.title)}</strong><span>${escapeHtml(item.courseCode || "Manual match needed")}</span></div><div class="requirement-item__status">${pill(status.label, status.tone)}<div class="requirement-actions">${overrideActions}</div></div></div>`;
+      }).join("");
+      return `<section class="requirement-group"><div class="requirement-group__head"><strong>${escapeHtml(group.name)}</strong><span>${group.minCredits ? `${group.minCredits} credits` : "rule group"}</span></div>${items}</section>`;
+    }).join("");
+    return `<article class="panel span-12 requirement-set" style="--accent:${set.profileType === "high_school" ? TOKENS.future : TOKENS.academy};"><div class="panel-label">${escapeHtml(set.profileType.replace(/_/g, " "))} audit</div><h3>${escapeHtml(set.name)}</h3><div class="requirement-grid">${groups}</div></article>`;
+  }).join("");
   return rows;
+}
+
+function updateRequirementOverride(payload, overrideStatus) {
+  const [setId, groupId, itemId] = String(payload || "").split("|");
+  if (!setId || !groupId || !itemId) return;
+  state.academicRequirements = (state.academicRequirements || []).map((set) => normalizeRequirementSet({
+    ...set,
+    groups: (set.groups || []).map((group) => ({
+      ...group,
+      items: (group.items || []).map((item) => {
+        if (String(set.id) !== setId || String(group.id) !== groupId || String(item.id) !== itemId) return item;
+        return { ...item, overrideStatus: overrideStatus || "" };
+      }),
+    })),
+  }));
+  saveState();
+  rerender();
 }
 
 function applyRequirementTemplate(templateKey) {
@@ -4830,7 +4864,7 @@ function renderApp() {
   const prefs = normalizePreferences(state.preferences);
   const shellClass = `theme-${prefs.theme} density-${prefs.compactMode === "on" ? "compact" : prefs.density} text-${prefs.fontScale} layout-${prefs.layoutProfile} domain-${domain.id}`;
   const contentHtml = renderContentSafely(intel);
-  app.innerHTML = `<div class="app-shell ${shellClass}" style="--accent:${selectedAccent(domain.id)};"><a class="skip-link" href="#main-content">Skip to content</a><div class="ambient"><div class="orb orb--one"></div><div class="orb orb--two"></div><div class="orb orb--three"></div></div><aside class="sidebar ${state.sidebarCollapsed ? "is-collapsed" : ""}"><div class="brand"><div class="brand-mark">${emberLogoMark("Ember")}</div><div class="brand-copy"><h1>Ember</h1><p>Dawn OS</p></div></div><nav class="sidebar-nav" aria-label="Primary sections">${DOMAINS.map((item) => `<button class="nav-button ${state.activeDomain === item.id ? "is-active" : ""}" data-domain="${item.id}" style="--accent:${colorFor(item.id)};" aria-current="${state.activeDomain === item.id ? "page" : "false"}"><span class="nav-icon">${iconSvg(item.id, item.label)}</span><span class="nav-copy"><strong>${item.label}</strong><span>${item.blurb}</span></span></button>`).join("")}</nav><div class="sidebar-footer"><button class="collapse-button" data-collapse-sidebar aria-label="${state.sidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"}"><span>${state.sidebarCollapsed ? "&#9654;" : "&#9664;"}</span><span>${state.sidebarCollapsed ? "Expand" : "Collapse"}</span></button></div></aside><main class="main" id="main-content"><header class="topbar topbar--toolbelt"><div class="topbar-title"><div class="topbar-icon">${emberLogoMark("Ember")}</div><div class="topbar-copy"><div class="topbar-heading-row"><h2>Ember</h2><span class="topbar-mode">${escapeHtml(domain.label)}</span><span class="dawn-os-chip">Academic requirements v12</span></div><p>${escapeHtml(domain.blurb)} &middot; ${formatToday()}</p></div></div><div class="topbar-metrics"><button class="mobile-menu-trigger" data-mobile-nav-open aria-label="Open mobile menu"><span>${iconSvg(domain.id, "Mobile menu")}</span><strong>Menu</strong></button><button class="command-trigger" data-command-open aria-label="Open command palette"><span>${iconSvg("command", "Command palette")}</span><strong>Search</strong><kbd>Ctrl K</kbd></button><div class="metric-pill"><span class="metric-dot"></span><span>Load</span><strong data-shell-load>${intel.loadDisplay || `${intel.loadScore}%`}</strong></div><div class="metric-pill"><span class="metric-dot" style="background:${TOKENS.command};"></span><span>Cloud</span><strong data-shell-cloud>${state.cloudSaveStatus}</strong></div><div class="metric-pill"><span class="metric-dot" data-shell-source-dot style="background:${statusTone(state.sourceConfig.lastSyncStatus)};"></span><span>Source</span><strong data-shell-source>${state.sourceConfig.lastSyncStatus}</strong></div><button class="metric-pill metric-button ${unreadNotifications().length ? "has-unread" : ""}" data-notification-toggle type="button" aria-label="Open notification center"><span class="metric-dot" data-shell-notification-dot style="background:${unreadNotifications().length ? TOKENS.warn : TOKENS.ok};"></span><span>Alerts</span><strong data-shell-notifications>${unreadNotifications().length}</strong></button><button class="upgrade-trigger ${subscriptionTier() === "free" ? "" : "is-active"}" data-paywall-open>${subscriptionTier() === "free" ? "Upgrade" : subscriptionTier() === "pro_plus" ? "Pro+" : "Pro"}</button><button class="surface-action" data-domain="command" data-scroll-personalization>Personalize</button><button class="surface-action" data-auth-signout>Sign Out</button><div class="mini-domain-rail" aria-label="Quick sections">${DOMAINS.filter((item) => item.id !== "command").map((item) => `<button class="stat-dot-button ${item.id === state.activeDomain ? "is-active" : ""}" data-domain="${item.id}" style="--dot:${colorFor(item.id)};" title="${item.label}" aria-label="Open ${item.label}"></button>`).join("")}</div></div></header><div class="content">${contentHtml}</div></main>${renderEmberDock()}${renderOnboarding()}${renderSectionHelp()}</div>`;
+  app.innerHTML = `<div class="app-shell ${shellClass}" style="--accent:${selectedAccent(domain.id)};"><a class="skip-link" href="#main-content">Skip to content</a><div class="ambient"><div class="orb orb--one"></div><div class="orb orb--two"></div><div class="orb orb--three"></div></div><aside class="sidebar ${state.sidebarCollapsed ? "is-collapsed" : ""}"><div class="brand"><div class="brand-mark">${emberLogoMark("Ember")}</div><div class="brand-copy"><h1>Ember</h1><p>Dawn OS</p></div></div><nav class="sidebar-nav" aria-label="Primary sections">${DOMAINS.map((item) => `<button class="nav-button ${state.activeDomain === item.id ? "is-active" : ""}" data-domain="${item.id}" style="--accent:${colorFor(item.id)};" aria-current="${state.activeDomain === item.id ? "page" : "false"}"><span class="nav-icon">${iconSvg(item.id, item.label)}</span><span class="nav-copy"><strong>${item.label}</strong><span>${item.blurb}</span></span></button>`).join("")}</nav><div class="sidebar-footer"><button class="collapse-button" data-collapse-sidebar aria-label="${state.sidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"}"><span>${state.sidebarCollapsed ? "&#9654;" : "&#9664;"}</span><span>${state.sidebarCollapsed ? "Expand" : "Collapse"}</span></button></div></aside><main class="main" id="main-content"><header class="topbar topbar--toolbelt"><div class="topbar-title"><div class="topbar-icon">${emberLogoMark("Ember")}</div><div class="topbar-copy"><div class="topbar-heading-row"><h2>Ember</h2><span class="topbar-mode">${escapeHtml(domain.label)}</span><span class="dawn-os-chip">Academic overrides v13</span></div><p>${escapeHtml(domain.blurb)} &middot; ${formatToday()}</p></div></div><div class="topbar-metrics"><button class="mobile-menu-trigger" data-mobile-nav-open aria-label="Open mobile menu"><span>${iconSvg(domain.id, "Mobile menu")}</span><strong>Menu</strong></button><button class="command-trigger" data-command-open aria-label="Open command palette"><span>${iconSvg("command", "Command palette")}</span><strong>Search</strong><kbd>Ctrl K</kbd></button><div class="metric-pill"><span class="metric-dot"></span><span>Load</span><strong data-shell-load>${intel.loadDisplay || `${intel.loadScore}%`}</strong></div><div class="metric-pill"><span class="metric-dot" style="background:${TOKENS.command};"></span><span>Cloud</span><strong data-shell-cloud>${state.cloudSaveStatus}</strong></div><div class="metric-pill"><span class="metric-dot" data-shell-source-dot style="background:${statusTone(state.sourceConfig.lastSyncStatus)};"></span><span>Source</span><strong data-shell-source>${state.sourceConfig.lastSyncStatus}</strong></div><button class="metric-pill metric-button ${unreadNotifications().length ? "has-unread" : ""}" data-notification-toggle type="button" aria-label="Open notification center"><span class="metric-dot" data-shell-notification-dot style="background:${unreadNotifications().length ? TOKENS.warn : TOKENS.ok};"></span><span>Alerts</span><strong data-shell-notifications>${unreadNotifications().length}</strong></button><button class="upgrade-trigger ${subscriptionTier() === "free" ? "" : "is-active"}" data-paywall-open>${subscriptionTier() === "free" ? "Upgrade" : subscriptionTier() === "pro_plus" ? "Pro+" : "Pro"}</button><button class="surface-action" data-domain="command" data-scroll-personalization>Personalize</button><button class="surface-action" data-auth-signout>Sign Out</button><div class="mini-domain-rail" aria-label="Quick sections">${DOMAINS.filter((item) => item.id !== "command").map((item) => `<button class="stat-dot-button ${item.id === state.activeDomain ? "is-active" : ""}" data-domain="${item.id}" style="--dot:${colorFor(item.id)};" title="${item.label}" aria-label="Open ${item.label}"></button>`).join("")}</div></div></header><div class="content">${contentHtml}</div></main>${renderEmberDock()}${renderOnboarding()}${renderSectionHelp()}</div>`;
   state.lastPlanSnapshot = nextPlanSnapshot;
   persistPlanSnapshotOnly();
   renderToast();
@@ -5193,6 +5227,11 @@ doc?.addEventListener("click", async (event) => {
   const requirementTemplate = target.closest("[data-requirement-template]");
   if (requirementTemplate) {
     applyRequirementTemplate(requirementTemplate.dataset.requirementTemplate);
+    return;
+  }
+  const requirementOverride = target.closest("[data-requirement-override]");
+  if (requirementOverride) {
+    updateRequirementOverride(requirementOverride.dataset.requirementOverride, requirementOverride.dataset.overrideStatus || "");
     return;
   }
   const courseOpen = target.closest("[data-course-open]");
