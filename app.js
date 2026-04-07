@@ -297,11 +297,97 @@ const SECTION_IDENTITY = {
 
 const CONNECTOR_TEMPLATES = [
   { provider: "canvas", providerType: "lms", displayName: "Canvas LMS", domain: "academy", description: "Courses, assignments, deadlines, and grade signals.", scopes: ["courses", "assignments", "grades"] },
+  { provider: "blackboard", providerType: "lms", displayName: "Blackboard Learn", domain: "academy", description: "Institution-controlled course and deadline sync when available.", scopes: ["courses", "assignments", "grades"] },
+  { provider: "d2l", providerType: "lms", displayName: "D2L Brightspace", domain: "academy", description: "Brightspace course, assignment, and grade context when enabled by the school.", scopes: ["courses", "assignments", "grades"] },
   { provider: "google_calendar", providerType: "calendar", displayName: "Google Calendar", domain: "command", description: "Fixed events, study windows, and calendar conflicts.", scopes: ["events.read", "events.write"] },
   { provider: "deputy", providerType: "workforce", displayName: "Deputy / shifts", domain: "works", description: "Shift changes and work-hour protection.", scopes: ["rosters", "timesheets"] },
   { provider: "plaid", providerType: "finance", displayName: "Plaid finance", domain: "life", description: "Balances, recurring bills, and budget pressure.", scopes: ["accounts", "transactions"] },
   { provider: "health_connect", providerType: "health", displayName: "Health signals", domain: "mind", description: "Sleep and recovery context for load softening.", scopes: ["sleep", "activity"] },
   { provider: "apex_webhook", providerType: "webhook", displayName: "Ember webhook", domain: "notebook", description: "Zapier/n8n/manual JSON events while OAuth connectors are built.", scopes: ["events", "tasks"] },
+];
+
+const FREE_UPLOAD_LIMIT = 5;
+const DEFAULT_SUBSCRIPTION = {
+  planType: "free",
+  status: "active",
+  trialEndsAt: null,
+  currentPeriodEnd: null,
+  upgradedAt: null,
+};
+
+const PAYWALL_TRIGGERS = {
+  syllabus_upload: {
+    eyebrow: "syllabus scan",
+    title: "Your syllabus is ready to scan",
+    body: "Unlock automatic deadline extraction with Pro.",
+    primary: "Unlock Pro",
+    secondary: "Enter Dates Manually",
+    secondaryAction: "manual:assignment",
+  },
+  lms_connect: {
+    eyebrow: "school sync",
+    title: "Connect your classes in one step",
+    body: "Sync assignments and due dates from Canvas, Blackboard, or D2L.",
+    primary: "Upgrade to Connect",
+    secondary: "Skip for Now",
+  },
+  conflict_fix: {
+    eyebrow: "conflict fix",
+    title: "You have schedule conflicts this week",
+    body: "Let Pro rebalance your school and work hours.",
+    primary: "Fix My Week",
+    secondary: "Review Manually",
+  },
+  auto_plan: {
+    eyebrow: "weekly plan",
+    title: "Build this week automatically",
+    body: "Turn all tasks, shifts, and deadlines into a usable plan.",
+    primary: "Generate My Plan",
+    secondary: "I'll Do It Myself",
+  },
+  unlimited_uploads: {
+    eyebrow: "upload limit",
+    title: "Keep every source in one place",
+    body: "Free includes up to 5 uploads. Pro unlocks unlimited uploads and syllabus parsing.",
+    primary: "Start Pro",
+    secondary: "Enter Manually",
+    secondaryAction: "manual:source",
+  },
+  notebook_advanced: {
+    eyebrow: "notebook",
+    title: "Organize every class source",
+    body: "Pro unlocks unlimited files and richer source organization.",
+    primary: "Start Pro",
+    secondary: "Stay Free",
+  },
+};
+
+const PLAN_CARDS = [
+  {
+    id: "free",
+    title: "Free",
+    price: "$0",
+    meta: "For getting organized",
+    bullets: ["Manual task entry", "Basic calendar", "Basic notebook", "Pomodoro timer", "Up to 5 uploads"],
+    button: "Stay Free",
+  },
+  {
+    id: "pro_monthly",
+    title: "Pro",
+    price: "$4.99/mo",
+    meta: "$39/year available",
+    badge: "Most Popular",
+    bullets: ["Everything in Free", "Syllabus parsing", "LMS sync", "Smart scheduling", "Conflict detection", "Unlimited tasks and uploads", "Priority scoring"],
+    button: "Start Pro",
+  },
+  {
+    id: "pro_plus",
+    title: "Pro+",
+    price: "$9.99/mo",
+    meta: "For heavy workloads",
+    bullets: ["Everything in Pro", "AI weekly planning", "Grade tracking", "Work + school load insights", "Burnout risk flags", "Multi-calendar sync", "Advanced analytics"],
+    button: "Start Pro+",
+  },
 ];
 
 const SCHEDULE_MODES = {
@@ -518,6 +604,8 @@ function defaultSnapshot() {
     budget: clone(DEFAULT_BUDGET),
     paychecks: clone(DEFAULT_PAYCHECKS),
     finance: { accounts: [], transactions: [], subscriptions: [], savingsGoals: [] },
+    subscription: clone(DEFAULT_SUBSCRIPTION),
+    featureUsage: {},
     constraints: clone(DEFAULT_CONSTRAINTS),
     scheduleMode: "balanced",
     sourceConfig: {
@@ -575,6 +663,8 @@ function emptyUserSnapshot() {
     budget: { income: 0, spent: 0, saved: 0, left: 0 },
     paychecks: [],
     finance: { accounts: [], transactions: [], subscriptions: [], savingsGoals: [] },
+    subscription: clone(DEFAULT_SUBSCRIPTION),
+    featureUsage: {},
     noteSearch: "",
     activeNoteId: null,
     notes: [],
@@ -613,6 +703,8 @@ function loadState() {
         subscriptions: Array.isArray(saved.finance?.subscriptions) ? saved.finance.subscriptions : [],
         savingsGoals: Array.isArray(saved.finance?.savingsGoals) ? saved.finance.savingsGoals : [],
       },
+      subscription: normalizeSubscription(saved.subscription),
+      featureUsage: typeof saved.featureUsage === "object" && saved.featureUsage ? saved.featureUsage : {},
       constraints: normalizeConstraints(saved.constraints),
       scheduleMode: SCHEDULE_MODES[saved.scheduleMode] ? saved.scheduleMode : defaults.scheduleMode,
       sourceConfig: { ...defaults.sourceConfig, ...(saved.sourceConfig || {}) },
@@ -677,6 +769,7 @@ const state = {
   themeDraft: null,
   uploadSheetOpen: false,
   manualEntry: { open: false, type: "", error: "" },
+  paywall: { open: false, trigger: "", sourceAction: null },
 };
 state.customThemes = loadCustomThemes();
 state.themeDraft = defaultThemeDraft();
@@ -739,6 +832,92 @@ function emptyState({ domain = "command", title, body, primaryLabel = "Open setu
 
 function stateNotice(kind, title, body, domain = "command") {
   return `<div class="state-notice state-notice--${kind}" style="--accent:${colorFor(domain)};"><div class="row-badge">${iconSvg(domain, title)}</div><div><strong>${escapeHtml(title)}</strong><div>${escapeHtml(body)}</div></div></div>`;
+}
+
+function normalizeSubscription(subscription = {}) {
+  const allowed = ["free", "pro_monthly", "pro_yearly", "pro_plus", "semester_pass"];
+  const statuses = ["active", "canceled", "trialing", "expired"];
+  return {
+    ...DEFAULT_SUBSCRIPTION,
+    ...subscription,
+    planType: allowed.includes(subscription.planType || subscription.plan_type) ? subscription.planType || subscription.plan_type : "free",
+    status: statuses.includes(subscription.status) ? subscription.status : "active",
+    trialEndsAt: subscription.trialEndsAt || subscription.trial_ends_at || null,
+    currentPeriodEnd: subscription.currentPeriodEnd || subscription.current_period_end || null,
+  };
+}
+
+function subscriptionTier() {
+  const subscription = normalizeSubscription(state.subscription);
+  if (subscription.status === "expired" || subscription.status === "canceled") return "free";
+  if (subscription.planType === "pro_plus") return "pro_plus";
+  if (["pro_monthly", "pro_yearly", "semester_pass"].includes(subscription.planType)) return "pro";
+  return "free";
+}
+
+function hasAccess(required = "pro") {
+  const tier = subscriptionTier();
+  if (required === "free") return true;
+  if (required === "pro") return tier === "pro" || tier === "pro_plus";
+  if (required === "pro_plus") return tier === "pro_plus";
+  return false;
+}
+
+function featureUsageCount(featureKey) {
+  return Number(state.featureUsage?.[featureKey]?.usageCount || 0);
+}
+
+function recordFeatureUsage(featureKey) {
+  state.featureUsage = {
+    ...(state.featureUsage || {}),
+    [featureKey]: {
+      featureKey,
+      usageCount: featureUsageCount(featureKey) + 1,
+      lastUsedAt: new Date().toISOString(),
+    },
+  };
+  saveState();
+  scheduleCloudSave();
+}
+
+function likelySyllabusFile(file) {
+  return /syllabus|course[-_\s]?outline|class[-_\s]?schedule/i.test(`${file?.name || ""} ${file?.type || ""}`);
+}
+
+function openPaywall(trigger = "auto_plan", sourceAction = null) {
+  state.paywall = { open: true, trigger, sourceAction };
+  recordFeatureUsage(trigger);
+  renderPaywallSheet();
+}
+
+function closePaywall() {
+  state.paywall = { open: false, trigger: "", sourceAction: null };
+  renderPaywallSheet();
+}
+
+function selectPlan(planType) {
+  const now = new Date();
+  const trialEnds = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000);
+  const semesterEnds = new Date(now.getTime() + 120 * 24 * 60 * 60 * 1000);
+  const yearlyEnd = new Date(now.getTime() + 365 * 24 * 60 * 60 * 1000);
+  const monthlyEnd = new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000);
+  state.subscription = normalizeSubscription({
+    planType,
+    status: planType === "free" ? "active" : planType === "semester_pass" ? "active" : "trialing",
+    trialEndsAt: planType === "free" || planType === "semester_pass" ? null : trialEnds.toISOString(),
+    currentPeriodEnd: planType === "free" ? null : planType === "semester_pass" ? semesterEnds.toISOString() : planType === "pro_yearly" ? yearlyEnd.toISOString() : monthlyEnd.toISOString(),
+    upgradedAt: now.toISOString(),
+  });
+  closePaywall();
+  saveState();
+  scheduleCloudSave();
+  renderApp();
+  void notifyUser({
+    type: "subscription_update",
+    title: planType === "free" ? "Staying Free" : planType === "semester_pass" ? "Semester Pass enabled" : `${planType === "pro_plus" ? "Pro+" : "Pro"} trial enabled`,
+    body: planType === "free" ? "Manual entry, basic notebook, calendar, Pomodoro, and limited uploads stay available." : "Automation is unlocked for this local beta flow. Connect Stripe before charging real users.",
+    severity: planType === "free" ? "info" : "success",
+  });
 }
 
 function listOrEmpty(rows, emptyConfig) {
@@ -981,6 +1160,8 @@ function saveState() {
       budget: state.budget,
       paychecks: state.paychecks,
       finance: state.finance,
+      subscription: state.subscription,
+      featureUsage: state.featureUsage,
       constraints: state.constraints,
       scheduleMode: state.scheduleMode,
       sourceConfig: state.sourceConfig,
@@ -1017,6 +1198,8 @@ function userWorkspaceState() {
     budget: state.budget,
     paychecks: state.paychecks,
     finance: state.finance,
+    subscription: state.subscription,
+    featureUsage: state.featureUsage,
     constraints: state.constraints,
     scheduleMode: state.scheduleMode,
     sourceConfig: state.sourceConfig,
@@ -1056,6 +1239,8 @@ function applyWorkspaceState(workspace) {
     subscriptions: Array.isArray(workspace?.finance?.subscriptions) ? workspace.finance.subscriptions : base.finance.subscriptions,
     savingsGoals: Array.isArray(workspace?.finance?.savingsGoals) ? workspace.finance.savingsGoals : base.finance.savingsGoals,
   };
+  state.subscription = normalizeSubscription(workspace?.subscription || base.subscription);
+  state.featureUsage = typeof workspace?.featureUsage === "object" && workspace.featureUsage ? workspace.featureUsage : base.featureUsage;
   state.constraints = normalizeConstraints(workspace?.constraints || base.constraints);
   state.scheduleMode = SCHEDULE_MODES[workspace?.scheduleMode] ? workspace.scheduleMode : base.scheduleMode;
   state.sourceConfig = { ...base.sourceConfig, ...(workspace?.sourceConfig || {}) };
@@ -1702,6 +1887,14 @@ async function ingestUploadedFiles(files, uploadRecords) {
 async function attachSourceFiles(files) {
   const fileList = [...files];
   if (!fileList.length) return;
+  if (!hasAccess("pro") && state.uploadedFiles.length + fileList.length > FREE_UPLOAD_LIMIT) {
+    openPaywall("unlimited_uploads", { feature: "file_upload", count: fileList.length });
+    return;
+  }
+  if (!hasAccess("pro") && fileList.some(likelySyllabusFile)) {
+    openPaywall("syllabus_upload", { feature: "syllabus_upload", filenames: fileList.map((file) => file.name) });
+    return;
+  }
   const localUploads = fileList.map((file) => normalizeUpload({
     id: localId("upload"),
     name: file.name,
@@ -2541,6 +2734,10 @@ async function updateIntegration(provider, patch, { toast = false, event = null 
 async function connectIntegration(provider) {
   const integration = mergeIntegrationTemplates().find((item) => item.provider === provider);
   if (!integration) return;
+  if (!hasAccess("pro") && integration.providerType === "lms") {
+    openPaywall("lms_connect", { provider });
+    return;
+  }
   const now = new Date().toISOString();
   const tokenExpiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString();
   await updateIntegration(provider, {
@@ -3129,6 +3326,27 @@ function closeUploadSheet() {
   renderUploadSheet();
 }
 
+function renderPaywallSheet() {
+  let panel = doc?.querySelector("[data-paywall-sheet]");
+  if (!state.paywall?.open) {
+    panel?.remove();
+    return;
+  }
+  if (!panel) {
+    panel = doc.createElement("aside");
+    panel.setAttribute("data-paywall-sheet", "");
+    doc.body.appendChild(panel);
+  }
+  const prefs = normalizePreferences(state.preferences);
+  const trigger = PAYWALL_TRIGGERS[state.paywall.trigger] || PAYWALL_TRIGGERS.auto_plan;
+  const planMarkup = PLAN_CARDS.map((plan) => `<article class="paywall-card ${plan.id === "pro_monthly" ? "is-featured" : ""}"><div class="paywall-card__head"><div><span>${escapeHtml(plan.title)}</span><strong>${escapeHtml(plan.price)}</strong><small>${escapeHtml(plan.meta)}</small></div>${plan.badge ? `<em>${escapeHtml(plan.badge)}</em>` : ""}</div><ul>${plan.bullets.map((item) => `<li>${escapeHtml(item)}</li>`).join("")}</ul><button class="${plan.id === "pro_monthly" ? "primary-action" : "surface-action"}" data-plan-select="${escapeHtml(plan.id)}">${escapeHtml(plan.button)}</button>${plan.id === "pro_monthly" ? `<p class="paywall-trial">7-day free trial</p>` : ""}</article>`).join("");
+  const secondary = trigger.secondaryAction
+    ? `<button class="surface-action" data-paywall-secondary="${escapeHtml(trigger.secondaryAction)}">${escapeHtml(trigger.secondary)}</button>`
+    : `<button class="surface-action" data-paywall-close>${escapeHtml(trigger.secondary || "Stay Free")}</button>`;
+  panel.className = `paywall-sheet theme-${prefs.theme} text-${prefs.fontScale}`;
+  panel.innerHTML = `<div class="paywall-sheet__scrim" data-paywall-close></div><div class="paywall-sheet__panel" role="dialog" aria-modal="true" aria-label="Upgrade Ember"><div class="mobile-nav-grabber"></div><section class="paywall-hero"><div><div class="panel-label">${escapeHtml(trigger.eyebrow || "upgrade")}</div><h3>Stop guessing what's due.</h3><p>${escapeHtml(trigger.body || "Turn syllabi, assignments, work shifts, and calendar conflicts into one clean weekly plan.")}</p><div class="paywall-trigger-note"><strong>${escapeHtml(trigger.title)}</strong><span>Manual entry stays available. Upgrade only when automation is worth it.</span></div><div class="paywall-actions"><button class="primary-action" data-plan-select="pro_monthly">${escapeHtml(trigger.primary || "Start Pro")}</button>${secondary}</div></div><div class="paywall-preview" aria-label="Pro value preview"><span>weekly plan</span><strong>Classes + shifts + due dates</strong><small>Conflicts show before they hurt your grade.</small><div class="paywall-preview__line"></div><div class="paywall-preview__row"><b>Mon</b><i>Lab due</i></div><div class="paywall-preview__row"><b>Wed</b><i>Shift conflict</i></div><div class="paywall-preview__row"><b>Fri</b><i>Study block</i></div></div></section><ul class="paywall-benefits"><li>Auto-import deadlines from syllabi</li><li>Sync Canvas, Blackboard, or D2L</li><li>Catch school vs work conflicts early</li><li>Build your week in minutes</li><li>Keep everything in one place</li></ul><section class="paywall-pricing">${planMarkup}</section><section class="semester-pass"><div><span>Semester Pass</span><strong>$14.99 one time</strong><p>Get Pro for one semester without a subscription.</p></div><button class="surface-action" data-plan-select="semester_pass">Choose Semester Pass</button></section><footer class="paywall-trust"><span>Cancel anytime</span><span>Student-friendly pricing</span><span>No ads</span><span>Your data stays yours</span></footer><button class="paywall-close-link" data-paywall-close>Continue free</button></div>`;
+}
+
 function openManualEntrySheet(type) {
   state.manualEntry = { open: true, type, error: "" };
   renderManualEntrySheet();
@@ -3611,6 +3829,7 @@ function renderApp() {
     renderMobileNavSheet();
     renderUploadSheet();
     renderManualEntrySheet();
+    renderPaywallSheet();
     renderAppearanceSettings();
     return;
   }
@@ -3623,7 +3842,7 @@ function renderApp() {
   const prefs = normalizePreferences(state.preferences);
   const shellClass = `theme-${prefs.theme} density-${prefs.compactMode === "on" ? "compact" : prefs.density} text-${prefs.fontScale} layout-${prefs.layoutProfile}`;
   const gradient = currentThemeDefinition().tokens;
-  app.innerHTML = `<div class="app-shell ${shellClass}" style="--accent:${selectedAccent(domain.id)}; --student-gradient:${gradient.gradientA}; --student-gradient-soft:${gradient.gradientB};"><a class="skip-link" href="#main-content">Skip to content</a><div class="ambient"><div class="orb orb--one"></div><div class="orb orb--two"></div><div class="orb orb--three"></div></div><aside class="sidebar ${state.sidebarCollapsed ? "is-collapsed" : ""}"><div class="brand"><div class="brand-mark">${iconSvg("command")}</div><div class="brand-copy"><h1>Ember</h1><p>Universal 2.0</p></div></div><nav class="sidebar-nav" aria-label="Primary sections">${DOMAINS.map((item) => `<button class="nav-button ${state.activeDomain === item.id ? "is-active" : ""}" data-domain="${item.id}" style="--accent:${colorFor(item.id)};" aria-current="${state.activeDomain === item.id ? "page" : "false"}"><span class="nav-icon">${iconSvg(item.id, item.label)}</span><span class="nav-copy"><strong>${item.label}</strong><span>${item.blurb}</span></span></button>`).join("")}</nav><div class="sidebar-footer"><button class="collapse-button" data-collapse-sidebar aria-label="${state.sidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"}"><span>${state.sidebarCollapsed ? "&#9654;" : "&#9664;"}</span><span>${state.sidebarCollapsed ? "Expand" : "Collapse"}</span></button></div></aside><main class="main" id="main-content"><header class="topbar"><div class="topbar-title"><div class="topbar-icon">${iconSvg(domain.id, domain.label)}</div><div class="topbar-copy"><h2>Ember ${domain.label}</h2><p>${formatToday()} &middot; ${state.auth.user.email}</p></div></div><div class="topbar-metrics"><button class="mobile-menu-trigger" data-mobile-nav-open aria-label="Open mobile menu"><span>${iconSvg(domain.id, "Mobile menu")}</span><strong>Menu</strong></button><button class="command-trigger" data-command-open aria-label="Open command palette"><span>${iconSvg("command", "Command palette")}</span><strong>Search</strong><kbd>Ctrl K</kbd></button><div class="metric-pill"><span class="metric-dot"></span><span>Load</span><strong data-shell-load>${intel.loadDisplay || `${intel.loadScore}%`}</strong></div><div class="metric-pill"><span class="metric-dot" style="background:${TOKENS.command};"></span><span>Cloud</span><strong data-shell-cloud>${state.cloudSaveStatus}</strong></div><div class="metric-pill"><span class="metric-dot" data-shell-source-dot style="background:${statusTone(state.sourceConfig.lastSyncStatus)};"></span><span>Source</span><strong data-shell-source>${state.sourceConfig.lastSyncStatus}</strong></div><button class="metric-pill metric-button ${unreadNotifications().length ? "has-unread" : ""}" data-notification-toggle type="button" aria-label="Open notification center"><span class="metric-dot" data-shell-notification-dot style="background:${unreadNotifications().length ? TOKENS.warn : TOKENS.ok};"></span><span>Alerts</span><strong data-shell-notifications>${unreadNotifications().length}</strong></button><button class="surface-action" data-domain="command" data-scroll-personalization>Personalize</button><button class="surface-action" data-auth-signout>Sign Out</button><div class="mini-domain-rail" aria-label="Quick sections">${DOMAINS.filter((item) => item.id !== "command").map((item) => `<button class="stat-dot-button ${item.id === state.activeDomain ? "is-active" : ""}" data-domain="${item.id}" style="--dot:${colorFor(item.id)};" title="${item.label}" aria-label="Open ${item.label}"></button>`).join("")}</div></div></header><div class="content">${renderContent(intel)}</div></main>${renderOnboarding()}${renderSectionHelp()}</div>`;
+  app.innerHTML = `<div class="app-shell ${shellClass}" style="--accent:${selectedAccent(domain.id)}; --student-gradient:${gradient.gradientA}; --student-gradient-soft:${gradient.gradientB};"><a class="skip-link" href="#main-content">Skip to content</a><div class="ambient"><div class="orb orb--one"></div><div class="orb orb--two"></div><div class="orb orb--three"></div></div><aside class="sidebar ${state.sidebarCollapsed ? "is-collapsed" : ""}"><div class="brand"><div class="brand-mark">${iconSvg("command")}</div><div class="brand-copy"><h1>Ember</h1><p>Universal 2.0</p></div></div><nav class="sidebar-nav" aria-label="Primary sections">${DOMAINS.map((item) => `<button class="nav-button ${state.activeDomain === item.id ? "is-active" : ""}" data-domain="${item.id}" style="--accent:${colorFor(item.id)};" aria-current="${state.activeDomain === item.id ? "page" : "false"}"><span class="nav-icon">${iconSvg(item.id, item.label)}</span><span class="nav-copy"><strong>${item.label}</strong><span>${item.blurb}</span></span></button>`).join("")}</nav><div class="sidebar-footer"><button class="collapse-button" data-collapse-sidebar aria-label="${state.sidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"}"><span>${state.sidebarCollapsed ? "&#9654;" : "&#9664;"}</span><span>${state.sidebarCollapsed ? "Expand" : "Collapse"}</span></button></div></aside><main class="main" id="main-content"><header class="topbar"><div class="topbar-title"><div class="topbar-icon">${iconSvg(domain.id, domain.label)}</div><div class="topbar-copy"><h2>Ember ${domain.label}</h2><p>${formatToday()} &middot; ${state.auth.user.email}</p></div></div><div class="topbar-metrics"><button class="mobile-menu-trigger" data-mobile-nav-open aria-label="Open mobile menu"><span>${iconSvg(domain.id, "Mobile menu")}</span><strong>Menu</strong></button><button class="command-trigger" data-command-open aria-label="Open command palette"><span>${iconSvg("command", "Command palette")}</span><strong>Search</strong><kbd>Ctrl K</kbd></button><div class="metric-pill"><span class="metric-dot"></span><span>Load</span><strong data-shell-load>${intel.loadDisplay || `${intel.loadScore}%`}</strong></div><div class="metric-pill"><span class="metric-dot" style="background:${TOKENS.command};"></span><span>Cloud</span><strong data-shell-cloud>${state.cloudSaveStatus}</strong></div><div class="metric-pill"><span class="metric-dot" data-shell-source-dot style="background:${statusTone(state.sourceConfig.lastSyncStatus)};"></span><span>Source</span><strong data-shell-source>${state.sourceConfig.lastSyncStatus}</strong></div><button class="metric-pill metric-button ${unreadNotifications().length ? "has-unread" : ""}" data-notification-toggle type="button" aria-label="Open notification center"><span class="metric-dot" data-shell-notification-dot style="background:${unreadNotifications().length ? TOKENS.warn : TOKENS.ok};"></span><span>Alerts</span><strong data-shell-notifications>${unreadNotifications().length}</strong></button><button class="upgrade-trigger ${subscriptionTier() === "free" ? "" : "is-active"}" data-paywall-open>${subscriptionTier() === "free" ? "Upgrade" : subscriptionTier() === "pro_plus" ? "Pro+" : "Pro"}</button><button class="surface-action" data-domain="command" data-scroll-personalization>Personalize</button><button class="surface-action" data-auth-signout>Sign Out</button><div class="mini-domain-rail" aria-label="Quick sections">${DOMAINS.filter((item) => item.id !== "command").map((item) => `<button class="stat-dot-button ${item.id === state.activeDomain ? "is-active" : ""}" data-domain="${item.id}" style="--dot:${colorFor(item.id)};" title="${item.label}" aria-label="Open ${item.label}"></button>`).join("")}</div></div></header><div class="content">${renderContent(intel)}</div></main>${renderOnboarding()}${renderSectionHelp()}</div>`;
   state.lastPlanSnapshot = nextPlanSnapshot;
   persistPlanSnapshotOnly();
   renderToast();
@@ -3632,6 +3851,7 @@ function renderApp() {
   renderMobileNavSheet();
   renderUploadSheet();
   renderManualEntrySheet();
+  renderPaywallSheet();
   renderAppearanceSettings();
 }
 
@@ -3848,10 +4068,29 @@ doc?.addEventListener("click", async (event) => {
   if (target.matches("[data-mobile-nav-close]") || target.closest(".mobile-nav-sheet__scrim")) { closeMobileNavSheet(); return; }
   if (target.closest("[data-upload-sheet-open]")) { state.uploadSheetOpen = true; renderUploadSheet(); return; }
   if (target.matches("[data-upload-sheet-close]") || target.closest(".upload-sheet__scrim")) { closeUploadSheet(); return; }
+  if (target.closest("[data-paywall-open]")) { openPaywall("auto_plan", { feature: "upgrade_button" }); return; }
+  if (target.matches("[data-paywall-close]") || target.closest(".paywall-sheet__scrim")) { closePaywall(); return; }
+  const planSelect = target.closest("[data-plan-select]");
+  if (planSelect) { selectPlan(planSelect.dataset.planSelect); return; }
+  const paywallSecondary = target.closest("[data-paywall-secondary]");
+  if (paywallSecondary) {
+    const action = paywallSecondary.dataset.paywallSecondary || "";
+    closePaywall();
+    if (action.startsWith("manual:")) openManualEntrySheet(action.replace("manual:", ""));
+    return;
+  }
   const manualEntry = target.closest("[data-manual-entry]");
   if (manualEntry) { openManualEntrySheet(manualEntry.dataset.manualEntry); return; }
   if (target.matches("[data-manual-entry-close]") || target.closest(".manual-entry-sheet__scrim")) { closeManualEntrySheet(); return; }
-  if (target.closest("[data-focus-top]")) { requestAnimationFrame(() => doc?.querySelector(".schedule-strip--solver")?.scrollIntoView({ block: "start", behavior: "smooth" })); return; }
+  if (target.closest("[data-focus-top]")) {
+    const intel = getIntel();
+    if (!hasAccess("pro") && (intel.conflicts.length || state.tasks.length)) {
+      openPaywall(intel.conflicts.length ? "conflict_fix" : "auto_plan", { feature: "focus_top" });
+      return;
+    }
+    requestAnimationFrame(() => doc?.querySelector(".schedule-strip--solver")?.scrollIntoView({ block: "start", behavior: "smooth" }));
+    return;
+  }
   const uploadRemove = target.closest("[data-upload-remove]");
   if (uploadRemove) { await removeUploadedFile(uploadRemove.dataset.uploadRemove); return; }
   if (target.closest("[data-command-open]")) { if (shouldCloseMobileNav) state.mobileNavOpen = false; openCommandPalette(); renderMobileNavSheet(); return; }
@@ -3933,6 +4172,10 @@ doc?.addEventListener("click", async (event) => {
   }
   if (target.closest("[data-mode-apply]")) {
     if (SCHEDULE_MODES[state.pendingScheduleMode] && state.pendingScheduleMode !== state.scheduleMode) {
+      if (!hasAccess("pro")) {
+        openPaywall("auto_plan", { feature: "schedule_mode", mode: state.pendingScheduleMode });
+        return;
+      }
       state.scheduleMode = state.pendingScheduleMode;
       state.pendingScheduleMode = null;
       rerender();
@@ -4084,6 +4327,11 @@ doc?.addEventListener("keydown", (event) => {
   if (state.manualEntry?.open && event.key === "Escape") {
     event.preventDefault();
     closeManualEntrySheet();
+    return;
+  }
+  if (state.paywall?.open && event.key === "Escape") {
+    event.preventDefault();
+    closePaywall();
     return;
   }
   if (state.appearancePanelOpen && event.key === "Escape") {
@@ -4293,6 +4541,9 @@ async function handleSignOut() {
     state.integrations = mergeIntegrationTemplates([]);
     state.notes = [];
     state.finance = { accounts: [], transactions: [], subscriptions: [], savingsGoals: [] };
+    state.subscription = clone(DEFAULT_SUBSCRIPTION);
+    state.featureUsage = {};
+    state.paywall = { open: false, trigger: "", sourceAction: null };
     state.syllabusReviews = [];
     state.lastPlanSnapshot = null;
     state.lastPlanChanges = null;
@@ -4314,6 +4565,8 @@ win?.addEventListener("storage", (event) => {
   state.budget = next.budget;
   state.paychecks = next.paychecks;
   state.finance = next.finance;
+  state.subscription = next.subscription;
+  state.featureUsage = next.featureUsage;
   state.constraints = next.constraints;
   state.scheduleMode = next.scheduleMode;
   state.sourceConfig = next.sourceConfig;

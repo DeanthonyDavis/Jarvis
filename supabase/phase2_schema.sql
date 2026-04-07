@@ -50,6 +50,17 @@ create trigger apex_workspaces_add_owner_membership
 after insert on public.apex_workspaces
 for each row execute function public.apex_add_owner_membership();
 
+create table if not exists public.apex_user_profiles (
+  user_id uuid primary key references auth.users(id) on delete cascade,
+  email text,
+  full_name text,
+  school_name text,
+  timezone text not null default 'America/Chicago',
+  onboarding_complete boolean not null default false,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
 create or replace function public.apex_is_workspace_member(target_workspace_id uuid)
 returns boolean
 language sql
@@ -184,6 +195,20 @@ create table if not exists public.apex_budgets (
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now(),
   check (period_end >= period_start)
+);
+
+create table if not exists public.apex_subscriptions (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null references auth.users(id) on delete cascade,
+  plan_type text not null default 'free' check (plan_type in ('free', 'pro_monthly', 'pro_yearly', 'pro_plus', 'semester_pass')),
+  status text not null default 'active' check (status in ('active', 'canceled', 'trialing', 'expired')),
+  trial_ends_at timestamptz,
+  current_period_end timestamptz,
+  external_customer_id text,
+  external_subscription_id text,
+  metadata jsonb not null default '{}'::jsonb,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
 );
 
 alter table public.apex_financial_accounts add column if not exists provider_account_id text;
@@ -405,6 +430,18 @@ create table if not exists public.apex_integration_events (
   created_at timestamptz not null default now()
 );
 
+create table if not exists public.apex_feature_usage (
+  id uuid primary key default gen_random_uuid(),
+  workspace_id uuid not null references public.apex_workspaces(id) on delete cascade,
+  user_id uuid not null references auth.users(id) on delete cascade,
+  feature_key text not null check (feature_key in ('syllabus_upload', 'lms_connect', 'auto_plan', 'conflict_fix', 'file_upload', 'notebook_advanced', 'paywall_open')),
+  usage_count integer not null default 0,
+  last_used_at timestamptz,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  unique (workspace_id, user_id, feature_key)
+);
+
 alter table public.apex_calendar_event_links
 drop constraint if exists apex_calendar_event_links_integration_id_fkey;
 alter table public.apex_calendar_event_links
@@ -481,6 +518,7 @@ create table if not exists public.apex_constraint_rules (
 
 create index if not exists apex_workspaces_owner_user_id_idx on public.apex_workspaces (owner_user_id);
 create index if not exists apex_workspace_members_user_id_idx on public.apex_workspace_members (user_id);
+create index if not exists apex_subscriptions_user_status_idx on public.apex_subscriptions (user_id, status, current_period_end desc);
 create index if not exists apex_classes_workspace_id_idx on public.apex_classes (workspace_id);
 create index if not exists apex_assignments_workspace_due_idx on public.apex_assignments (workspace_id, due_at);
 create index if not exists apex_assignments_class_id_idx on public.apex_assignments (class_id);
@@ -512,6 +550,7 @@ create index if not exists apex_integrations_workspace_sync_idx on public.apex_i
 create index if not exists apex_integrations_workspace_auth_idx on public.apex_integrations (workspace_id, auth_state);
 create index if not exists apex_integration_events_workspace_created_idx on public.apex_integration_events (workspace_id, created_at desc);
 create index if not exists apex_integration_events_integration_created_idx on public.apex_integration_events (integration_id, created_at desc);
+create index if not exists apex_feature_usage_workspace_user_idx on public.apex_feature_usage (workspace_id, user_id, last_used_at desc);
 create index if not exists apex_notifications_user_unread_idx on public.apex_notifications (user_id, created_at desc) where read_at is null and dismissed_at is null;
 create index if not exists apex_notifications_workspace_idx on public.apex_notifications (workspace_id, created_at desc);
 create index if not exists apex_notification_events_notification_id_idx on public.apex_notification_events (notification_id);
@@ -521,6 +560,8 @@ create index if not exists apex_constraint_rules_workspace_idx on public.apex_co
 
 alter table public.apex_workspaces enable row level security;
 alter table public.apex_workspace_members enable row level security;
+alter table public.apex_user_profiles enable row level security;
+alter table public.apex_subscriptions enable row level security;
 alter table public.apex_classes enable row level security;
 alter table public.apex_assignments enable row level security;
 alter table public.apex_syllabi enable row level security;
@@ -540,6 +581,7 @@ alter table public.apex_course_events enable row level security;
 alter table public.apex_calendar_event_links enable row level security;
 alter table public.apex_integrations enable row level security;
 alter table public.apex_integration_events enable row level security;
+alter table public.apex_feature_usage enable row level security;
 alter table public.apex_notifications enable row level security;
 alter table public.apex_notification_events enable row level security;
 alter table public.apex_notification_preferences enable row level security;
@@ -563,6 +605,10 @@ to authenticated
 using (user_id = (select auth.uid()) or (select public.apex_is_workspace_member(workspace_id)))
 with check ((select public.apex_is_workspace_member(workspace_id)) or user_id = (select auth.uid()));
 
+drop policy if exists "Users can manage own profile" on public.apex_user_profiles;
+create policy "Users can manage own profile" on public.apex_user_profiles for all to authenticated using (user_id = (select auth.uid())) with check (user_id = (select auth.uid()));
+drop policy if exists "Users can manage own subscription" on public.apex_subscriptions;
+create policy "Users can manage own subscription" on public.apex_subscriptions for all to authenticated using (user_id = (select auth.uid())) with check (user_id = (select auth.uid()));
 drop policy if exists "Members can manage classes" on public.apex_classes;
 create policy "Members can manage classes" on public.apex_classes for all to authenticated using ((select public.apex_is_workspace_member(workspace_id))) with check ((select public.apex_is_workspace_member(workspace_id)));
 drop policy if exists "Members can manage assignments" on public.apex_assignments;
@@ -601,6 +647,8 @@ drop policy if exists "Members can manage integrations" on public.apex_integrati
 create policy "Members can manage integrations" on public.apex_integrations for all to authenticated using ((select public.apex_is_workspace_member(workspace_id))) with check ((select public.apex_is_workspace_member(workspace_id)));
 drop policy if exists "Members can manage integration events" on public.apex_integration_events;
 create policy "Members can manage integration events" on public.apex_integration_events for all to authenticated using ((select public.apex_is_workspace_member(workspace_id))) with check ((select public.apex_is_workspace_member(workspace_id)));
+drop policy if exists "Members can manage feature usage" on public.apex_feature_usage;
+create policy "Members can manage feature usage" on public.apex_feature_usage for all to authenticated using (user_id = (select auth.uid()) and (select public.apex_is_workspace_member(workspace_id))) with check (user_id = (select auth.uid()) and (select public.apex_is_workspace_member(workspace_id)));
 drop policy if exists "Members can manage notifications" on public.apex_notifications;
 create policy "Members can manage notifications" on public.apex_notifications for all to authenticated using (user_id = (select auth.uid()) and (select public.apex_is_workspace_member(workspace_id))) with check (user_id = (select auth.uid()) and (select public.apex_is_workspace_member(workspace_id)));
 drop policy if exists "Members can manage notification events" on public.apex_notification_events;
@@ -621,12 +669,13 @@ declare
   target_table text;
 begin
   foreach target_table in array array[
-    'apex_workspaces', 'apex_classes', 'apex_assignments', 'apex_syllabi',
+    'apex_workspaces', 'apex_user_profiles', 'apex_subscriptions',
+    'apex_classes', 'apex_assignments', 'apex_syllabi',
     'apex_tasks', 'apex_calendar_events', 'apex_financial_accounts',
     'apex_transactions', 'apex_budgets', 'apex_recurring_finance_items', 'apex_savings_goals',
     'apex_shift_pay_records', 'apex_notebooks', 'apex_notes', 'apex_uploads',
     'apex_extracted_items', 'apex_course_events', 'apex_calendar_event_links',
-    'apex_integrations', 'apex_notification_preferences',
+    'apex_integrations', 'apex_feature_usage', 'apex_notification_preferences',
     'apex_scheduler_preferences', 'apex_constraint_rules'
   ]
   loop
